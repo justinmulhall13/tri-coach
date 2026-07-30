@@ -1,9 +1,9 @@
-"""Direct Garmin pull layer (garminconnect).
+"""Direct Garmin pull layer (built on the public `garminconnect` library).
 
 Every value returned here comes from the Garmin API. When a metric is
 unavailable we return None and record it in a `missing` list — we never
-fabricate. This is the corrected data layer (the upstream garmin_mcp.py
-called a non-existent RHR method and referenced missing VO2/zone helpers).
+fabricate. Resting-HR, VO2 and HR-zone reads are resolved defensively against
+the fields Garmin actually returns.
 """
 from __future__ import annotations
 
