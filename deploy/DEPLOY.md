@@ -14,7 +14,7 @@ fly auth signup              # or: fly auth login  (needs a card for abuse-preve
 
 ## 2. Launch the app (from the coach/ directory)
 ```bash
-cd ~/Documents/claude-garmin/coach
+cd path/to/tri-coach   # the repo root
 fly launch --no-deploy --copy-config --name YOUR-UNIQUE-NAME
 ```
 - Accept the existing `fly.toml`.
