@@ -87,6 +87,12 @@ around existing commitments. A draggable week grid lets you move, resize, or ope
 any session; changes push straight to Google. Edits you make *in* Google flow
 back into the app on next open, with most-recent-edit-wins conflict resolution.
 
+![Calendar week grid with the AI command bar](docs/screenshots/calendar.png)
+
+*The shaded band is the 9–4 workday; training is placed around it and around
+whatever else is already on the calendar. Personal event titles are replaced with
+placeholders in this screenshot.*
+
 **Structured workouts to the watch.** Sessions push to Garmin as native
 structured workouts (with a guard that asks before shipping a downregulated
 version), and completion is detected from synced activities — including telling a
