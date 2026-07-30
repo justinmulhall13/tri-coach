@@ -1,0 +1,24 @@
+# GitHub Actions scheduler for Tri Coach push nudges.
+# Copy to  .github/workflows/nudge-cron.yml  in a GitHub repo you control, then add
+# a repo secret named PUSH_CRON_KEY (value printed by deploy — the PUSH_CRON_KEY).
+#
+# It pings the Fly wake-up endpoint at a few times a day. That HTTPS request
+# auto-starts the (scale-to-zero) machine, which computes today's nudges and pushes
+# them — then the machine scales back to zero. No always-on cost.
+#
+# Times are UTC. These cover ~7am and ~8:30pm America/Vancouver in both PST & PDT.
+# The server only sends a nudge that is (a) time-relevant and (b) not already sent
+# today, so extra runs are harmless.
+name: tricoach-nudges
+on:
+  schedule:
+    - cron: "0 4,5,14,15 * * *"
+  workflow_dispatch: {}      # lets you trigger a test run manually from the Actions tab
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fire push nudges
+        run: |
+          curl -sS -X POST \
+            "https://tri-coach-jm.fly.dev/api/push/run?key=${{ secrets.PUSH_CRON_KEY }}"

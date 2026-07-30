@@ -1,0 +1,23 @@
+# Secrets & credentials — never commit
+.env
+data/
+*.db
+**/token.json
+**/credentials.json
+
+# Internal handoff notes (local machine paths + personal data)
+PROJECT_NOTES.md
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# OS / editor / logs
+.DS_Store
+*.log
+.idea/
+.vscode/

@@ -1,0 +1,33 @@
+# fly.toml app configuration file generated for tri-coach-jm on 2026-07-03T12:07:21-07:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'tri-coach-jm'
+primary_region = 'sjc'
+
+[build]
+
+[env]
+  DASHBOARD_HOST = '0.0.0.0'
+  DASHBOARD_PORT = '8080'
+  DB_PATH = '/data/coach.db'
+  GARMIN_TOKENSTORE = '/data/garminconnect'
+  COACH_MODEL = 'claude-sonnet-5'
+  GOOGLE_CREDENTIALS_FILE = '/data/credentials.json'
+  GOOGLE_TOKEN_FILE = '/data/token.json'
+
+[[mounts]]
+  source = 'tricoach_data'
+  destination = '/data'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'
