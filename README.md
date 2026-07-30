@@ -4,6 +4,8 @@ A personal endurance-coaching app built around a single question I ask every
 morning before training: *given how I actually slept and recovered, what should
 I do today — and does it still fit the rest of my life?*
 
+![Tri Coach dashboard](docs/screenshots/dashboard.png)
+
 It pulls live Garmin recovery and training data, models readiness, runs a
 periodized plan toward a race, and keeps two AI agents in the loop: a
 conversational coach that can reprogram the plan, and a natural-language
@@ -15,6 +17,41 @@ Built for training toward **T100 Vancouver** (2.0 km swim / 80 km bike /
 
 > Status: actively used daily by one athlete (me). It's a real tool, not a demo —
 > which is why the hosted instance is access-gated rather than a public link.
+
+---
+
+## Why I built it
+
+I tried a lot of the obvious things first — Garmin Connect Premium, WHOOP, a
+couple of paid triathlon coaching plans. They're all good at what they measure.
+What none of them handled was *my actual life*.
+
+Every one of them assumed my weeks were identical: same wake-up, same free
+evenings, same willingness to be in the pool at 5am on a Tuesday. But an old
+friend asks if I want to grab beers, I'm out until 2am, and the 5am session was
+never happening. A rigid plan responds to that by turning the rest of the week
+into a guilt trip and a pile of "missed" workouts.
+
+I wanted the opposite: **a plan as fluid as the life it has to fit into.** One
+that re-plans week to week around real work hours and real commitments, moves a
+session instead of writing it off, tells me when I'm actually recovered enough to
+go hard — and, crucially, *doesn't quietly decide for me*. An early version of
+this app silently swapped a key VO2 session for a recovery spin because my HRV
+looked low; I saw the easy session, went back to sleep, and later found the
+numbers hadn't been that bad. That's why readiness in here is **advice, not a
+veto** — the athlete makes the call.
+
+So the design goals came out of frustration, not features:
+
+- **The plan bends, the athlete doesn't get bullied.** Low recovery surfaces a
+  warning and an easier option; it never rewrites your day behind your back.
+- **Life is a first-class input.** Your real calendar drives scheduling —
+  workouts land around a 9–4 workday and route around whatever else is on it.
+- **Talk to it like a person.** "Move my bike to Thursday morning", "I'm at the
+  driving range tonight", "only 45 min today, legs are cooked."
+- **Every week is allowed to look different.** The plan is re-shaped around
+  travel, illness, a big work week, or a late night — without losing the arc that
+  gets you to the start line.
 
 ---
 
