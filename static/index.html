@@ -23,8 +23,8 @@
     --good:#0f9d6e; --warn:#c2810a; --bad:#dc2f3c;
     /* Sport identity stays near-monochrome; the hero colour carries the brand. */
     --sw:#3f4652; --bk:#3f4652; --rn:#3f4652;
-    /* HERO = orange. */
-    --a1:#f97316; --a2:#ea6a08; --glow:249,115,22;
+    /* HERO = deep violet — this app's own identity, not a borrowed one. */
+    --a1:#6244e6; --a2:#4f34cc; --glow:98,68,230;
     --shadow:0 1px 2px rgba(16,18,22,.06), 0 4px 16px rgba(16,18,22,.05);
     --disp:'Bricolage Grotesque',system-ui,sans-serif;
     --body:'Hanken Grotesk',system-ui,-apple-system,sans-serif;
@@ -697,6 +697,43 @@
   .be .bv{font-family:var(--round);font-size:15px;font-weight:700;}
   .be .bp{font-size:10.5px;color:var(--muted);}
   .ik{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
+
+  /* Home hero (race + readiness) */
+  .racecard,.readycard{background:var(--glass);border:1px solid var(--line);border-radius:20px;padding:16px 18px;
+    box-shadow:var(--shadow);margin-bottom:14px;}
+  .rc-top{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;}
+  .rc-kicker,.rt-kicker{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--a1);}
+  .rc-name{font-family:var(--disp);font-size:25px;font-weight:800;line-height:1.1;margin:3px 0 2px;}
+  .rc-goal{font-size:12px;color:var(--muted);}
+  .rc-count{text-align:right;line-height:1;}
+  .rc-count b{display:block;font-family:var(--disp);font-size:38px;font-weight:800;color:var(--a1);}
+  .rc-count span{font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);}
+  .rc-bar{height:5px;border-radius:3px;background:rgba(16,18,22,.07);overflow:hidden;margin:14px 0 8px;}
+  .rc-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--a1),var(--a2));}
+  .rc-foot{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);}
+  .ready-top{display:flex;align-items:center;gap:16px;}
+  .ready-ring{width:88px;height:88px;flex-shrink:0;}
+  .rt-head{font-size:15px;font-weight:600;line-height:1.35;margin-top:4px;}
+  .ready-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:14px;}
+  .rtile{border:1px solid var(--line);border-radius:12px;padding:9px 10px;background:var(--glass2);}
+  .rtile .rk{font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);}
+  .rtile .rv{font-family:var(--round);font-size:18px;font-weight:700;line-height:1.2;}
+  .rtile .rn{font-size:10px;color:var(--muted);}
+  .modrow{display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer;
+    background:var(--glass);border:1px solid var(--line);border-radius:16px;padding:12px 14px;
+    box-shadow:var(--shadow);margin-bottom:16px;font-family:inherit;}
+  .modrow:hover{border-color:color-mix(in srgb,var(--a1) 45%,transparent);}
+  .mod-ico{width:34px;height:34px;flex-shrink:0;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    background:color-mix(in srgb,var(--a1) 16%,transparent);color:var(--a1);font-size:15px;}
+  .mod-txt{flex:1;min-width:0;}
+  .mod-txt b{display:block;font-size:13.5px;color:var(--ink);}
+  .mod-txt em{font-style:normal;font-size:11.5px;color:var(--muted);}
+  .mod-arrow{color:var(--muted);font-size:19px;}
+  .sess-head{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);
+    margin:2px 2px 8px;}
+  .botnav button svg{width:21px;height:21px;stroke:currentColor;fill:none;stroke-width:1.8;
+    stroke-linecap:round;stroke-linejoin:round;}
 </style>
 </head>
 <body>
@@ -734,6 +771,25 @@
   <div id="nudge-slot"></div>
   <div id="banner-slot"></div>
 
+  <!-- A-race hero: goal, countdown, phase progress -->
+  <div class="racecard" id="racecard"></div>
+
+  <!-- Readiness headline + the four markers that drive it -->
+  <div class="readycard" id="readycard"></div>
+
+  <!-- Jump straight into the coach to change the plan -->
+  <button class="modrow" id="modrow" type="button">
+    <span class="mod-ico">✦</span>
+    <span class="mod-txt"><b>Modify plan with Coach Steve</b><em>Shift workouts, change goals, adjust volume</em></span>
+    <span class="mod-arrow">›</span>
+  </button>
+
+  <div class="sess-head"><span>Today's sessions</span><span id="sess-total"></span></div>
+
+  <div class="card" id="workout-card">
+    <div id="workout"></div>
+    <div class="note" style="margin-top:10px">Tap a session for the full breakdown — push it to your watch and log how it went.</div>
+
   <div class="card" id="rings-card">
     <h2>The rings</h2>
     <div class="ringbank" id="ringbank">
@@ -750,26 +806,7 @@
   </div>
 
 
-  <div class="split">
-    <div class="card" id="coach-card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-        <h2 style="margin:0;">🧢 Coach Steve · today</h2>
-        <button id="clearchat" style="padding:4px 10px;font-size:12px;">Clear</button>
-      </div>
-      <div id="chatlog"></div>
-      <div class="chatbar">
-        <input id="chatinput" placeholder="e.g. only 45 min today, legs are cooked — what should I do?" />
-        <button id="send" class="primary">Send</button>
-      </div>
-      <div class="note" style="margin-top:6px">Tell Coach Steve what he can't see (time, fatigue, travel, niggles). He remembers what matters for today's training on his own. Shows <b>today only</b>, hit Clear to reset.</div>
-    </div>
-
-    <div class="card" id="workout-card">
-        <h2>Today's workout</h2>
-        <div id="workout"></div>
-        <div class="note" style="margin-top:10px">Tap a session for the full breakdown — push it to your watch and log how it went.</div>
-      </div>
-    </div>
+  </div>
 
   <div class="split">
     <div class="card" id="activities-card">
@@ -812,6 +849,21 @@
     </div>
   </div>
   <div id="cal-body"></div>
+</main>
+
+<main id="main-coach" style="display:none">
+    <div class="card" id="coach-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <h2 style="margin:0;">🧢 Coach Steve · today</h2>
+        <button id="clearchat" style="padding:4px 10px;font-size:12px;">Clear</button>
+      </div>
+      <div id="chatlog"></div>
+      <div class="chatbar">
+        <input id="chatinput" placeholder="e.g. only 45 min today, legs are cooked — what should I do?" />
+        <button id="send" class="primary">Send</button>
+      </div>
+      <div class="note" style="margin-top:6px">Tell Coach Steve what he can't see (time, fatigue, travel, niggles). He remembers what matters for today's training on his own. Shows <b>today only</b>, hit Clear to reset.</div>
+    </div>
 </main>
 
 <main id="main-fuel" style="display:none">
@@ -890,11 +942,11 @@
 </main>
 
 <nav class="botnav" id="botnav">
-  <button data-view="dash" class="on"><span>🏠</span>Home</button>
-  <button data-view="coach"><span>💬</span>Coach</button>
-  <button data-view="calendar"><span>📅</span>Calendar</button>
-  <button data-view="fuel"><span>🍽️</span>Fuel</button>
-  <button data-view="stats"><span>📈</span>Stats</button>
+  <button data-view="dash" class="on"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 4l9 6.5V19a1.5 1.5 0 0 1-1.5 1.5h-4V14h-7v6.5h-4A1.5 1.5 0 0 1 3 19z"/></svg>Home</button>
+  <button data-view="coach"><svg viewBox="0 0 24 24"><path d="M21 12a7.5 7.5 0 0 1-7.5 7.5H8L3.5 22l1-4.2A7.5 7.5 0 1 1 21 12z"/></svg>Coach</button>
+  <button data-view="calendar"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>Calendar</button>
+  <button data-view="fuel"><svg viewBox="0 0 24 24"><path d="M12 21c3.6 0 6.2-2.6 6.2-6 0-4.2-4.3-7.4-6.2-12-1.9 4.6-6.2 7.8-6.2 12 0 3.4 2.6 6 6.2 6z"/></svg>Fuel</button>
+  <button data-view="stats"><svg viewBox="0 0 24 24"><path d="M4 20V9M10 20V4M16 20v-7M22 20H2"/></svg>Stats</button>
 </nav>
 
 <div class="overlay" id="act-overlay">
@@ -1027,7 +1079,7 @@ const j=async(u,o)=>{
 
 function banner(html){ $("banner-slot").innerHTML = html?`<div class="banner">${html}</div>`:""; }
 
-let _lastLoad=null;
+let _lastLoad=null, _lastReadiness=null, _lastTSB=null, _lastRings=null;
 function toast(msg){
   let t=document.getElementById("toast");
   if(!t){ t=document.createElement("div"); t.id="toast"; document.body.appendChild(t); }
@@ -1042,7 +1094,7 @@ async function softRefresh(){
     const [sug,load]=await Promise.all([j("/api/suggestion"),j("/api/load?days=14")]);
     const grew=actCount(load)>actCount(_lastLoad);
     _lastLoad=load; renderWorkout(sug); renderActivities(load);
-    j("/api/rings").then(renderRings).catch(()=>{});
+    j("/api/rings").then(rg=>{ _lastRings=rg; renderRings(rg); renderReadyCard(rg, _lastReadiness); }).catch(()=>{});
     if(typeof loadNudges==="function") loadNudges();
     if(grew) toast("✓ New activity detected — updated your day.");
   }catch(e){}
@@ -1076,7 +1128,9 @@ async function loadDashboard(){
       j("/api/race"), j("/api/readiness"), j("/api/suggestion"),
       j("/api/load?days=14"), j("/api/training_load"), j("/api/plan"), j("/api/health"),
     ]);
+    _lastReadiness=rd;
     renderRace(race);
+    renderRaceCard(race, planResp);
     renderWorkout(sug);
     renderLoadFocus(tl);
     renderPlan(planResp);
@@ -1085,8 +1139,9 @@ async function loadDashboard(){
     _lastLoad=load;
     loadNudges();
     // These each make extra Garmin calls — load async so the core paints fast.
-    j("/api/rings").then(renderRings).catch(()=>{});
+    j("/api/rings").then(rg=>{ _lastRings=rg; renderRings(rg); renderReadyCard(rg, rd); }).catch(()=>{});
     j("/api/insights").then(renderInsights).catch(()=>{});
+    j("/api/pmc?days=90").then(p=>{ _lastTSB=(p&&p.current&&p.current.tsb); renderReadyCard(_lastRings,_lastReadiness); }).catch(()=>{});
     j("/api/baselines").then(renderBaselines).catch(()=>{});
   }catch(e){ banner(`<span class="err">Failed to load: ${e.message}</span>`); }
   finally{ $("refresh").disabled=false; }
@@ -1098,6 +1153,72 @@ function renderRace(r){
   $("cd-u").textContent = r.is_past?"":`days to ${r.name} · ${r.weeks_remaining} wk`;
   const p=$("phase"); p.textContent=r.phase; p.className="phasepill phase-"+r.phase;
   renderPhaseStrip(r);
+}
+// A-race hero: goal, countdown, and where you are in the block.
+function renderRaceCard(r, planResp){
+  const el=$("racecard"); if(!el||!r||r.error) return;
+  const days=r.days_remaining;
+  const d=(planResp&&planResp.days)||[];
+  const first=d.length?d[0].date:null, last=d.length?d[d.length-1].date:null;
+  const fmtD=x=>x?new Date(x+"T00:00:00").toLocaleDateString([], {day:"numeric", month:"short"}):"";
+  // Week N of the block, from the plan's own span.
+  let wk="";
+  if(first&&last){
+    const total=Math.max(1,Math.ceil((new Date(last)-new Date(first))/604800000)+1);
+    const done=Math.max(1,Math.ceil((new Date(localToday())-new Date(first))/604800000));
+    wk=`Wk ${Math.min(done,total)} of ${total}`;
+  }
+  const pct=(first&&last)?Math.max(0,Math.min(100,(new Date(localToday())-new Date(first))/(new Date(last)-new Date(first))*100)):0;
+  el.innerHTML=`
+    <div class="rc-top">
+      <div>
+        <div class="rc-kicker">A-race · triathlon</div>
+        <div class="rc-name">${fmt(r.name)}</div>
+        <div class="rc-goal">${r.distances?`${r.distances.swim_km} km swim · ${r.distances.bike_km} km bike · ${r.distances.run_km} km run`:""}</div>
+      </div>
+      <div class="rc-count"><b>${r.is_past?"🏁":days}</b><span>${r.is_past?"done":"days out"}</span></div>
+    </div>
+    <div class="rc-bar"><div class="rc-fill" style="width:${pct.toFixed(0)}%"></div></div>
+    <div class="rc-foot"><span>${(r.phase||"").replace(/^./,c=>c.toUpperCase())}${wk?" · "+wk:""}</span>
+      <span>${fmtD(first)} → ${fmtD(last)}</span></div>`;
+}
+// Readiness headline + the four markers behind it.
+function renderReadyCard(rg, rd){
+  const el=$("readycard"); if(!el) return;
+  const rec=(rg&&rg.readiness)||{};
+  const score=rec.score!=null?Math.round(rec.score):null;
+  const tone = score==null?"var(--muted)":(score>=75?"var(--good)":(score>=50?"var(--warn)":"var(--bad)"));
+  const headline = score==null?"Readiness unavailable"
+    :(score>=75?"You're recovered — green light for the quality work."
+      :(score>=50?"Moderate readiness — hold intensity honest, don't chase extra.":
+        "Low readiness — favour aerobic over intensity today."));
+  const r=rd||{};
+  const hrv=r.hrv||{}, sl=r.sleep||{};
+  const rhr = (typeof r.resting_hr_bpm==="number") ? r.resting_hr_bpm
+            : ((r.resting_hr && r.resting_hr.value) || null);
+  // hours -> h:mm (7.77 h is 7:46, not 7:77)
+  const slTxt = sl.hours!=null ? `${Math.floor(sl.hours)}:${String(Math.round((sl.hours%1)*60)).padStart(2,"0")}` : "—";
+  const tsb = _lastTSB;
+  const tiles=[
+    ["HRV", hrv.last_night_ms??"—", hrv.weekly_ms!=null?`vs ${hrv.weekly_ms} avg`:(hrv.status||"")],
+    ["Sleep", slTxt, sl.score!=null?`Q ${sl.score}`:""],
+    ["RHR", rhr??"—", ""],
+    ["Form", tsb!=null?((tsb>0?"+":"")+Math.round(tsb)):"—", tsb!=null?(tsb>=5?"fresh":(tsb<-10?"loaded":"even")):""],
+  ];
+  const C=2*Math.PI*34, off=C*(1-((score||0)/100));
+  el.innerHTML=`
+    <div class="ready-top">
+      <svg class="ready-ring" viewBox="0 0 80 80">
+        <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(16,18,22,.08)" stroke-width="7"/>
+        <circle cx="40" cy="40" r="34" fill="none" stroke="${tone}" stroke-width="7" stroke-linecap="round"
+          stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 40 40)"/>
+        <text x="40" y="41" text-anchor="middle" font-size="19" font-weight="800" fill="var(--ink)">${score??"—"}</text>
+        <text x="40" y="54" text-anchor="middle" font-size="7.5" fill="var(--muted)" letter-spacing="1">READY</text>
+      </svg>
+      <div class="ready-txt"><div class="rt-kicker">Readiness score</div><div class="rt-head">${headline}</div></div>
+    </div>
+    <div class="ready-tiles">${tiles.map(([k,v,n])=>`<div class="rtile"><div class="rk">${k}</div>
+      <div class="rv">${v}</div><div class="rn">${n}</div></div>`).join("")}</div>`;
 }
 function renderPhaseStrip(r){
   const el=$("phase-strip"); if(!el) return;
@@ -1437,6 +1558,12 @@ function renderWorkout(s){
     }).join("");
   }
   $("workout").innerHTML=html;
+  // "Today's sessions" total in the section header.
+  const st=$("sess-total");
+  if(st){
+    const mins=_woSessions.filter(x=>!x.is_rest).reduce((a,x)=>a+(x.dur||0),0);
+    st.textContent = mins ? `${Math.floor(mins/60)?Math.floor(mins/60)+"h ":""}${mins%60}m` : "";
+  }
   $("workout").querySelectorAll(".wo-tile[data-i]").forEach(t=>t.onclick=()=>openWorkoutDetail(+t.dataset.i));
   $("workout").querySelectorAll(".wo-tile.extra").forEach(t=>t.onclick=()=>{ if(t.dataset.aid) openActivity(t.dataset.aid); });
 }
@@ -2169,8 +2296,8 @@ let _fuelLoaded=false, _statsLoaded=false;
 function switchView(v){
   document.querySelectorAll("#tabs .tab").forEach(b=>b.classList.toggle("active",b.dataset.view===v));
   document.querySelectorAll("#botnav button").forEach(b=>b.classList.toggle("on",b.dataset.view===v));
-  // "coach" isn't a separate page — it's the dashboard scrolled to Coach Steve.
-  $("main").style.display = (v==="dash"||v==="coach")?"":"none";
+  $("main").style.display = v==="dash"?"":"none";
+  $("main-coach").style.display = v==="coach"?"":"none";
   $("main-calendar").style.display = v==="calendar"?"":"none";
   $("main-fuel").style.display = v==="fuel"?"":"none";
   $("main-stats").style.display = v==="stats"?"":"none";
@@ -2179,10 +2306,11 @@ function switchView(v){
   if(v==="calendar") syncAndLoadCalendar();
   if(v==="fuel" && !_fuelLoaded){ _fuelLoaded=true; loadFuel(); }
   if(v==="stats" && !_statsLoaded){ _statsLoaded=true; loadStats(); }
-  if(v==="coach"){ const c=document.getElementById("chatlog"); if(c) c.closest(".card").scrollIntoView({behavior:"smooth",block:"start"}); }
-  else window.scrollTo({top:0,behavior:"instant"});
+  window.scrollTo({top:0,behavior:"instant"});
+  if(v==="coach"){ const i=document.getElementById("chatinput"); if(i) setTimeout(()=>i.focus(),120); }
 }
 document.querySelectorAll("#botnav button").forEach(b=>b.onclick=()=>switchView(b.dataset.view));
+if($("modrow")) $("modrow").onclick=()=>switchView("coach");
 
 // ================= Fuel tab =================
 async function loadFuel(){
