@@ -1161,14 +1161,25 @@ function renderRaceCard(r, planResp){
   const d=(planResp&&planResp.days)||[];
   const first=d.length?d[0].date:null, last=d.length?d[d.length-1].date:null;
   const fmtD=x=>x?new Date(x+"T00:00:00").toLocaleDateString([], {day:"numeric", month:"short"}):"";
-  // Week N of the block, from the plan's own span.
+  // Week N of the block. Derived from days-to-race so it can never contradict the
+  // countdown (a "Wk 5 of 8" next to "9 days out" is nonsense).
+  const DAY=86400000, WK=7*DAY;
   let wk="";
-  if(first&&last){
-    const total=Math.max(1,Math.ceil((new Date(last)-new Date(first))/604800000)+1);
-    const done=Math.max(1,Math.ceil((new Date(localToday())-new Date(first))/604800000));
-    wk=`Wk ${Math.min(done,total)} of ${total}`;
+  if(first && days!=null && days>=0){
+    const startMs=new Date(first+"T00:00:00").getTime();
+    const raceMs=new Date(localToday()+"T00:00:00").getTime()+days*DAY;
+    const totalW=Math.max(1, Math.ceil((raceMs-startMs)/WK));
+    const remW=Math.max(0, Math.ceil(days/7));
+    const curW=Math.min(totalW, Math.max(1, totalW-remW+1));
+    wk=`Wk ${curW} of ${totalW}`;
   }
-  const pct=(first&&last)?Math.max(0,Math.min(100,(new Date(localToday())-new Date(first))/(new Date(last)-new Date(first))*100)):0;
+  let pct=0;
+  if(first && days!=null && days>=0){
+    const startMs=new Date(first+"T00:00:00").getTime();
+    const nowMs=new Date(localToday()+"T00:00:00").getTime();
+    const raceMs=nowMs+days*DAY;
+    pct=Math.max(0,Math.min(100,(nowMs-startMs)/Math.max(1,(raceMs-startMs))*100));
+  }
   el.innerHTML=`
     <div class="rc-top">
       <div>
@@ -1180,7 +1191,7 @@ function renderRaceCard(r, planResp){
     </div>
     <div class="rc-bar"><div class="rc-fill" style="width:${pct.toFixed(0)}%"></div></div>
     <div class="rc-foot"><span>${(r.phase||"").replace(/^./,c=>c.toUpperCase())}${wk?" · "+wk:""}</span>
-      <span>${fmtD(first)} → ${fmtD(last)}</span></div>`;
+      <span>${fmtD(first)} → ${r.date?fmtD(r.date):fmtD(last)}</span></div>`;
 }
 // Readiness headline + the four markers behind it.
 function renderReadyCard(rg, rd){
