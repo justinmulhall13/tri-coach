@@ -2376,7 +2376,7 @@ function renderFuelTab(day){
     <div class="fring"><div><div class="fk">Eaten</div><div class="fv">${Math.round(eaten)}</div></div></div>
     <div class="fring"><div><div class="fk">Target</div><div class="fv">${Math.round(t.kcal||0)}</div></div></div>
     <div class="fring"><div><div class="fk">Remaining</div><div class="fv" style="color:${eaten>(t.kcal||0)?'var(--bad)':'var(--good)'}">${Math.round((t.kcal||0)-eaten)}</div></div></div>
-    ${s.discipline?`<div class="fring"><div><div class="fk">Today's session</div><div class="fv" style="font-size:17px">${s.discipline} ${s.duration_min||""}m</div></div></div>`:""}`;
+    ${s.discipline?`<div class="fring"><div><div class="fk">Today's session</div><div class="fv" style="font-size:17px">${(s.is_rest||s.discipline==="rest")?"Rest day":`${s.discipline} ${s.duration_min||""}m`}</div></div></div>`:""}`;
   const defs=[["Calories","kcal","kcal_range",t.kcal,"var(--a1)"],["Carbs","carb_g","carb_range",t.carb_g,"#f59e0b"],
               ["Protein","protein_g","protein_range",t.protein_g,"#ef4444"],["Fat","fat_g",null,t.fat_g,"#8b5cf6"]];
   $("fuel-macros").innerHTML=defs.map(([label,key,rk,tgt,color])=>{

@@ -4,8 +4,6 @@ A personal endurance-coaching app built around a single question I ask every
 morning before training: *given how I actually slept and recovered, what should
 I do today — and does it still fit the rest of my life?*
 
-![Tri Coach dashboard](docs/screenshots/dashboard.png)
-
 It pulls live Garmin recovery and training data, models readiness, runs a
 periodized plan toward a race, and keeps two AI agents in the loop: a
 conversational coach that can reprogram the plan, and a natural-language
@@ -55,56 +53,101 @@ So the design goals came out of frustration, not features:
 
 ---
 
-## What it does
+## The five tabs
 
-**Morning dashboard.** A race countdown and four WHOOP-style rings — Sleep,
-Recovery, Day Strain, and a composite "race readiness" score weighted across
-swim/bike/run volume vs. targets and acute:chronic load. Every ring is clickable
-into a full breakdown with 7–14 day trends drawn as inline SVG.
+### Home
+![Home tab](docs/screenshots/home.png)
 
-**Readiness-aware, not readiness-bossy.** Today's session comes from the plan
-backbone. If recovery markers are low the app *advises* easing off (and offers a
-downregulated alternative when pushing the workout to the watch) — but it never
-silently swaps your session out from under you. Autonomy over the athlete's day
-was a deliberate design line after an early version quietly changed a key
-workout and cost a good training day.
+The A-race hero carries the goal, the countdown, and where you sit in the block.
+Below it the readiness score reads out of Garmin — HRV against your own rolling
+baseline, sleep, resting HR, and form (TSB) — with a plain-English verdict rather
+than a number to interpret. Then today's sessions, the four WHOOP-style rings
+(each clickable into a full breakdown), proactive signals, recent activities and
+current load.
 
-**Two AI agents.**
-- **Coach Steve** — a conversational coach (Anthropic Claude). Direct, evidence-
-  based, and constrained to never invent Garmin numbers (missing data is reported
-  as missing). It gives a morning brief, a post-workout evaluation, and a nightly
-  review; it can reprogram any upcoming day, rebuild a whole week around a
-  constraint, log sessions you did off-plan, and decide *on its own* what's worth
-  remembering about your week (availability, niggles, travel) versus what's just
-  chatter.
-- **Calendar assistant** — a fast structured agent (Claude Haiku) behind a command
-  bar: "move my bike to Thursday morning", "make Saturday's ride two hours", "add
-  dentist Friday 2pm". It parses intent into concrete actions and applies them.
+Readiness advises; it never overrides. If recovery is poor the app says so and
+offers an easier alternative when you push the session to your watch, but it will
+not silently swap your training out from under you. That line was drawn after an
+early version quietly downgraded a key workout and cost a good training day.
 
-**Two-way Google Calendar sync.** Workouts are written to Google Calendar as
-timed blocks, scheduled into the mornings around a fixed 9–4 workday and routed
-around existing commitments. A draggable week grid lets you move, resize, or open
-any session; changes push straight to Google. Edits you make *in* Google flow
-back into the app on next open, with most-recent-edit-wins conflict resolution.
+### Coach
+![Coach tab](docs/screenshots/coach.png)
 
-![Calendar week grid with the AI command bar](docs/screenshots/calendar.png)
+A conversational coach (Claude) with the full picture: Garmin data, the plan, the
+week's load, and your own stated constraints. It is direct by design and cannot
+invent numbers — a missing metric is reported as missing.
 
-*The shaded band is the 9–4 workday; training is placed around it and around
-whatever else is already on the calendar. Personal event titles are replaced with
-placeholders in this screenshot.*
+It will reprogram any upcoming day, rebuild a whole week around a constraint,
+log sessions you did off-plan, propose calendar events from a passing mention,
+and decide on its own what is worth remembering (availability, niggles, travel)
+versus what is just chatter. It also follows an explicit set of load rules: state
+the TSB target, hold the race-day taper between +5 and +15, name the tradeoff
+when cutting volume, give easy sessions a hard ceiling rather than a range, and
+never raise run volume to hit a load target when the Achilles is the limiter.
+
+### Calendar
+![Calendar tab](docs/screenshots/calendar.png)
+
+Training and life on one surface, synced two ways with Google Calendar. Agenda,
+Week and Month views, with navigation back through previous weeks and months.
+Workouts are written to Google as timed blocks, placed in the mornings around a
+fixed 9–4 workday and routed around whatever is already booked.
+
+Drag a session to move it, drag its edge to resize it, tap it to open the full
+breakdown — every change pushes straight to Google. Edits you make *in* Google
+flow back on next open, resolved most-recent-edit-wins. The command bar at the
+top takes plain English: "move my bike to Thursday 6am", "make Saturday's ride
+2h", "add dentist Fri 2pm".
+
+*Personal event titles are replaced with placeholders in this screenshot.*
+
+### Fuel
+![Fuel tab](docs/screenshots/fuel.png)
+
+Daily targets scale to the day's training and shift with a calorie goal
+(deficit / maintain / surplus) that takes its cut from fat and non-training
+carbohydrate while protecting protein. Meals log from free text or from a photo
+of the plate.
+
+The part that matters is intra-session fuelling, which is built against
+intestinal transport limits rather than a flat carb number. Glucose is capped at
+60 g/h (SGLT1) and fructose at 30 g/h (GLUT5); above 60 g/h total the mix is held
+at 2:1, so 90 g/h lands exactly on both ceilings and nothing is prescribed that
+cannot be absorbed. Drink concentration is held to 6–8% by mass and any carb
+beyond what the bottle can carry is assigned to gels with plain water. Every plan
+shows its arithmetic, states what it assumed about product composition, lists the
+labels to verify, and carries an abort protocol for GI distress.
+
+### Analytics
+![Analytics tab](docs/screenshots/analytics.png)
+
+Fitness, fatigue and form (CTL / ATL / TSB) over 90 days against the race-day
+target band, weekly volume by sport, load focus and acute:chronic ratio, and your
+real Garmin training zones — per sport, since cycling zones sit lower than
+running. Those same zones are what every pushed workout targets, so what you see
+here is what lands on the watch.
+
+---
+
+## Also
 
 **Structured workouts to the watch.** Sessions push to Garmin as native
-structured workouts (with a guard that asks before shipping a downregulated
-version), and completion is detected from synced activities — including telling a
-mobility/stretch session apart from an actual strength lift so the wrong thing
-never gets ticked off.
+structured workouts with explicit bpm ranges and pace bands drawn from your own
+zones, not bare zone numbers. Bike work is prescribed by heart rate — an
+indoor FTP does not transfer to hilly outdoor riding — and watts appear only as a
+secondary cue on explicitly indoor sessions. Easy runs carry a pace *ceiling*
+rather than a range.
 
-**Fueling.** Each endurance session carries an intra-workout fueling plan —
-carbs/hr, fluid, and sodium — scaled to its duration and discipline.
+**Completion that respects intent.** A stretch class syncing from Garmin as
+`strength_training` will not tick off a planned strength lift; mobility work is
+classified separately.
 
-**It reaches out.** Web-push notifications for the things you'd want a heads-up
-on: a big brick tomorrow ("carb up tonight"), a low-recovery morning, the nightly
-review.
+**Per-activity deep dive.** Route, splits, HR/power/pace series, aerobic
+decoupling (Pw:HR or Pa:HR, first half versus second) and a best-effort curve
+from 5 s to 60 min, plus a cached AI read of the session.
+
+**It reaches out.** Web-push notifications for the things worth a heads-up: a big
+brick tomorrow ("carb up tonight"), a low-recovery morning, the nightly review.
 
 ---
 
@@ -126,6 +169,7 @@ app/
   ring_detail.py     per-ring drill-downs (contributors, stages, charts)
   activity_detail.py per-activity deep dive + cached AI analysis
 
+  zones.py           the athlete's REAL Garmin HR zones (per sport), LT, FTP
   plan.py            periodized plan generator (build / peak / taper)
   plan_adapt.py      closed-loop adaptation (session feedback, illness/travel reflow)
   suggest.py         today's session = plan + readiness advisory
@@ -134,7 +178,7 @@ app/
 
   coach.py           "Coach Steve" agent (chat, briefs, plan edits, memory)
   calendar_agent.py  natural-language calendar assistant
-  nutrition.py       intra-workout fueling model
+  nutrition.py       daily targets + transport-ceiling intra-session fuelling
 
   calendar_source.py Google Calendar API (read + write, tagged events)
   calendar_sync.py   two-way sync engine (reconcile, reverse-pull, move/resize)
