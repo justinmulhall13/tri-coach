@@ -42,8 +42,11 @@ with their training coach ("Coach Steve") — the context block carries Steve's 
 (today's and the week's sessions, when they train, readiness, completed work) plus what they've \
 eaten today and their loose macro targets.
 
-Your mission: keep them MAXIMALLY FUELLED to train hard and feel energized. This is NOT about \
-weight loss — never restrict for leanness. Fuel the work.
+Your mission: keep them fuelled to train hard and feel energized. Fuel the work FIRST. \
+The athlete sets a calorie goal (context `targets.goal`): on "maintain" or "surplus" never \
+restrict for leanness. If they have chosen "deficit", respect it — but take the deficit from \
+fat and non-training carbs, protect protein and the carbs around sessions, and say plainly \
+when a deficit would compromise a key session.
 
 Hard rules:
 - Be specific and practical. Give real foods with PORTIONS and rough macros (e.g. "220 g cooked \
@@ -104,8 +107,27 @@ def _is_hard(intensity: str, title: str = "") -> bool:
     return bool(re.search(r"threshold|vo2|race|tempo|interval|css|surge|brick", f"{intensity} {title}", re.I))
 
 
+# Calorie goal offsets. Carbs/protein stay training-driven; the goal shifts total
+# energy (fat carries most of the swing) so fuelling for the session is preserved.
+_GOAL_KCAL = {"deficit": -550, "maintain": 0, "surplus": 350}
+
+
+def get_goal() -> str:
+    g = db.get_meta("nutrition_goal") or "maintain"
+    return g if g in _GOAL_KCAL else "maintain"
+
+
+def set_goal(goal: str) -> str:
+    goal = (goal or "maintain").lower()
+    if goal not in _GOAL_KCAL:
+        goal = "maintain"
+    db.set_meta("nutrition_goal", goal)
+    return goal
+
+
 def daily_targets(session: dict[str, Any], completed_min: float = 0.0) -> dict[str, Any]:
-    """Loose daily macro/calorie targets scaled to the day's training demand."""
+    """Loose daily macro/calorie targets scaled to the day's training demand,
+    then shifted by the athlete's calorie goal (deficit / maintain / surplus)."""
     dur = (session.get("duration_min") or 0) + completed_min
     is_rest = bool(session.get("is_rest")) and completed_min < 20
     hard = _is_hard(session.get("intensity") or "", session.get("title") or "")
@@ -124,6 +146,17 @@ def daily_targets(session: dict[str, Any], completed_min: float = 0.0) -> dict[s
     carb = round(w * cpk)
     protein = round(w * 1.8)
     fat = round(w * 1.0)
+    goal = get_goal()
+    delta = _GOAL_KCAL[goal]
+    if delta:
+        # Absorb the shift in fat first (min 0.5 g/kg), then trim carbs if needed —
+        # protein is protected so training quality and recovery aren't compromised.
+        fat_floor = round(w * 0.5)
+        fat = max(fat_floor, fat + round(delta / 9))
+        spent = (fat - round(w * 1.0)) * 9
+        rest = delta - spent
+        if rest:
+            carb = max(round(w * 3.0), carb + round(rest / 4))
     kcal = carb * 4 + protein * 4 + fat * 9
 
     def rng(x, pct=0.12):
@@ -132,7 +165,9 @@ def daily_targets(session: dict[str, Any], completed_min: float = 0.0) -> dict[s
     return {
         "kcal": kcal, "carb_g": carb, "protein_g": protein, "fat_g": fat,
         "kcal_range": rng(kcal), "carb_range": rng(carb), "protein_range": rng(protein, 0.1),
-        "carb_per_kg": cpk, "protein_per_kg": 1.8, "basis": basis,
+        "carb_per_kg": cpk, "protein_per_kg": 1.8,
+        "goal": goal,
+        "basis": basis + ("" if goal == "maintain" else f" · {goal}"),
     }
 
 

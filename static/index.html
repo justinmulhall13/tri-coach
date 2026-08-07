@@ -643,6 +643,60 @@
   .zrow .zn{width:26px;font-weight:700;color:var(--a1);}
   .zrow .zb{flex:1;font-variant-numeric:tabular-nums;}
   .zrow .zp{color:var(--muted);font-variant-numeric:tabular-nums;}
+
+  /* ── calendar nav + month/agenda views ─────────────────────── */
+  .cal-nav{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap;}
+  .cal-nav>button{flex:0 0 auto;width:auto;}
+  .cal-nav .cal-label{flex:0 0 auto;}
+  .cal-nav .ghostbtn{padding:5px 11px;font-size:13px;}
+  .cal-label{font-family:var(--disp);font-weight:700;font-size:15px;margin-left:4px;}
+  .cal-modes{margin-left:auto;display:flex;gap:3px;background:var(--glass2);border:1px solid var(--line);
+    border-radius:10px;padding:3px;}
+  .cal-mode{background:none;border:0;font-family:inherit;font-size:12px;font-weight:600;color:var(--muted);
+    padding:5px 10px;border-radius:8px;cursor:pointer;}
+  .cal-mode.on{background:var(--a1);color:#fff;}
+  .calmonth{margin-top:12px;}
+  .mhead{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px;}
+  .mhead div{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;text-align:center;}
+  .mgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
+  .mcell{min-height:96px;border:1px solid var(--line);border-radius:12px;padding:6px;background:var(--glass);
+    display:flex;flex-direction:column;gap:3px;overflow:hidden;}
+  .mcell.off{opacity:.4;}
+  .mcell.today{border-color:var(--a1);box-shadow:0 0 0 2px rgba(var(--glow),.18);}
+  .mc-day{font-family:var(--round);font-size:12.5px;font-weight:700;color:var(--muted);}
+  .mcell.today .mc-day{color:var(--a1);}
+  .mc-wo{background:color-mix(in srgb,var(--a1) 14%,transparent);border:1px solid color-mix(in srgb,var(--a1) 34%,transparent);
+    border-radius:8px;padding:3px 5px;font-size:10.5px;line-height:1.25;cursor:pointer;}
+  .mc-wo span{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .mc-wo em{font-style:normal;color:var(--muted);font-size:9.5px;}
+  .mc-wo svg{width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:2;vertical-align:-1px;}
+  .mc-rest{font-size:10.5px;color:var(--muted);}
+  .mc-ev{font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    border-left:2px solid var(--line);padding-left:4px;}
+  .ag-day{display:flex;gap:12px;padding:12px 0;border-top:1px solid var(--line);}
+  .ag-day.today .ag-date b{color:var(--a1);}
+  .ag-date{min-width:44px;text-align:center;}
+  .ag-date b{display:block;font-family:var(--disp);font-size:20px;font-weight:800;line-height:1;}
+  .ag-date span{font-size:10.5px;color:var(--muted);text-transform:uppercase;}
+  .ag-items{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0;}
+  .ag-wo{background:color-mix(in srgb,var(--a1) 12%,transparent);border:1px solid color-mix(in srgb,var(--a1) 30%,transparent);
+    border-radius:12px;padding:9px 11px;cursor:pointer;}
+  .ag-wo .ag-t{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:6px;}
+  .ag-wo .ag-t svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;}
+  .ag-wo .ag-m{font-size:11.5px;color:var(--muted);margin-top:2px;}
+  .ag-rest{font-size:12.5px;color:var(--muted);padding:6px 0;}
+  .ag-ev{font-size:12px;color:var(--muted);border-left:2px solid var(--line);padding-left:8px;}
+  @media(max-width:820px){ .mcell{min-height:64px;} .cal-label{font-size:13.5px;} }
+
+  .dec-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+  .dec-row .ik{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
+  .dec-row .iv{font-family:var(--disp);font-size:22px;font-weight:800;line-height:1.1;}
+  .be-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;}
+  .be{border:1px solid var(--line);border-radius:10px;padding:7px 10px;background:var(--glass2);min-width:66px;}
+  .be .bw{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+  .be .bv{font-family:var(--round);font-size:15px;font-weight:700;}
+  .be .bp{font-size:10.5px;color:var(--muted);}
+  .ik{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
 </style>
 </head>
 <body>
@@ -751,6 +805,7 @@
         placeholder="Tell your calendar what to do — e.g. move my bike to Thursday 6am · add dentist Fri 2pm · make Saturday's ride 2h" />
       <button id="cal-cmd-go" class="primary">Go</button>
     </div>
+    <div class="cal-nav" id="cal-nav"></div>
     <div class="cal-cmdrow">
       <span id="cal-syncstatus" class="note" style="padding:0"></span>
       <span class="note" style="padding:0;margin-left:auto">Drag to move · drag the edge to resize · tap to open · syncs to Google</span>
@@ -2051,6 +2106,25 @@ async function openActivity(aid){
         <td class="num">${fmt(l.pace)}</td>${hasHr?`<td class="num">${fmt(l.hr)}</td>`:""}${hasP?`<td class="num">${fmt(l.power)}</td>`:""}</tr>`).join("")}</tbody></table>`;
     }
 
+    // Execution quality: aerobic decoupling + the session's best-effort curve.
+    const dc=d.decoupling, be=d.best_efforts||[];
+    if(dc||be.length){
+      const tone = !dc ? "var(--muted)" : (dc.percent<=5?"var(--good)":(dc.percent<=10?"var(--warn)":"var(--bad)"));
+      let h="";
+      if(dc){
+        h+=`<div class="dec-row"><div><div class="ik">${dc.metric} decoupling</div>
+          <div class="iv" style="color:${tone}">${dc.percent>0?"+":""}${dc.percent}%</div></div>
+          <div class="note" style="padding:0;flex:1">${dc.verdict}</div></div>`;
+      }
+      if(be.length){
+        h+=`<div class="ik" style="margin-top:10px">Best efforts this session</div>
+          <div class="be-row">${be.map(b=>`<div class="be"><div class="bw">${b.window}</div>
+            <div class="bv">${b.value}${b.unit==="W"?" W":""}</div>
+            ${b.pace?`<div class="bp">${b.pace}</div>`:(b.unit!=="W"?`<div class="bp">${b.unit}</div>`:"")}</div>`).join("")}</div>`;
+      }
+      $("act-splits").insertAdjacentHTML("beforebegin", `<div class="card" style="margin-bottom:12px">${h}</div>`);
+    }
+
     // Coach Steve's take (cached server-side after first run)
     const ai=await j(`/api/activity/${aid}/analyze`,{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
     $("act-ai-text").textContent = ai.analysis || ai.error || "(no analysis)";
@@ -2120,6 +2194,7 @@ function renderFuel(day){
   if(!day || day.error){ $("fuel-macros").innerHTML=`<span class="err">${(day&&day.error)||"unavailable"}</span>`; return; }
   const t=day.targets||{}, tot=day.totals||{}, s=day.session||{};
   $("fuel-basis").textContent = t.basis ? `Today: ${t.basis}` : "Fuel to perform.";
+  if(t.goal && $("fuel-goal").value!==t.goal) $("fuel-goal").value=t.goal;
   const burn=(day.expenditure||t.kcal||0), eaten=tot.kcal||0;
   $("fuel-rings").innerHTML=`
     <div class="fring"><div><div class="fk">Eaten</div><div class="fv">${Math.round(eaten)}</div></div></div>
@@ -2202,7 +2277,13 @@ $("photo-btn").onclick=logPhoto;
 $("ask-btn").onclick=()=>{ const q=$("ask-input").value.trim(); if(q){ askChef(q); $("ask-input").value=""; } };
 $("ask-input").addEventListener("keydown",e=>{if(e.key==="Enter")$("ask-btn").click();});
 $("suggest-btn").onclick=()=>askChef("");
-$("fuel-goal").onchange=()=>{ _fuelLoaded=false; loadFuel(); };
+$("fuel-goal").onchange=async()=>{
+  const g=$("fuel-goal").value;
+  $("fuel-basis").textContent="Updating targets…";
+  try{ const r=await j("/api/nutrition/goal",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({goal:g})});
+    if(r.day) renderFuel(r.day);
+  }catch(e){ loadFuel(); }
+};
 
 // ================= Analytics tab =================
 async function loadStats(){
@@ -2286,12 +2367,66 @@ function _fallbackStart(date,dur){
 }
 function _isoLocalDate(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 
+// View state: week grid (desktop default), month grid, or a scrolling agenda
+// (mobile default). `_calAnchor` is the first day of the window, so you can page
+// back through previous weeks/months as far as there's history.
+let _calMode = (window.matchMedia && window.matchMedia("(max-width:820px)").matches) ? "agenda" : "week";
+let _calAnchor = null;   // ISO date string
+function _addDays(iso,n){ const d=new Date(iso+"T00:00:00"); d.setDate(d.getDate()+n); return _isoLocalDate(d); }
+function _startOfWeek(iso){ const d=new Date(iso+"T00:00:00"); d.setDate(d.getDate()-d.getDay()); return _isoLocalDate(d); }
+function _startOfMonth(iso){ const d=new Date(iso+"T00:00:00"); return _isoLocalDate(new Date(d.getFullYear(),d.getMonth(),1)); }
+function _calWindow(){
+  if(!_calAnchor) _calAnchor = _calMode==="month" ? _startOfMonth(localToday())
+                  : (_calMode==="week" ? _startOfWeek(localToday()) : localToday());
+  if(_calMode==="month"){
+    const d=new Date(_calAnchor+"T00:00:00");
+    const first=new Date(d.getFullYear(),d.getMonth(),1);
+    const gridStart=new Date(first); gridStart.setDate(1-first.getDay());
+    const last=new Date(d.getFullYear(),d.getMonth()+1,0);
+    const days=Math.ceil((last-gridStart)/86400000)+1;
+    return {start:_isoLocalDate(gridStart), days:Math.ceil(days/7)*7};
+  }
+  return {start:_calAnchor, days: _calMode==="agenda"?14:7};
+}
+function _calLabel(){
+  const w=_calWindow(); const d=new Date(w.start+"T00:00:00");
+  if(_calMode==="month") return new Date(_calAnchor+"T00:00:00").toLocaleDateString([], {month:"long", year:"numeric"});
+  const end=new Date(_addDays(w.start,w.days-1)+"T00:00:00");
+  const sameMonth=d.getMonth()===end.getMonth();
+  return `${d.toLocaleDateString([], {month:"short", day:"numeric"})} – ${end.toLocaleDateString([], sameMonth?{day:"numeric"}:{month:"short",day:"numeric"})}`;
+}
+function calNav(step){
+  const w=_calWindow();
+  if(_calMode==="month"){
+    const d=new Date(_calAnchor+"T00:00:00");
+    _calAnchor=_isoLocalDate(new Date(d.getFullYear(), d.getMonth()+step, 1));
+  } else { _calAnchor=_addDays(_calAnchor, step*(_calMode==="agenda"?14:7)); }
+  loadCalendar();
+}
+function calToday(){ _calAnchor=null; loadCalendar(); }
+function calMode(m){ _calMode=m; _calAnchor=null; loadCalendar(); }
+
 async function loadCalendar(){
-  $("cal-body").innerHTML=`<div class="muted"><span class="pulse"></span> loading your week…</div>`;
+  $("cal-body").innerHTML=`<div class="muted"><span class="pulse"></span> loading…</div>`;
+  const w=_calWindow();
   try{
-    const [cal,plan]=await Promise.all([j("/api/calendar?days=7"), j("/api/plan")]);
+    const [cal,plan]=await Promise.all([
+      j(`/api/calendar?days=${w.days}&start=${w.start}`),
+      j(`/api/plan?start=${w.start}&end=${_addDays(w.start,w.days-1)}`)]);
+    renderCalToolbar();
     renderCalendar(cal, plan);
   }catch(e){ $("cal-body").innerHTML=`<span class="err">${e.message}</span>`; }
+}
+function renderCalToolbar(){
+  const bar=$("cal-nav"); if(!bar) return;
+  bar.innerHTML=`
+    <button class="ghostbtn" onclick="calNav(-1)">‹</button>
+    <button class="ghostbtn" onclick="calToday()">Today</button>
+    <button class="ghostbtn" onclick="calNav(1)">›</button>
+    <span class="cal-label">${_calLabel()}</span>
+    <span class="cal-modes">
+      ${["agenda","week","month"].map(m=>`<button class="cal-mode${_calMode===m?" on":""}" onclick="calMode('${m}')">${m[0].toUpperCase()+m.slice(1)}</button>`).join("")}
+    </span>`;
 }
 // Render the calendar IMMEDIATELY from current data, then reconcile with Google
 // in the background — the tab never blocks on the multi-second Google round-trip.
@@ -2326,8 +2461,10 @@ function renderCalendar(cal, plan){
     return;
   }
   _calCal=cal; _calPlan=plan; _calWorkouts={};
+  if(_calMode==="month"){ renderCalMonth(cal, plan); return; }
+  if(_calMode==="agenda"){ renderCalAgenda(cal, plan); return; }
   // 7 day columns starting today.
-  const start=new Date(localToday()+"T00:00:00");
+  const start=new Date(_calWindow().start+"T00:00:00");
   const dates=[]; for(let i=0;i<7;i++){ const d=new Date(start); d.setDate(start.getDate()+i); dates.push(_isoLocalDate(d)); }
   const today=localToday();
 
@@ -2398,6 +2535,61 @@ function renderCalendar(cal, plan){
   body.innerHTML=`<div class="calgrid-wrap"><div class="calgrid">${head}${lane}
     <div class="calgrid-body">${times}${cols}</div></div></div>`;
   _wireCalDrag();
+}
+
+// --- Month grid (desktop "normal calendar") ---------------------------------
+function renderCalMonth(cal, plan){
+  const w=_calWindow(), today=localToday();
+  const month=new Date(_calAnchor+"T00:00:00").getMonth();
+  const byDay={}, workouts={};
+  (cal.events||[]).forEach(e=>{ (byDay[e.date]=byDay[e.date]||[]).push(e); });
+  (plan&&plan.days||[]).forEach(d=>{ workouts[d.date]=d; _calWorkouts[d.date]=d; });
+  let cells="";
+  for(let i=0;i<w.days;i++){
+    const dt=_addDays(w.start,i), d=new Date(dt+"T00:00:00");
+    const off=d.getMonth()!==month, isToday=dt===today;
+    const wo=workouts[dt];
+    const chips=(byDay[dt]||[]).slice(0,2).map(e=>`<div class="mc-ev">${fmt(e.title)}</div>`).join("");
+    const woChip = wo && !wo.is_rest
+      ? `<div class="mc-wo" data-date="${dt}">${dayIcons(wo)} <span>${fmt(wo.title)}</span>
+           <em>${wo.start_time?_fmtClock(_toMin(wo.start_time)):""} ${wo.duration_min||""}m</em></div>`
+      : (wo && wo.is_rest ? `<div class="mc-rest">😴 Rest</div>` : "");
+    cells+=`<div class="mcell${off?" off":""}${isToday?" today":""}">
+      <div class="mc-day">${d.getDate()}</div>${woChip}${chips}</div>`;
+  }
+  $("cal-body").innerHTML=`<div class="calmonth">
+    <div class="mhead">${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(x=>`<div>${x}</div>`).join("")}</div>
+    <div class="mgrid">${cells}</div></div>`;
+  $("cal-body").querySelectorAll(".mc-wo").forEach(el=>{
+    el.onclick=()=>openDayDetail(_calWorkouts[el.dataset.date]);
+  });
+}
+// --- Agenda list (mobile: just scroll down through the days) ------------------
+function renderCalAgenda(cal, plan){
+  const w=_calWindow(), today=localToday();
+  const byDay={}, workouts={};
+  (cal.events||[]).forEach(e=>{ (byDay[e.date]=byDay[e.date]||[]).push(e); });
+  (plan&&plan.days||[]).forEach(d=>{ workouts[d.date]=d; _calWorkouts[d.date]=d; });
+  let out="";
+  for(let i=0;i<w.days;i++){
+    const dt=_addDays(w.start,i), d=new Date(dt+"T00:00:00");
+    const wo=workouts[dt], evs=byDay[dt]||[];
+    if(!wo && !evs.length) continue;
+    out+=`<div class="ag-day${dt===today?" today":""}">
+      <div class="ag-date"><b>${d.getDate()}</b><span>${DOW[d.getDay()]}</span></div>
+      <div class="ag-items">
+        ${wo&&!wo.is_rest?`<div class="ag-wo" data-date="${dt}">
+            <div class="ag-t">${dayIcons(wo)} ${fmt(wo.title)}</div>
+            <div class="ag-m">${wo.start_time?_fmtClock(_toMin(wo.start_time))+" · ":""}${wo.duration_min||"?"} min · ${fmt(wo.intensity)}</div>
+          </div>`:""}
+        ${wo&&wo.is_rest?`<div class="ag-rest">😴 Rest day</div>`:""}
+        ${evs.map(e=>`<div class="ag-ev">${e.all_day?"All day":new Date(e.start).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})} · ${fmt(e.title)}</div>`).join("")}
+      </div></div>`;
+  }
+  $("cal-body").innerHTML = out || `<div class="muted" style="padding:16px">Nothing scheduled in this window.</div>`;
+  $("cal-body").querySelectorAll(".ag-wo").forEach(el=>{
+    el.onclick=()=>openDayDetail(_calWorkouts[el.dataset.date]);
+  });
 }
 
 // Optimistically mirror a move/resize in the local plan so the grid re-renders

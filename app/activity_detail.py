@@ -105,7 +105,87 @@ def get_detail(activity_id: int) -> dict[str, Any]:
         })
 
     return {"activity_id": activity_id, "stats": stats, "route": route,
-            "series": series, "splits": laps_out}
+            "series": series, "splits": laps_out,
+            "decoupling": _decoupling(series, sport),
+            "best_efforts": _best_efforts(series, sport, (stats.get("duration_min") or 0) * 60)}
+
+
+def _decoupling(series: dict[str, list], sport: str) -> dict[str, Any] | None:
+    """Aerobic decoupling (Pw:HR for bike, Pa:HR for run): does output per heartbeat
+    fade in the second half? Under ~5% is well-coupled aerobic fitness; a big
+    positive number means the athlete faded (or started too hard)."""
+    hr = series.get("hr") or []
+    out = series.get("power") if sport == "bike" and series.get("power") else series.get("speed_kmh")
+    if not hr or not out or len(hr) < 20 or len(out) < 20:
+        return None
+    n = min(len(hr), len(out))
+    hr, out = hr[:n], out[:n]
+    half = n // 2
+
+    def ratio(a, b):
+        pairs = [(o, h) for o, h in zip(a, b) if isinstance(o, (int, float)) and isinstance(h, (int, float)) and h > 40 and o > 0]
+        if len(pairs) < 10:
+            return None
+        mo = sum(p[0] for p in pairs) / len(pairs)
+        mh = sum(p[1] for p in pairs) / len(pairs)
+        return (mo / mh) if mh else None
+
+    r1 = ratio(out[:half], hr[:half])
+    r2 = ratio(out[half:], hr[half:])
+    if not r1 or not r2:
+        return None
+    pct = (r1 - r2) / r1 * 100.0
+    if pct <= 5:
+        verdict = "well coupled — aerobically solid"
+    elif pct <= 10:
+        verdict = "mild fade — watch pacing or fuelling"
+    else:
+        verdict = "significant fade — went out too hard, under-fuelled, or aerobically short"
+    return {"metric": "Pw:HR" if sport == "bike" else "Pa:HR",
+            "percent": round(pct, 1), "first_half": round(r1, 3),
+            "second_half": round(r2, 3), "verdict": verdict}
+
+
+def _best_efforts(series: dict[str, list], sport: str, total_s: float = 0.0) -> list[dict[str, Any]] | None:
+    """Peak sustained efforts (the athlete's power/pace curve for this session):
+    best rolling average over a set of durations."""
+    vals = series.get("power") if sport == "bike" and series.get("power") else series.get("speed_kmh")
+    if not vals:
+        return None
+    clean = [v if isinstance(v, (int, float)) else None for v in vals]
+    n = len(clean)
+    if n < 12:
+        return None
+    # The detail series is downsampled; approximate the per-sample interval so the
+    # windows are labelled in real time rather than sample count.
+    step = (total_s / n) if total_s and n else 6.0   # ~6 s/sample at maxchart=300
+    out = []
+    for label, secs in (("5s", 5), ("1min", 60), ("5min", 300), ("10min", 600), ("20min", 1200), ("60min", 3600)):
+        w = max(1, int(round(secs / step)))
+        if w > n:
+            continue
+        run, best, cnt = 0.0, None, 0
+        for i, v in enumerate(clean):
+            if v is not None:
+                run += v; cnt += 1
+            if i >= w:
+                old = clean[i - w]
+                if old is not None:
+                    run -= old; cnt -= 1
+            if i >= w - 1 and cnt >= max(3, w // 2):
+                avg = run / cnt
+                if best is None or avg > best:
+                    best = avg
+        if best is None:
+            continue
+        if sport == "bike" and series.get("power"):
+            out.append({"window": label, "value": round(best), "unit": "W"})
+        else:
+            mps = best / 3.6
+            sec_km = 1000.0 / mps if mps > 0 else None
+            out.append({"window": label, "value": round(best, 1), "unit": "km/h",
+                        "pace": f"{int(sec_km//60)}:{int(sec_km%60):02d}/km" if sec_km else None})
+    return out or None
 
 
 _ANALYZE_PROMPT = """Here is the full data for one of my completed activities (stats, splits, \

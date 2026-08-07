@@ -566,11 +566,19 @@ def nutrition_delete(entry_id: int) -> JSONResponse:
 
 
 @app.get("/api/calendar")
-def calendar(days: int = 7) -> JSONResponse:
-    """Upcoming Google Calendar events, normalized for the Calendar tab. Degrades
-    to a clear 'not connected' state when credentials/token are missing."""
-    days = max(1, min(int(days or 7), 31))
-    data = calendar_source.get_events(days=days)
+def calendar(days: int = 7, start: str | None = None) -> JSONResponse:
+    """Google Calendar events for a window, normalized for the Calendar tab.
+    `start` (YYYY-MM-DD) lets the UI page backwards/forwards through history;
+    it defaults to today. Degrades to a clear 'not connected' state."""
+    import datetime as _dt
+    days = max(1, min(int(days or 7), 62))
+    start_dt = None
+    if start:
+        try:
+            start_dt = _dt.datetime.combine(_dt.date.fromisoformat(start), _dt.time()).astimezone()
+        except ValueError:
+            start_dt = None
+    data = calendar_source.get_events(start=start_dt, days=days)
     if not data.get("available"):
         return JSONResponse({
             "connected": False,
@@ -628,6 +636,13 @@ def athlete_zones(force: bool = False) -> JSONResponse:
         return JSONResponse(zones.summary())
     except Exception as e:
         return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=502)
+
+
+@app.post("/api/nutrition/goal")
+def nutrition_goal(body: dict = Body(default={})) -> JSONResponse:
+    """Set the calorie goal (deficit / maintain / surplus) — shifts daily targets."""
+    goal = nutrition.set_goal(body.get("goal") or "maintain")
+    return JSONResponse({"ok": True, "goal": goal, "day": nutrition.get_day()})
 
 
 @app.post("/api/nutrition/photo")
