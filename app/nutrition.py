@@ -316,6 +316,49 @@ def log_food(text: str) -> dict[str, Any]:
     return {"ok": True, "added": len(stored), "day": get_day()}
 
 
+def log_photo(image_b64: str, media_type: str = "image/jpeg") -> dict[str, Any]:
+    """Log a meal from a photo — the model reads the plate and estimates macros."""
+    if not image_b64:
+        return {"error": "no image"}
+    if not _ok_key():
+        return {"error": "ANTHROPIC_API_KEY is not set"}
+    system = ("You read a photo of a meal and convert it to JSON. Output ONLY a JSON array, no prose. "
+              "Each item: {\"description\": str, \"eaten_at\": \"\", \"meal\": "
+              "breakfast|lunch|dinner|snack|pre|during|post, \"kcal\": int, \"protein_g\": int, "
+              "\"carb_g\": int, \"fat_g\": int}. Identify each distinct food you can see and estimate "
+              "its portion from visual cues (plate size, utensils). Be realistic for a "
+              f"~{weight_kg():.0f} kg endurance athlete. If you cannot identify any food, return [].")
+    try:
+        msg = _reply([{"role": "user", "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
+            {"type": "text", "text": "Log this meal."},
+        ]}], max_tokens=900, system=system)
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {e}"}
+    raw = "".join(b.text for b in msg.content if b.type == "text")
+    m = _JSON_RE.search(raw)
+    if not m:
+        return {"error": "couldn't read that photo", "raw": raw[:300]}
+    try:
+        items = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return {"error": "couldn't read that photo", "raw": raw[:300]}
+
+    today = config.local_today().isoformat()
+    stored = []
+    for it in items if isinstance(items, list) else []:
+        if not isinstance(it, dict) or not it.get("description"):
+            continue
+        stored.append(db.add_nutrition(
+            today, str(it["description"])[:200], eaten_at=str(it.get("eaten_at") or "")[:40],
+            meal=str(it.get("meal") or "")[:20],
+            kcal=_int(it.get("kcal")), protein_g=_int(it.get("protein_g")),
+            carb_g=_int(it.get("carb_g")), fat_g=_int(it.get("fat_g"))))
+    if not stored:
+        return {"error": "no food recognized in that photo"}
+    return {"ok": True, "added": len(stored), "day": get_day()}
+
+
 def _int(v: Any) -> int | None:
     try:
         return int(round(float(v)))

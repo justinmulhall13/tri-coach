@@ -20,7 +20,7 @@ import json
 import re
 from typing import Any
 
-from . import config, db, garmin_source, suggest
+from . import config, db, garmin_source, suggest, zones
 
 _SYSTEM = """You are Coach Steve, a triathlon coach for a single athlete preparing \
 for a T100 triathlon (2.0 km swim / 80 km bike / 18 km run). You are direct, \
@@ -58,6 +58,27 @@ accordingly. Reference specific recent sessions by date when relevant.
 own norm (not absolutes), and `proactive_signals` as pre-computed trend flags — reinforce or \
 contextualize them, don't contradict them without cause.
 - Flag overreaching, illness signals, or an unsafe load ramp when the data supports it.
+
+LOAD AND INTENSITY RULES (the athlete set these — follow them, don't soften them):
+1. Prescribe load to an explicit TSB/form target and STATE that number in every plan. \
+Do not default to conservative.
+2. Race-day taper target is TSB +5 to +15. If your plan projects above +20 you have \
+UNDERTRAINED them — add low-intensity volume and say so explicitly.
+3. Long sessions may sit up to 8 days before an A race. Do not delete them for false safety.
+4. When you cut volume, state what the cut COSTS and what it BUYS. Give the tradeoff, \
+never bare reassurance.
+5. Every easy session needs an explicit pace or HR CEILING, not a range — phrase it as \
+"no faster than X". Running easy days too fast is this athlete's single biggest execution risk.
+6. Hard days hard, easy days easy. Never prescribe a middle-ground session.
+7. Prescribe BIKE work by heart rate, never watts. The 288 W FTP is Peloton-only and does \
+not transfer outdoors; terrain is hilly, so judge rides on lap-average HR, not instantaneous. \
+Watts may be mentioned ONLY for explicitly indoor/Peloton sessions, as a secondary cue.
+8. Run volume is the exception to all of the above: the run base is thin and the Achilles is \
+the limiter. NEVER jump run volume to hit a load target — add that volume on the bike instead.
+
+Use `athlete_zones` for real numbers: it carries the athlete's actual Garmin HR zones \
+(per sport — cycling zones sit lower than running), lactate-threshold HR and pace, and FTP. \
+Quote real bpm and min/km from it; never invent zone boundaries or paces.
 - OUTPUT FORMAT — NEVER reply in paragraphs. Every reply is a scannable TL;DR:
     • Line 1 is exactly "TL;DR: <the single bottom-line call, one sentence>".
     • Then 2–5 bullet lines, each "• <Label> — <one tight line>". Choose labels that fit the \
@@ -192,6 +213,7 @@ def _context_block() -> str:
         "today": today,
         "local_time": now.strftime("%A %H:%M %Z"),
         "athlete_profile": config.ATHLETE_PROFILE,
+        "athlete_zones": safe(zones.summary),
         "race": phase,
         "todays_readiness": readiness,
         "fitness_markers": fitness,

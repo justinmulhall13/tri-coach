@@ -25,7 +25,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import (activity_detail, baselines, calendar_agent, calendar_source,
                calendar_sync, coach, config, db, fitness_trend, garmin_source,
-               garmin_workout, insights, nudges, nutrition, plan, plan_adapt,
+               garmin_workout, insights, nudges, nutrition, plan, plan_adapt, zones,
                push, rings, ring_detail, suggest)
 
 app = FastAPI(title="Tri Coach")
@@ -616,6 +616,28 @@ def workout_move(body: dict = Body(default={})) -> JSONResponse:
         changed = result.get("changed") or [date]
         threading.Thread(target=lambda: calendar_sync.push_days(changed), daemon=True).start()
     return JSONResponse(result, status_code=400 if result.get("error") else 200)
+
+
+@app.get("/api/zones")
+def athlete_zones(force: bool = False) -> JSONResponse:
+    """The athlete's real Garmin HR zones (per sport), lactate threshold and FTP —
+    what every prescribed workout targets."""
+    try:
+        if force:
+            zones.get(force=True)
+        return JSONResponse(zones.summary())
+    except Exception as e:
+        return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=502)
+
+
+@app.post("/api/nutrition/photo")
+def nutrition_photo(body: dict = Body(...)) -> JSONResponse:
+    """Log a meal from a photo — the model reads the plate and estimates macros."""
+    img = body.get("image_b64")
+    if not img:
+        return JSONResponse({"error": "image_b64 is required"}, status_code=400)
+    result = nutrition.log_photo(img, body.get("media_type") or "image/jpeg")
+    return JSONResponse(result, status_code=502 if result.get("error") else 200)
 
 
 @app.post("/api/calendar/command")
