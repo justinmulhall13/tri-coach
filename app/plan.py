@@ -26,6 +26,23 @@ FTP = int(config.ATHLETE_PROFILE.get("ftp_w") or 288)
 
 
 def _w(lo: float, hi: float) -> str:
+    """Bike intensity as a HEART-RATE range, not watts.
+
+    The athlete's FTP is Peloton-specific and does not transfer to hilly outdoor
+    riding, so rides are judged on lap-average HR. We map the old %FTP band onto
+    the equivalent cycling HR zone from their real Garmin zones, and fall back to
+    a %FTP watt range only if those zones can't be read.
+    """
+    mid = (lo + hi) / 2
+    zone = 1 if mid < 0.60 else 2 if mid < 0.76 else 3 if mid < 0.94 else 4 if mid < 1.05 else 5
+    try:
+        from . import zones as _z
+        band = (_z.get().get("zones", {}).get("CYCLING")
+                or _z.get().get("zones", {}).get("DEFAULT") or {}).get(zone)
+        if band:
+            return f"HR {band[0]}–{band[1]}"
+    except Exception:  # noqa: BLE001
+        pass
     return f"{round(FTP * lo)}–{round(FTP * hi)} W"
 
 

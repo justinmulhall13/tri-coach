@@ -734,6 +734,22 @@
     margin:2px 2px 8px;}
   .botnav button svg{width:21px;height:21px;stroke:currentColor;fill:none;stroke-width:1.8;
     stroke-linecap:round;stroke-linejoin:round;}
+
+  .fuel-hero{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
+  .fuel-hero .fh{flex:1;min-width:104px;border:1px solid var(--line);border-radius:12px;padding:9px 11px;background:var(--glass2);}
+  .fuel-hero .fk{font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);}
+  .fuel-hero .fv{font-family:var(--round);font-size:21px;font-weight:700;line-height:1.15;}
+  .fuel-hero .fv small{font-size:11px;color:var(--muted);font-weight:400;}
+  .fuel-hero .cap{margin-top:5px;}
+  .fuel-hero .capbar{height:4px;border-radius:3px;background:rgba(16,18,22,.08);overflow:hidden;}
+  .fuel-hero .capbar i{display:block;height:100%;background:var(--a1);}
+  .fuel-hero .cap span{font-size:9.5px;color:var(--muted);}
+  .fuel-abort{margin-top:10px;border:1px solid color-mix(in srgb,var(--bad) 35%,transparent);
+    background:color-mix(in srgb,var(--bad) 7%,transparent);border-radius:12px;padding:10px 12px;font-size:12.5px;line-height:1.45;}
+  .fuel-math{margin-top:10px;font-size:12px;}
+  .fuel-math summary{cursor:pointer;color:var(--a1);font-weight:600;}
+  .fuel-math ul{margin:6px 0 0;padding-left:18px;color:var(--muted);line-height:1.6;}
+  .fuel-math .fk{font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);}
 </style>
 </head>
 <body>
@@ -1647,24 +1663,43 @@ function openWorkoutDetail(i){
 let _fuelReq=0;
 async function renderFuel(x){
   const wrap=$("wo-fuel-wrap"), body=$("wo-fuel");
-  // Fueling only applies to endurance sessions — not rest, strength or lifts.
   if(!x || x.is_rest || ["strength","rest"].includes(x.disc)){ wrap.style.display="none"; return; }
   const req=++_fuelReq;
-  wrap.style.display=""; body.innerHTML=`<span class="muted"><span class="pulse"></span> planning fuel…</span>`;
+  wrap.style.display=""; body.innerHTML=`<span class="muted"><span class="pulse"></span> building the plan…</span>`;
   try{
     const f=await j("/api/fuel",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({session:{discipline:x.disc, duration_min:x.dur, is_rest:x.is_rest?1:0}})});
-    if(req!==_fuelReq) return;  // a newer session opened; drop this result
+      body:JSON.stringify({session:{discipline:x.disc, duration_min:x.dur, intensity:x.intensity,
+                                    title:x.title, is_rest:x.is_rest?1:0}})});
+    if(req!==_fuelReq) return;
     if(!f || f.needed===false){ body.innerHTML=`<div class="pv-why">${(f&&f.note)||"Water is enough for this one."}</div>`; return; }
-    const rng=(a,u)=>a?`${a[0]}–${a[1]} ${u}`:"—";
-    const rows=[
-      ["🍬 Carbs", `${rng(f.carb_per_hr,"g/hr")} · ${rng(f.total_carb_g,"g total")}`],
-      ["🧂 Electrolytes", `${rng(f.sodium_mg_per_hr,"mg/hr")} sodium · ${rng(f.total_sodium_mg,"mg total")}`],
-    ];
-    if(f.fluid_ml_per_hr && f.fluid_ml_per_hr[1]) rows.push(["💧 Fluid", `${rng(f.fluid_ml_per_hr,"ml/hr")} · ${rng(f.total_fluid_ml,"ml total")}`]);
-    body.innerHTML = rows.map(([k,v])=>`<div class="pv-step"><div class="pv-k">${k}</div><div class="pv-v">${v}</div></div>`).join("")
-      + (f.practical?`<div class="pv-why" style="margin-top:8px">${f.practical}</div>`:"");
-  }catch(e){ if(req===_fuelReq){ body.innerHTML=`<span class="err">Couldn't load fueling.</span>`; } }
+    const gPct=Math.round(f.glucose_g_per_hr/f.glucose_ceiling*100);
+    const fPct=f.fructose_ceiling?Math.round(f.fructose_g_per_hr/f.fructose_ceiling*100):0;
+    body.innerHTML=`
+      <div class="fuel-hero">
+        <div class="fh"><div class="fk">Total carb</div><div class="fv">${f.carb_g_per_hr}<small> g/h</small></div></div>
+        <div class="fh"><div class="fk">Glucose</div><div class="fv">${f.glucose_g_per_hr}<small> g/h</small></div>
+          <div class="cap"><div class="capbar"><i style="width:${gPct}%"></i></div><span>ceiling ${f.glucose_ceiling}</span></div></div>
+        <div class="fh"><div class="fk">Fructose</div><div class="fv">${f.fructose_g_per_hr}<small> g/h</small></div>
+          <div class="cap"><div class="capbar"><i style="width:${fPct}%"></i></div><span>ceiling ${f.fructose_ceiling}</span></div></div>
+        <div class="fh"><div class="fk">Ratio</div><div class="fv" style="font-size:17px">${f.ratio}</div></div>
+      </div>
+      <div class="pv-step"><div class="pv-k">Mix</div><div class="pv-v">${f.recipe}</div></div>
+      <div class="pv-step"><div class="pv-k">Fluid + salt</div><div class="pv-v">${f.fluid_ml_per_hr[0]} ml/h · ${f.sodium_mg_per_hr[0]}–${f.sodium_mg_per_hr[1]} mg sodium/h (${f.salt_per_hr})</div></div>
+      ${f.placement?`<div class="pv-step"><div class="pv-k">Placement</div><div class="pv-v">${f.placement}</div></div>`:""}
+      <div class="pv-step"><div class="pv-k">Caffeine</div><div class="pv-v">${f.caffeine}</div></div>
+      <div class="fuel-abort"><b>If GI distress hits</b><br>${f.abort}</div>
+      <details class="fuel-math"><summary>Show the arithmetic</summary>
+        <ul>${(f.arithmetic||[]).map(a=>`<li>${a}</li>`).join("")}</ul>
+        <div class="fk" style="margin-top:8px">Session totals (${f.hours} h)</div>
+        <ul><li>Carb ${f.total_carb_g[0]}–${f.total_carb_g[1]} g</li>
+            <li>Fluid ${f.total_fluid_ml[0]} ml</li>
+            <li>Sodium ${f.total_sodium_mg[0]}–${f.total_sodium_mg[1]} mg</li></ul>
+        <div class="fk" style="margin-top:8px">Assumptions</div>
+        <ul>${(f.assumptions||[]).map(a=>`<li>${a}</li>`).join("")}</ul>
+        <div class="fk" style="margin-top:8px">Verify on the label</div>
+        <ul>${(f.verify_labels||[]).map(a=>`<li>${a}</li>`).join("")}</ul>
+      </details>`;
+  }catch(e){ if(req===_fuelReq){ body.innerHTML=`<span class="err">Couldn't load fuelling.</span>`; } }
 }
 
 function completedBanner(c, sess){
@@ -1833,7 +1868,9 @@ function renderPlan(p){
       <div class="cmin">${min}</div>
     </div>`;
   }).join("")}</div>`;
-  $("plan").querySelectorAll(".cday").forEach(c=>{ c.onclick=()=>openPlanPreview(c.dataset.date); });
+  $("plan").querySelectorAll(".cday").forEach(c=>{
+    c.onclick=()=>{ const d=_planDays[c.dataset.date]; if(d) openDayDetail(d); else openPlanPreview(c.dataset.date); };
+  });
 }
 
 // Distance estimate — per-segment, not "hard pace × whole duration". Warmup/cooldown
@@ -2326,10 +2363,10 @@ if($("modrow")) $("modrow").onclick=()=>switchView("coach");
 // ================= Fuel tab =================
 async function loadFuel(){
   $("fuel-macros").innerHTML=`<div class="muted"><span class="pulse"></span> loading…</div>`;
-  try{ renderFuel(await j("/api/nutrition/day")); }
+  try{ renderFuelTab(await j("/api/nutrition/day")); }
   catch(e){ $("fuel-macros").innerHTML=`<span class="err">${e.message}</span>`; }
 }
-function renderFuel(day){
+function renderFuelTab(day){
   if(!day || day.error){ $("fuel-macros").innerHTML=`<span class="err">${(day&&day.error)||"unavailable"}</span>`; return; }
   const t=day.targets||{}, tot=day.totals||{}, s=day.session||{};
   $("fuel-basis").textContent = t.basis ? `Today: ${t.basis}` : "Fuel to perform.";
@@ -2374,7 +2411,7 @@ function renderFoodList(list){
   $("log-list").querySelectorAll(".food-row").forEach(row=>{
     row.querySelector(".fdel").onclick=async()=>{
       const d=await j("/api/nutrition/"+row.dataset.id,{method:"DELETE"});
-      if(d.day) renderFuel(d.day);
+      if(d.day) renderFuelTab(d.day);
     };
   });
 }
@@ -2384,7 +2421,7 @@ async function logFood(){
   try{
     const r=await j("/api/nutrition/log",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text})});
     if(r.error){ $("log-status").innerHTML=`<span class="err">${r.error}</span>`; }
-    else{ $("log-status").textContent=`Logged ${r.added} item${r.added>1?"s":""}.`; inp.value=""; renderFuel(r.day); }
+    else{ $("log-status").textContent=`Logged ${r.added} item${r.added>1?"s":""}.`; inp.value=""; renderFuelTab(r.day); }
   }catch(e){ $("log-status").innerHTML=`<span class="err">${e.message}</span>`; }
   finally{ $("log-btn").disabled=false; }
 }
@@ -2397,7 +2434,7 @@ async function logPhoto(){
     const r=await j("/api/nutrition/photo",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({image_b64:b64, media_type:f.type||"image/jpeg"})});
     if(r.error){ $("log-status").innerHTML=`<span class="err">${r.error}</span>`; }
-    else{ $("log-status").textContent=`Logged ${r.added||0} item${(r.added||0)===1?"":"s"} from the photo.`; $("log-photo").value=""; if(r.day) renderFuel(r.day); }
+    else{ $("log-status").textContent=`Logged ${r.added||0} item${(r.added||0)===1?"":"s"} from the photo.`; $("log-photo").value=""; if(r.day) renderFuelTab(r.day); }
   }catch(e){ $("log-status").innerHTML=`<span class="err">${e.message}</span>`; }
   finally{ $("photo-btn").disabled=false; }
 }
@@ -2420,7 +2457,7 @@ $("fuel-goal").onchange=async()=>{
   const g=$("fuel-goal").value;
   $("fuel-basis").textContent="Updating targets…";
   try{ const r=await j("/api/nutrition/goal",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({goal:g})});
-    if(r.day) renderFuel(r.day);
+    if(r.day) renderFuelTab(r.day);
   }catch(e){ loadFuel(); }
 };
 
