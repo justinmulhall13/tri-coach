@@ -225,9 +225,9 @@ def sync(days: int = 21) -> dict[str, Any]:
 
 
 def move_session(date: str, new_date: str | None = None,
-                 new_start: str | None = None, new_duration: int | None = None,
+                 new_start: str | None = None,
                  pos_ts: str | None = None, do_reconcile: bool = True) -> dict[str, Any]:
-    """Reschedule a session by time and/or day, and/or resize its duration.
+    """Reschedule a session by time and/or day without changing its prescription.
     Cross-day onto an occupied day swaps the two days' sessions. `pos_ts` stamps
     when the position changed (defaults to now; the reverse-sync passes Google's
     event.updated so it wins consistently). `do_reconcile=False` skips the push."""
@@ -235,22 +235,13 @@ def move_session(date: str, new_date: str | None = None,
     if not src:
         return {"error": f"no plan day for {date}"}
     pts = pos_ts or _utcnow()
-    dur = None
-    if new_duration is not None:
-        try:
-            dur = max(15, int(new_duration))
-        except (TypeError, ValueError):
-            dur = None
-
     changed: list[str] = []
 
-    # Same-day (or no day change): just set the time / duration.
+    # Same-day (or no day change): just set the time.
     if not new_date or new_date == date:
         fields = {}
         if new_start:
             fields["start_time"] = new_start
-        if dur is not None:
-            fields["duration_min"] = dur
         if fields:
             fields["pos_updated_at"] = pts
             db.edit_plan_day(date, fields, source="edited",
@@ -263,8 +254,6 @@ def move_session(date: str, new_date: str | None = None,
             # Move into an empty/rest day; source becomes rest.
             move_fields = dict(src_sess)
             move_fields["start_time"] = new_start or src.get("start_time")
-            if dur is not None:
-                move_fields["duration_min"] = dur
             move_fields["pos_updated_at"] = pts
             db.edit_plan_day(new_date, move_fields, source="edited",
                              reason=f"Moved from {date} (calendar drag)")

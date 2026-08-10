@@ -8,8 +8,9 @@ It pulls live Garmin recovery and training data, models readiness, runs a
 periodized plan toward a race, and keeps two AI agents in the loop: a
 conversational coach that can reprogram the plan, and a natural-language
 calendar assistant that schedules workouts around a real calendar with two-way
-Google sync. It runs as an installable PWA and is deployed on Fly.io. Built solo, with Claude
-Code and OpenAI Codex doing most of the typing — see
+Google sync. It runs as a responsive, installable PWA with an iOS-inspired
+glass interface and is deployed on Fly.io. Built solo, with Claude Code and
+OpenAI Codex doing most of the typing — see
 [Built with AI, deliberately](#built-with-ai-deliberately).
 
 Built for training toward **T100 Vancouver** (2.0 km swim / 80 km bike /
@@ -64,8 +65,9 @@ The A-race hero carries the goal, the countdown, and where you sit in the block.
 Below it the readiness score reads out of Garmin — HRV against your own rolling
 baseline, sleep, resting HR, and form (TSB) — with a plain-English verdict rather
 than a number to interpret. Then today's sessions, the four WHOOP-style rings
-(each clickable into a full breakdown), proactive signals, recent activities and
-current load.
+(each clickable into a full breakdown), proactive signals and recent activities.
+Training load lives in Analytics, where there is enough room to explain it
+properly instead of compressing it into another Home card.
 
 Readiness advises; it never overrides. If recovery is poor the app says so and
 offers an easier alternative when you push the session to your watch, but it will
@@ -76,8 +78,16 @@ early version quietly downgraded a key workout and cost a good training day.
 ![Coach tab](docs/screenshots/coach.png)
 
 A conversational coach (Claude) with the full picture: Garmin data, the plan, the
-week's load, and your own stated constraints. It is direct by design and cannot
-invent numbers — a missing metric is reported as missing.
+week's load, prior coaching turns, and your own stated constraints. It is direct
+by design and cannot invent numbers — a missing metric is reported as missing.
+
+The visible chat opens as a clean conversation every time the app launches or
+resumes, so there is no transcript to scroll through. That is presentation only:
+Steve keeps a private server-side window of previous turns plus dated, durable
+memories such as availability, injuries, travel and equipment constraints. The
+result is a fresh screen without an amnesiac coach. Automatic briefs are
+event-driven rather than launch-driven — a new sleep/recovery day, synced workout
+or completion log can trigger one; simply reopening the app cannot.
 
 It will reprogram any upcoming day, rebuild a whole week around a constraint,
 log sessions you did off-plan, propose calendar events from a passing mention,
@@ -95,13 +105,13 @@ Week and Month views, with navigation back through previous weeks and months.
 Workouts are written to Google as timed blocks, placed in the mornings around a
 fixed 9–4 workday and routed around whatever is already booked.
 
-Drag a session to move it, drag its edge to resize it, tap it to open the full
-breakdown — every change pushes straight to Google. Edits you make *in* Google
-flow back on next open, resolved most-recent-edit-wins. The command bar at the
-top takes plain English: "move my bike to Thursday 6am", "make Saturday's ride
-2h", "add dentist Fri 2pm".
-
-*Personal event titles are replaced with placeholders in this screenshot.*
+Drag a session to move it and tap it to open the full breakdown — every calendar
+change pushes straight to Google. Edits you make *in* Google flow back on next
+open, resolved most-recent-edit-wins. Calendar owns placement, not prescription:
+workout duration and contents can only be changed through Coach Steve, so a drag
+cannot accidentally rewrite the training plan. The command bar at the top takes
+plain English: "move my bike to Thursday 6am", "swap Tuesday and Friday", "add
+dentist Fri 2pm".
 
 ### Fuel
 ![Fuel tab](docs/screenshots/fuel.png)
@@ -123,11 +133,19 @@ labels to verify, and carries an abort protocol for GI distress.
 ### Analytics
 ![Analytics tab](docs/screenshots/analytics.png)
 
-Fitness, fatigue and form (CTL / ATL / TSB) over 90 days against the race-day
-target band, weekly volume by sport, load focus and acute:chronic ratio, and your
-real Garmin training zones — per sport, since cycling zones sit lower than
-running. Those same zones are what every pushed workout targets, so what you see
-here is what lands on the watch.
+The top of Analytics is a training-load decision surface: acute:chronic ratio
+with its 0.8–1.3 target band, seven-day load against the 28-day base, and separate
+low-aerobic, high-aerobic and anaerobic cards that plot the current value against
+Garmin's target range. Below that sit fitness, fatigue and form (CTL / ATL / TSB)
+over 90 days and weekly volume by sport.
+
+Training zones use the same visual hierarchy instead of a compressed text table:
+Garmin LT HR, max HR and threshold pace lead into five progressive intensity
+cards. Every card keeps run HR, bike HR and run pace visible — cycling zones sit
+lower than running — and those exact values are what pushed workouts target on
+the watch.
+
+![Training zones](docs/screenshots/analytics-zones.png)
 
 ---
 
@@ -148,16 +166,18 @@ classified separately.
 decoupling (Pw:HR or Pa:HR, first half versus second) and a best-effort curve
 from 5 s to 60 min, plus a cached AI read of the session.
 
-**It reaches out.** Web-push notifications for the things worth a heads-up: a big
-brick tomorrow ("carb up tonight"), a low-recovery morning, the nightly review.
+**It reaches out when something changes.** Web-push notifications cover the
+things worth a heads-up: a big brick tomorrow ("carb up tonight") or a
+low-recovery morning. Coach briefs are fingerprinted to new sleep, workout-sync
+or completion data, so simply reopening the app never creates another update.
 
 ---
 
 ## Architecture
 
 A FastAPI backend serving a single-file vanilla-JS PWA. No frontend framework —
-the whole UI is one hand-written `index.html` (SVG rings, the calendar grid,
-pointer-based drag/resize) so the app stays dependency-light and instant to load.
+the whole UI is one hand-written `index.html` (SVG rings, the calendar grid and
+pointer-based placement) so the app stays dependency-light and instant to load.
 
 ```
 app/
@@ -178,12 +198,12 @@ app/
   schedule_time.py   default workout times around the 9-4 workday
   garmin_workout.py  push structured workouts to the watch
 
-  coach.py           "Coach Steve" agent (chat, briefs, plan edits, memory)
+  coach.py           "Coach Steve" agent (chat, event briefs, private memory)
   calendar_agent.py  natural-language calendar assistant
   nutrition.py       daily targets + transport-ceiling intra-session fuelling
 
   calendar_source.py Google Calendar API (read + write, tagged events)
-  calendar_sync.py   two-way sync engine (reconcile, reverse-pull, move/resize)
+  calendar_sync.py   two-way sync engine (reconcile, reverse-pull, placement)
 
   push.py            web-push notifications
   insights.py        proactive signals    baselines.py  personal baselines
@@ -219,6 +239,22 @@ A few problems here were more interesting than they first look:
 - **Latency budgeting.** The calendar assistant runs on a small fast model for
   structured parsing, and edits push only the single day that changed instead of
   re-syncing the whole week — turning multi-second commands into sub-second ones.
+
+- **Placement is not prescription.** Calendar and Google Calendar can move a
+  workout's date or start time, but they cannot silently rewrite its duration or
+  contents. Those training decisions go through Coach Steve, where the full plan,
+  recovery state and race phase are available.
+
+- **Fresh screen, persistent context.** Every Coach visit starts as a clean
+  visible conversation. Previous turns and dated durable memories stay private
+  on the server and are still supplied to Steve, so there is no chat-history
+  trawl and no loss of coaching continuity.
+
+- **Glass where it earns its keep.** Translucent, responsive glass is reserved
+  for navigation and controls; dense training data keeps quieter, more opaque
+  surfaces for contrast. The compact-on-scroll header, floating bottom bar and
+  fixed Coach composer are safe-area aware, with reduced-motion and
+  reduced-transparency fallbacks.
 
 - **Classification that respects intent.** A Peloton stretch syncs from Garmin as
   `strength_training`; counting it as a completed strength lift is wrong, so

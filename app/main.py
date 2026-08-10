@@ -450,28 +450,60 @@ def coach_history(limit: int = 50, all: bool = False) -> JSONResponse:
 
 
 def _training_signature() -> str:
-    """A fingerprint of today's training state — changes when a new activity is
-    completed (so the brief regenerates and re-evaluates) and when the day
-    crosses into the evening window (so the nightly review fires)."""
-    today = config.local_today().isoformat()
+    """Fingerprint only meaningful coaching events, not app opens or clock time.
+
+    A new wellness date means the athlete slept; a changed activity set or a new
+    completion means training happened or feedback was logged. Keeping the most
+    recent event markers independent of "today" prevents a midnight rollover
+    from manufacturing an update when nothing actually changed.
+    """
+    import json
+
+    wellness = db.get_wellness(7)
+    latest_sleep = wellness[-1]["date"] if wellness else None
+
     try:
-        acts = garmin_source.get_recent_load(2).get("activities", [])
-        ids = sorted(str(a.get("activity_id")) for a in acts if (a.get("date") or "") == today)
+        acts = garmin_source.get_recent_load(7).get("activities", [])
     except Exception:
-        ids = []
-    part = "eve" if coach._is_evening(config.local_now()) else "day"
-    return f"{today}|{part}|{','.join(ids)}"
+        acts = []
+    dated = [a for a in acts if a.get("date")]
+    latest_activity_date = max((a["date"] for a in dated), default=None)
+    latest_activities = sorted(
+        str(a.get("activity_id") or
+            f"{a.get('sport')}|{a.get('name')}|{a.get('minutes')}|{a.get('km')}")
+        for a in dated if a.get("date") == latest_activity_date
+    )
+
+    completions = db.get_completions()
+    latest_completion = max(completions, key=lambda c: c.get("id") or 0) if completions else None
+    completion_marker = None if not latest_completion else {
+        "id": latest_completion.get("id"),
+        "date": latest_completion.get("date"),
+        "status": latest_completion.get("status"),
+        "rpe": latest_completion.get("rpe"),
+    }
+    return json.dumps({
+        "sleep_date": latest_sleep,
+        "activity_date": latest_activity_date,
+        "activity_ids": latest_activities,
+        "completion": completion_marker,
+    }, sort_keys=True, separators=(",", ":"))
 
 
 @app.post("/api/coach/brief")
 def coach_brief(force: bool = False) -> JSONResponse:
-    # Regenerate when today's completed-training state changes (or when forced).
+    # First call establishes a quiet baseline. Thereafter Steve speaks only when
+    # sleep/recovery or completed-training state actually changes (or when forced).
     sig = _training_signature()
-    if not force and db.get_meta("brief_sig") == sig:
-        return JSONResponse({"skipped": True, "reason": "already briefed for current training state"})
+    previous = db.get_meta("coach_event_sig")
+    if not force and previous is None:
+        db.set_meta("coach_event_sig", sig)
+        return JSONResponse({"skipped": True, "reason": "event baseline established"})
+    if not force and previous == sig:
+        return JSONResponse({"skipped": True, "reason": "no new sleep or workout event"})
     result = coach.morning_brief()
     if not result.get("error"):
-        db.set_meta("brief_sig", sig)
+        db.set_meta("coach_event_sig", sig)
     return JSONResponse(result, status_code=502 if result.get("error") else 200)
 
 
@@ -616,15 +648,17 @@ def calendar_sync_now() -> JSONResponse:
 
 @app.post("/api/workout/move")
 def workout_move(body: dict = Body(default={})) -> JSONResponse:
-    """Reschedule/resize a session from a calendar drag: change time, day, and/or
-    duration (a drop onto an occupied day swaps the two). Persists immediately and
+    """Reschedule a session from a calendar drag: change time and/or day only.
+    Workout duration is a coaching prescription and can only be changed by Coach.
+    A drop onto an occupied day swaps the two. Persists immediately and
     pushes to Google in the BACKGROUND so the UI updates without a multi-second wait."""
     date = body.get("date")
     if not date:
         return JSONResponse({"error": "date is required"}, status_code=400)
+    if body.get("new_duration") is not None:
+        return JSONResponse({"error": "Workout length is set by Coach Steve, not the calendar."}, status_code=400)
     result = calendar_sync.move_session(
-        date, new_date=body.get("new_date"), new_start=body.get("new_start"),
-        new_duration=body.get("new_duration"), do_reconcile=False)
+        date, new_date=body.get("new_date"), new_start=body.get("new_start"), do_reconcile=False)
     if not result.get("error"):
         # Push ONLY the changed day(s) in the background — not a full 22-event sync.
         changed = result.get("changed") or [date]

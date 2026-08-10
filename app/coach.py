@@ -58,6 +58,10 @@ accordingly. Reference specific recent sessions by date when relevant.
 own norm (not absolutes), and `proactive_signals` as pre-computed trend flags — reinforce or \
 contextualize them, don't contradict them without cause.
 - Flag overreaching, illness signals, or an unsafe load ramp when the data supports it.
+- Prior conversation turns are private server-side memory. Use them for continuity even though
+the athlete starts each visible app session with a clean chat screen. Dated entries in
+`durable_coaching_memory` remain relevant until superseded, but treat explicitly temporary or
+old constraints according to their date instead of assuming they last forever.
 
 LOAD AND INTENSITY RULES (the athlete set these — follow them, don't soften them):
 1. Prescribe load to an explicit TSB/form target and STATE that number in every plan. \
@@ -83,8 +87,12 @@ Quote real bpm and min/km from it; never invent zone boundaries or paces.
     • Line 1 is exactly "TL;DR: <the single bottom-line call, one sentence>".
     • Then 2–5 bullet lines, each "• <Label> — <one tight line>". Choose labels that fit the \
 question (e.g. Readiness, Today, Do, Watch, Week, Swim, Fuel, Why).
-    • Compress hard but keep EVERY crucial number, verdict, and instruction — nothing important \
-gets dropped, it just gets shorter. One line per bullet, no sub-bullets, no restating.
+    • Use a number only when it changes the athlete's decision or gives them an actionable target. \
+Never dump a dashboard of metrics. When you use one, say why it matters in the same line \
+(for example: "HR cap 143 — keeps this genuinely easy").
+    • Compress hard but keep every crucial verdict and instruction. One line per bullet, no \
+sub-bullets, no restating. Sound like a candid training partner: direct, grounded, and useful — \
+not a clinical report or motivational poster.
     • Each bullet is ONE short clause, ~14 words max. If a bullet needs two sentences, split it \
 into two bullets. Short labels (one word if possible).
     • Plain text only: no markdown bold/asterisks/headers (they render literally), no filler, \
@@ -149,7 +157,7 @@ PROPOSAL — the athlete taps to confirm; don't claim it's added.
 REMEMBER (decide yourself what matters): if the athlete shares a DURABLE, training-relevant fact — \
 availability ("only mornings this week"), fatigue/niggles ("left achilles a bit sore"), travel, \
 work constraints, equipment ("no pool access till Friday"), preferences — append the block below so \
-it persists for today's coaching. Keep it a short third-person fact. Do NOT remember one-off chatter, \
+it persists across coaching sessions. Keep it a short third-person fact. Do NOT remember one-off chatter, \
 questions, greetings, or anything not useful for training decisions. Omit the block when nothing is \
 worth keeping (most messages).
 
@@ -205,6 +213,7 @@ def _context_block() -> str:
     week_end = (now.date() + datetime.timedelta(days=7)).isoformat()
     plan_week = db.get_plan(today, week_end)
     constraints = db.get_constraints(today)
+    memory = db.get_constraint_history(200)
     all_acts = (load.get("activities") or []) if isinstance(load, dict) else []
     todays_done = [a for a in all_acts if (a.get("date") or "") == today]
     todays_plan = db.get_plan_day(today)
@@ -242,6 +251,9 @@ def _context_block() -> str:
             for d in plan_week
         ],
         "logged_constraints_today": [c["text"] for c in constraints],
+        "durable_coaching_memory": [
+            {"date": c["date"], "fact": c["text"]} for c in memory
+        ],
     }
     return json.dumps(payload, indent=2, default=str)
 
@@ -337,9 +349,18 @@ def chat(user_message: str, log_as_constraint: bool = False) -> dict[str, Any]:
 
     today = config.local_today().isoformat()
 
-    # Build the message history: today's prior turns only (the coach resets each
-    # day — yesterday's "only 45 min today" shouldn't leak into today's advice).
-    history = db.get_chat(limit=20, since=today)
+    # The visible UI starts fresh each time the app launches, but Steve's context
+    # does not. Keep a generous private window of prior turns across days and trim
+    # only if it would crowd out current training data/model reasoning.
+    history = db.get_chat(limit=160)
+    kept, chars = [], 0
+    for turn in reversed(history):
+        size = len(turn.get("content") or "")
+        if kept and chars + size > 80_000:
+            break
+        kept.append(turn)
+        chars += size
+    history = list(reversed(kept))
     messages = [{"role": h["role"], "content": h["content"]} for h in history]
     # The morning brief is a standalone assistant message; the API requires the
     # first message to be 'user', so drop any leading assistant turns.

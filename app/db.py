@@ -350,6 +350,18 @@ def get_constraints(date: str) -> list[dict[str, Any]]:
         "SELECT * FROM constraints_log WHERE date=? ORDER BY created_at", (date,)).fetchall()]
 
 
+def get_constraint_history(limit: int = 200) -> list[dict[str, Any]]:
+    """Dated durable coaching memories, oldest-to-newest within the limit.
+
+    The chat UI can start visually fresh without making Steve forget prior
+    availability, injuries, equipment constraints, or preferences.
+    """
+    rows = _conn().execute(
+        "SELECT * FROM constraints_log ORDER BY id DESC LIMIT ?", (limit,)
+    ).fetchall()
+    return [dict(r) for r in reversed(rows)]
+
+
 # --- Web push subscriptions ---------------------------------------------------
 def add_push_subscription(endpoint: str, sub_json: str) -> None:
     import datetime

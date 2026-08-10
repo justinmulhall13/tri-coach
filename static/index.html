@@ -2,14 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>Tri Coach</title>
 <!-- iPhone home-screen app (PWA) -->
 <link rel="manifest" href="/manifest.webmanifest" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Tri Coach" />
-<meta name="theme-color" content="#0a0d12" />
+<meta name="theme-color" content="#f3f1f8" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#111018" media="(prefers-color-scheme: dark)" />
 <link rel="apple-touch-icon" href="/static/icon.png" />
 <link rel="preconnect" href="https://fonts.bunny.net" />
 <link href="https://fonts.bunny.net/css?family=bricolage-grotesque:400,500,600,700,800|hanken-grotesk:400,500,600,700|varela-round:400" rel="stylesheet" />
@@ -296,10 +297,6 @@
   .cg-ev .evt{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:4px;}
   .cg-ev .evt svg{width:13px;height:13px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle;}
   .cg-ev .evtime{font-size:9.5px;color:var(--muted);font-variant-numeric:tabular-nums;}
-  .cg-ev.wo .resize{position:absolute;left:0;right:0;bottom:0;height:12px;cursor:ns-resize;touch-action:none;
-    display:flex;align-items:flex-end;justify-content:center;}
-  .cg-ev.wo .resize::after{content:"";width:24px;height:3px;border-radius:2px;margin-bottom:2px;
-    background:color-mix(in srgb,var(--a1) 70%,transparent);}
   .wo-sched{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--line);
     border-radius:12px;background:var(--glass2);}
   .wo-sched label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);}
@@ -638,11 +635,116 @@
   .pmc-stat .pk{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
   .pmc-stat .pv{font-family:var(--disp);font-size:24px;font-weight:800;line-height:1.1;margin-top:3px;}
   .pmc-stat .pn{font-size:11px;color:var(--muted);}
-  .zrow{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:12.5px;}
-  .zrow:first-child{border-top:0;}
-  .zrow .zn{width:26px;font-weight:700;color:var(--a1);}
-  .zrow .zb{flex:1;font-variant-numeric:tabular-nums;}
-  .zrow .zp{color:var(--muted);font-variant-numeric:tabular-nums;}
+
+  /* Training load is a Stats-first decision surface, not a Home-page data dump. */
+  .load-card{isolation:isolate;overflow:hidden!important;padding:22px!important;
+    background:
+      radial-gradient(75% 120% at 0% 0%,rgba(var(--glow),.13),transparent 68%),
+      var(--surface)!important;}
+  .load-card::after{content:"";position:absolute;z-index:-1;right:-90px;top:-130px;width:280px;height:280px;
+    border-radius:50%;background:radial-gradient(circle,rgba(90,170,255,.1),transparent 68%);pointer-events:none;}
+  .load-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:17px;}
+  .load-card-head h2{display:block;margin:0 0 3px;font-size:25px;line-height:1.05;letter-spacing:-.035em;
+    text-transform:none;color:var(--ink);font-weight:800;}
+  .load-card-head h2::before{display:none;}
+  .load-card-head p{margin:0;color:var(--muted);font-size:12.5px;line-height:1.4;}
+  .load-window{flex:none;padding:6px 10px;border:1px solid rgba(var(--glow),.18);border-radius:999px;
+    background:rgba(var(--glow),.08);color:var(--a1);font-size:9.5px;font-weight:750;letter-spacing:.09em;text-transform:uppercase;}
+  .load-summary{display:grid;grid-template-columns:minmax(210px,.72fr) minmax(0,1.28fr);gap:14px;margin-bottom:18px;}
+  .load-score,.load-story{border:1px solid rgba(16,18,22,.075);border-radius:20px;
+    background:rgba(255,255,255,.53);box-shadow:inset 0 1px 0 rgba(255,255,255,.62);}
+  .load-score{padding:16px;}
+  .load-score-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+  .load-score-label{font-size:9.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);}
+  .load-ratio{font-family:var(--disp);font-size:42px;font-weight:800;line-height:.96;letter-spacing:-.055em;margin-top:5px;}
+  .load-ratio small{display:block;margin-top:7px;font:700 9.5px/1 var(--body);letter-spacing:.11em;text-transform:uppercase;color:var(--muted);}
+  .load-state{padding:5px 9px;border-radius:999px;font-size:9.5px;font-weight:750;letter-spacing:.07em;text-transform:uppercase;
+    background:color-mix(in srgb,var(--load-tone) 13%,transparent);color:var(--load-tone);}
+  .load-ratio-track{position:relative;height:8px;margin-top:17px;border-radius:999px;background:rgba(16,18,22,.075);}
+  .load-ratio-track .sweet{position:absolute;left:40%;width:25%;inset-block:0;border-radius:999px;background:rgba(15,157,110,.2);}
+  .load-ratio-track .marker{position:absolute;left:var(--ratio-pos);top:50%;width:14px;height:14px;border-radius:50%;
+    transform:translate(-50%,-50%);background:var(--load-tone);border:3px solid var(--surface-solid);
+    box-shadow:0 3px 12px color-mix(in srgb,var(--load-tone) 45%,transparent);}
+  .load-ratio-scale{display:flex;justify-content:space-between;margin-top:7px;color:var(--muted);font-size:9px;font-variant-numeric:tabular-nums;}
+  .load-ratio-scale span:nth-child(2){color:var(--good);font-weight:650;}
+  .load-story{display:flex;flex-direction:column;justify-content:space-between;padding:17px 18px;}
+  .load-story strong{display:block;font-family:var(--disp);font-size:19px;line-height:1.2;letter-spacing:-.018em;}
+  .load-story>p{margin:5px 0 15px;color:var(--muted);font-size:12.5px;line-height:1.45;max-width:620px;}
+  .load-comparison{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+  .load-compare{padding:10px 11px;border-radius:14px;background:rgba(16,18,22,.035);border:1px solid rgba(16,18,22,.055);}
+  .load-compare span{display:block;color:var(--muted);font-size:9px;letter-spacing:.08em;text-transform:uppercase;}
+  .load-compare b{display:inline-block;margin-top:2px;font-family:var(--round);font-size:20px;line-height:1.1;}
+  .load-compare em{font-style:normal;color:var(--muted);font-size:10px;margin-left:4px;}
+  .load-focus-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:9px;}
+  .load-focus-head b{font-size:12.5px;}
+  .load-focus-head span{font-size:10px;color:var(--muted);}
+  .load-systems{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;}
+  .load-system{--system-tone:var(--a1);padding:13px;border:1px solid rgba(16,18,22,.07);border-radius:17px;
+    background:rgba(255,255,255,.48);box-shadow:inset 0 1px 0 rgba(255,255,255,.56);}
+  .load-system-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
+  .load-system-name{font-size:12px;font-weight:700;}
+  .load-system-state{padding:3px 7px;border-radius:999px;background:color-mix(in srgb,var(--system-tone) 12%,transparent);
+    color:var(--system-tone);font-size:8.5px;font-weight:750;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;}
+  .load-system-value{margin-top:12px;font-family:var(--round);font-size:23px;line-height:1;}
+  .load-system-value small{font:500 10px/1.2 var(--body);color:var(--muted);margin-left:4px;}
+  .load-meter{position:relative;height:8px;margin-top:11px;border-radius:999px;background:rgba(16,18,22,.07);overflow:visible;}
+  .load-meter .target{position:absolute;left:var(--target-start);width:var(--target-width);inset-block:0;border-radius:999px;
+    background:rgba(15,157,110,.2);box-shadow:inset 0 0 0 1px rgba(15,157,110,.15);}
+  .load-meter .current{position:absolute;left:0;top:2px;width:var(--value-pos);height:4px;border-radius:999px;background:var(--system-tone);}
+  .load-meter .current::after{content:"";position:absolute;right:-5px;top:50%;width:10px;height:10px;border-radius:50%;
+    transform:translateY(-50%);background:var(--system-tone);border:2px solid var(--surface-solid);}
+  .load-system-caption{margin-top:8px;color:var(--muted);font-size:9.5px;line-height:1.35;}
+  .load-feedback{display:flex;align-items:flex-start;gap:9px;margin-top:12px;padding:11px 12px;border-radius:15px;
+    border:1px solid color-mix(in srgb,var(--feedback-tone) 23%,transparent);
+    background:color-mix(in srgb,var(--feedback-tone) 7%,transparent);font-size:11.5px;line-height:1.4;}
+  .load-feedback svg{flex:none;width:17px;height:17px;fill:none;stroke:var(--feedback-tone);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+  .load-feedback b{color:var(--ink);}
+  .load-empty{padding:18px;border:1px dashed var(--line);border-radius:17px;color:var(--muted);text-align:center;}
+  .load-skeleton{height:220px;border-radius:20px;background:linear-gradient(100deg,rgba(16,18,22,.035) 20%,rgba(var(--glow),.09) 42%,rgba(16,18,22,.035) 64%);
+    background-size:220% 100%;animation:load-shimmer 1.4s ease infinite;}
+  @keyframes load-shimmer{to{background-position:-220% 0;}}
+  /* Training zones use the same layered, glanceable hierarchy as Training Load. */
+  .zones-card{overflow:hidden!important;background:
+    radial-gradient(85% 85% at 100% 0%,rgba(var(--glow),.09),transparent 72%),var(--surface)!important;}
+  .zones-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:13px;}
+  .zones-card-head h2{display:block;margin:0 0 3px;font-size:20px;line-height:1.08;letter-spacing:-.025em;
+    text-transform:none;color:var(--ink);font-weight:800;}
+  .zones-card-head h2::before{display:none;}
+  .zones-card-head p{margin:0;color:var(--muted);font-size:11.5px;line-height:1.4;}
+  .zones-source{flex:none;padding:5px 9px;border:1px solid rgba(var(--glow),.17);border-radius:999px;
+    background:rgba(var(--glow),.08);color:var(--a1);font-size:8.5px;font-weight:750;letter-spacing:.08em;text-transform:uppercase;}
+  .zone-thresholds{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-bottom:13px;}
+  .zone-threshold{padding:9px 10px;border:1px solid rgba(16,18,22,.06);border-radius:13px;
+    background:rgba(255,255,255,.48);box-shadow:inset 0 1px 0 rgba(255,255,255,.58);min-width:0;}
+  .zone-threshold span{display:block;color:var(--muted);font-size:7.8px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;white-space:nowrap;}
+  .zone-threshold b{display:block;margin-top:3px;font-family:var(--round);font-size:17px;line-height:1.1;white-space:nowrap;}
+  .zone-threshold b small{font:500 8.5px/1 var(--body);color:var(--muted);margin-left:2px;}
+  .zone-list-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:7px;}
+  .zone-list-head b{font-size:11.5px;}
+  .zone-list-head span{font-size:9px;color:var(--muted);}
+  .zone-list{display:flex;flex-direction:column;gap:7px;}
+  .zone-row{--zone-mix:14%;--zone-width:20%;position:relative;display:grid;grid-template-columns:minmax(118px,.75fr) minmax(0,1.5fr);
+    align-items:center;gap:10px;padding:10px 11px 11px 13px;border:1px solid rgba(16,18,22,.065);border-radius:16px;
+    background:linear-gradient(100deg,color-mix(in srgb,var(--a1) var(--zone-mix),transparent),rgba(255,255,255,.42) 42%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.58);overflow:hidden;}
+  .zone-row::before{content:"";position:absolute;left:0;top:11px;bottom:11px;width:3px;border-radius:0 4px 4px 0;
+    background:color-mix(in srgb,var(--a1) calc(var(--zone-mix) + 30%),var(--a2));}
+  .zone-identity{display:flex;align-items:center;gap:9px;min-width:0;}
+  .zone-number{flex:none;width:35px;height:35px;display:grid;place-items:center;border-radius:12px;
+    background:color-mix(in srgb,var(--a1) calc(var(--zone-mix) + 7%),transparent);border:1px solid rgba(var(--glow),.14);
+    color:var(--a1);font-family:var(--round);font-size:12px;font-weight:750;box-shadow:inset 0 1px 0 rgba(255,255,255,.48);}
+  .zone-copy{min-width:0;}
+  .zone-copy b{display:block;font-size:11.5px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .zone-copy span{display:block;margin-top:3px;color:var(--muted);font-size:8.8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .zone-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;}
+  .zone-metric{min-width:0;padding:6px 7px;border-radius:10px;background:rgba(255,255,255,.4);border:1px solid rgba(16,18,22,.045);}
+  .zone-metric span{display:block;color:var(--muted);font-size:7.5px;font-weight:650;letter-spacing:.055em;text-transform:uppercase;white-space:nowrap;}
+  .zone-metric b{display:block;margin-top:2px;font-family:var(--round);font-size:10.5px;line-height:1.15;white-space:nowrap;font-variant-numeric:tabular-nums;}
+  .zone-metric b small{font:500 7.5px/1 var(--body);color:var(--muted);margin-left:1px;}
+  .zone-intensity{grid-column:1 / -1;position:relative;height:3px;border-radius:99px;background:rgba(16,18,22,.065);overflow:hidden;}
+  .zone-intensity i{display:block;width:var(--zone-width);height:100%;border-radius:99px;
+    background:linear-gradient(90deg,color-mix(in srgb,var(--a1) 62%,transparent),var(--a1));box-shadow:0 0 9px rgba(var(--glow),.35);}
+  .zone-empty{padding:18px;border:1px dashed var(--line);border-radius:16px;color:var(--muted);text-align:center;}
 
   /* ── calendar nav + month/agenda views ─────────────────────── */
   .cal-nav{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap;}
@@ -756,17 +858,377 @@
   .fuel-confirm b{font-size:13px;display:block;}.fuel-confirm span{font-size:11.5px;color:var(--muted);}
 
   /* Coach: a useful, familiar conversation surface rather than a report panel. */
-  #coach-card{max-width:780px;margin:0 auto;padding:0;overflow:hidden;background:rgba(255,255,255,.86);}
+  /* Coach owns the available screen: long messages and longer thinking both have room. */
+  #main-coach{max-width:none;margin:0;padding:0;min-height:calc(100dvh - 96px);}
+  #coach-card{flex:1;max-width:none;min-height:calc(100dvh - 96px);margin:0;padding:0;overflow:hidden;border-radius:0;background:rgba(255,255,255,.9);}
   .coach-top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px 12px;border-bottom:1px solid var(--line);}
   .coach-person{display:flex;align-items:center;gap:10px;}.coach-avatar{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,var(--a1),var(--a2));color:#fff;font-size:16px;box-shadow:0 5px 16px -7px rgba(var(--glow),.8);}
   .coach-person b{display:block;font-size:14px;}.coach-person span{display:block;font-size:11px;color:var(--muted);margin-top:1px;}
-  #chatlog{padding:16px 18px;gap:12px;min-height:280px;max-height:calc(100vh - 275px);background:linear-gradient(180deg,rgba(var(--glow),.035),transparent 35%);}
+  #chatlog{padding:18px max(18px,calc((100vw - 900px)/2));gap:12px;min-height:280px;max-height:none;flex:1 1 auto;background:linear-gradient(180deg,rgba(var(--glow),.035),transparent 35%);}
   .msg{max-width:min(88%,590px);padding:10px 13px;font-size:13px;line-height:1.48;border-radius:18px;box-shadow:0 2px 8px rgba(16,18,22,.035);}
   .msg.fmt{padding:12px 14px;}.msg.assistant{border-bottom-left-radius:5px;background:#fff;}.msg.user{border-bottom-right-radius:5px;}
   .msg .tldr{font-size:14px;padding:0 0 8px;margin-bottom:7px;}.msg .cb,.msg .cline{font-size:12.5px;line-height:1.45;padding:3px 0;}.msg .cbl{min-width:52px;font-size:10px;}
-  .coach-compose{padding:11px 14px 14px;border-top:1px solid var(--line);background:#fff;}.chatbar{gap:7px;}.chatbar input{border-radius:18px;padding:12px 14px;font-size:13px;}.chatbar .primary{border-radius:16px;padding:11px 15px;}
+  .coach-compose{padding:12px max(18px,calc((100vw - 900px)/2)) 14px;border-top:1px solid var(--line);background:#fff;}.chatbar{gap:7px;align-items:flex-end;}.chatbar textarea{flex:1;min-width:0;resize:none;overflow-y:auto;max-height:180px;background:var(--glass2);border:1px solid var(--line);border-radius:18px;padding:12px 14px;color:var(--ink);font:13px/1.45 var(--body);}.chatbar textarea:focus{outline:none;border-color:rgba(var(--glow),.6);box-shadow:0 0 0 3px rgba(var(--glow),.12);}.chatbar .primary{border-radius:16px;padding:11px 15px;}
   .coach-hint{padding:7px 3px 0;font-size:11.5px;color:var(--muted);}
-  @media(max-width:600px){#coach-card{margin:-4px -2px 0;border-radius:18px;}#chatlog{padding:14px 12px;min-height:calc(100vh - 270px);max-height:none;}.coach-top{padding:13px 14px 10px;}.msg{max-width:92%;}.coach-compose{padding:10px 12px 12px;}.chatbar .primary{padding:11px 13px;}}
+  @media(max-width:600px){#main-coach,#coach-card{min-height:calc(100dvh - 132px);}#coach-card{margin:0;border-radius:0;}#chatlog{padding:14px 12px;min-height:calc(100dvh - 290px);}.coach-top{padding:13px 14px 10px;}.msg{max-width:92%;}.coach-compose{padding:10px 12px calc(env(safe-area-inset-bottom,0px) + 10px);}.chatbar .primary{padding:11px 13px;}}
+
+  /* ── iOS 26-inspired visual system ─────────────────────────────
+     Glass is a control/navigation layer. Data stays on quieter, more
+     legible surfaces underneath it. */
+  :root{
+    --surface:rgba(255,255,255,.78);
+    --surface-solid:#fff;
+    --surface-soft:rgba(247,247,249,.78);
+    --nav-glass:rgba(255,255,255,.68);
+    --glass-line:rgba(255,255,255,.72);
+    --ambient-shadow:0 18px 50px -34px rgba(26,20,55,.32),0 2px 8px rgba(20,18,32,.05);
+    --lift-shadow:0 22px 60px -32px rgba(var(--glow),.42),0 10px 24px -20px rgba(20,18,32,.3);
+    --r-card:24px;
+    --r-control:18px;
+    --spring:cubic-bezier(.2,.85,.25,1.12);
+    --hero-shift:0px;
+  }
+  html{scroll-behavior:smooth;touch-action:pan-x pan-y;}
+  body{background:
+    radial-gradient(70vw 55vw at 12% -8%,rgba(var(--glow),.075),transparent 62%),
+    radial-gradient(65vw 45vw at 100% 12%,rgba(73,173,255,.045),transparent 65%),
+    var(--bg);}
+  body::after{opacity:.26;}
+
+  header{
+    box-shadow:0 12px 36px -32px rgba(16,18,22,.5),inset 0 -1px 0 rgba(255,255,255,.46);
+    transition:padding .42s var(--spring),background .3s ease,box-shadow .3s ease,min-height .42s var(--spring),border-radius .42s var(--spring);
+  }
+  header::after{content:"";position:absolute;left:14px;right:14px;top:0;height:1px;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.92),transparent);pointer-events:none;}
+  #notif-btn svg{width:18px;height:18px;display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+  .tabs{position:relative;background:rgba(244,244,246,.64);backdrop-filter:blur(22px) saturate(165%);
+    -webkit-backdrop-filter:blur(22px) saturate(165%);border-color:rgba(16,18,22,.08);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.75);}
+  .tab{min-height:34px;border-radius:10px;transition:color .22s ease,background .3s var(--spring),transform .18s ease;}
+  .tab.active{background:linear-gradient(135deg,rgba(112,82,239,.96),rgba(75,52,204,.98));
+    box-shadow:0 7px 18px -10px rgba(var(--glow),.9),inset 0 1px 0 rgba(255,255,255,.35);}
+
+  #main,#main-fuel,#main-stats{gap:20px;}
+  #main .card,#main-fuel .card,#main-stats .card{
+    background:var(--surface);border-color:rgba(16,18,22,.075);border-radius:var(--r-card);
+    box-shadow:var(--ambient-shadow);backdrop-filter:none;
+  }
+  #main .card:hover,#main-fuel .card:hover,#main-stats .card:hover{box-shadow:var(--lift-shadow);}
+  .card h2{letter-spacing:.12em;}
+  .card h2::before{border-radius:999px;box-shadow:0 0 12px rgba(var(--glow),.7);}
+
+  /* Goal + readiness become a single adaptive, content-first hero. */
+  .home-hero{position:relative;isolation:isolate;display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);
+    overflow:hidden;border:1px solid rgba(var(--glow),.15);border-radius:30px;padding:8px;
+    background:
+      radial-gradient(80% 150% at 0% 0%,rgba(var(--glow),.16),transparent 58%),
+      radial-gradient(70% 130% at 100% 100%,rgba(80,184,255,.09),transparent 64%),
+      rgba(255,255,255,.73);
+    box-shadow:0 28px 80px -48px rgba(var(--glow),.72),inset 0 1px 0 rgba(255,255,255,.82);
+  }
+  .home-hero::before{content:"";position:absolute;z-index:-1;width:320px;height:320px;border-radius:50%;
+    right:-110px;top:-170px;transform:translate3d(0,var(--hero-shift),0);
+    background:radial-gradient(circle,rgba(var(--glow),.16),transparent 67%);filter:blur(2px);pointer-events:none;}
+  .home-hero[data-tone="good"]{--hero-status:15,157,110;}
+  .home-hero[data-tone="moderate"]{--hero-status:194,129,10;}
+  .home-hero[data-tone="poor"]{--hero-status:220,47,60;}
+  .home-hero::after{content:"";position:absolute;inset:auto 8% -55% 35%;z-index:-1;height:74%;
+    background:radial-gradient(ellipse,rgba(var(--hero-status,98,68,230),.13),transparent 68%);pointer-events:none;}
+  .home-hero .racecard,.home-hero .readycard{margin:0;border:0;background:transparent;box-shadow:none;border-radius:23px;padding:20px;}
+  .home-hero .racecard{display:flex;flex-direction:column;justify-content:space-between;border-right:1px solid rgba(16,18,22,.075);}
+  .home-hero .readycard{background:rgba(255,255,255,.43);box-shadow:inset 0 1px 0 rgba(255,255,255,.55);}
+  .rc-name{font-size:clamp(25px,3vw,36px);letter-spacing:-.035em;}
+  .rc-count b{font-size:46px;letter-spacing:-.05em;}
+  .rc-bar{height:7px;background:rgba(16,18,22,.07);}
+  .rc-fill{box-shadow:0 0 18px rgba(var(--glow),.42);transition:width .8s var(--spring);}
+  .ready-ring{filter:drop-shadow(0 10px 18px rgba(15,157,110,.14));}
+  .ready-ring circle:last-of-type{transition:stroke-dashoffset 1s var(--spring);}
+  .rt-head{font-size:17px;max-width:480px;}
+  .rtile,.metric,.macro,.pmc-stat{background:var(--surface-soft);border-color:rgba(16,18,22,.075);box-shadow:inset 0 1px 0 rgba(255,255,255,.62);}
+
+  /* Today's workout owns the action hierarchy; supporting data follows. */
+  #workout-card{padding:0!important;background:transparent!important;border:0!important;box-shadow:none!important;overflow:visible!important;}
+  #workout-card:hover{transform:none!important;box-shadow:none!important;}
+  #workout-card>.note{padding:0 5px 14px;}
+  #workout>.wo-tile{min-height:92px;padding:20px 21px;border-radius:26px;
+    background:linear-gradient(135deg,rgba(255,255,255,.88),rgba(var(--glow),.065));
+    border-color:rgba(var(--glow),.16);box-shadow:0 22px 54px -40px rgba(var(--glow),.65),inset 0 1px 0 rgba(255,255,255,.9);}
+  #workout>.wo-tile.done{background:linear-gradient(135deg,rgba(240,255,249,.92),rgba(52,211,153,.1));border-color:rgba(15,157,110,.22);}
+  #workout>.wo-tile .wt-ico{width:50px;height:50px;display:grid;place-items:center;border-radius:17px;
+    background:rgba(var(--glow),.09);box-shadow:inset 0 1px 0 rgba(255,255,255,.75);font-size:25px;}
+  #workout>.wo-tile .wt-title{font-size:18px;letter-spacing:-.012em;}
+  #rings-card,#signals-card{margin-top:16px;}
+  .bigring{background:rgba(248,248,250,.67);border-color:rgba(16,18,22,.07);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.78);}
+
+  /* Native-style recent activity rows replace the compressed data table. */
+  .activity-list{display:flex;flex-direction:column;}
+  .activity-row{appearance:none;width:100%;display:grid;grid-template-columns:42px 34px minmax(0,1fr) auto 18px;
+    align-items:center;gap:10px;padding:11px 4px;border:0;border-bottom:1px solid var(--line);border-radius:0;
+    background:transparent;text-align:left;box-shadow:none;color:var(--ink);}
+  .activity-row:last-child{border-bottom:0;}
+  .activity-row:hover{background:rgba(var(--glow),.045);box-shadow:none;border-color:var(--line);}
+  .activity-date{font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums;text-align:center;}
+  .activity-icon{width:32px;height:32px;display:grid;place-items:center;border-radius:11px;background:rgba(var(--glow),.09);font-size:16px;}
+  .activity-main{min-width:0;}
+  .activity-name{font-size:13.5px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .activity-sport{font-size:10.5px;color:var(--muted);text-transform:capitalize;margin-top:1px;}
+  .activity-metrics{text-align:right;font-size:11.5px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums;}
+  .activity-arrow{font-size:18px;color:rgba(107,114,128,.62);}
+  .activity-note{padding-top:8px;}
+
+  /* Bottom sheets: internal scrolling, sticky translucent title, swipe-down affordance. */
+  .overlay{background:rgba(22,19,34,.3);backdrop-filter:blur(18px) saturate(125%);-webkit-backdrop-filter:blur(18px) saturate(125%);}
+  body.sheet-open{overflow:hidden;}
+  .sheet{position:relative;max-height:92dvh;overflow-y:auto;overscroll-behavior:contain;background:rgba(255,255,255,.93);
+    border-color:rgba(255,255,255,.8);border-radius:30px;box-shadow:0 48px 140px -36px rgba(22,16,49,.48),inset 0 1px 0 rgba(255,255,255,.95);}
+  .sheet-head{position:sticky;top:0;z-index:8;padding:22px 24px 14px;background:rgba(255,255,255,.78);
+    backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%);
+    border-bottom:1px solid rgba(16,18,22,.055);}
+  .sheet-head .t{font-size:23px;letter-spacing:-.025em;}
+  .xbtn{background:rgba(240,240,243,.7);backdrop-filter:blur(14px);box-shadow:inset 0 1px 0 rgba(255,255,255,.8);}
+  .wo-pushrow{position:sticky;bottom:10px;z-index:7;margin:16px -6px 4px;padding:10px;border:1px solid rgba(255,255,255,.72);
+    border-radius:19px;background:rgba(248,248,250,.76);backdrop-filter:blur(22px) saturate(160%);
+    -webkit-backdrop-filter:blur(22px) saturate(160%);box-shadow:0 18px 44px -28px rgba(16,18,22,.5);}
+
+  /* Coach: summary-first conversation and a persistent glass composer. */
+  /* A transformed ancestor changes `position:fixed` into ancestor-relative
+     positioning. iOS keeps :hover active after a tap, so the generic card
+     lift used to make the composer scroll away with this card. */
+  #coach-card,#coach-card:hover{background:transparent;border:0;box-shadow:none;transform:none!important;}
+  .coach-top{position:sticky;top:0;z-index:7;background:rgba(255,255,255,.72);backdrop-filter:blur(24px) saturate(165%);
+    -webkit-backdrop-filter:blur(24px) saturate(165%);box-shadow:0 14px 34px -32px rgba(16,18,22,.55);}
+  .coach-avatar{position:relative;box-shadow:0 10px 24px -12px rgba(var(--glow),.85),inset 0 1px 0 rgba(255,255,255,.36);}
+  .coach-avatar::after{content:"";position:absolute;right:-1px;bottom:-1px;width:9px;height:9px;border:2px solid #fff;border-radius:50%;background:var(--good);}
+  #chatlog{background:
+    radial-gradient(50% 28% at 50% 0%,rgba(var(--glow),.07),transparent 100%),
+    linear-gradient(180deg,rgba(255,255,255,.2),transparent 35%);}
+  .msg{box-shadow:0 12px 34px -28px rgba(16,18,22,.52);}
+  .msg.assistant{background:rgba(255,255,255,.83);border-color:rgba(16,18,22,.07);}
+  .msg.user{background:linear-gradient(135deg,#7658ef,#4f34cc);box-shadow:0 18px 34px -24px rgba(var(--glow),.9),inset 0 1px 0 rgba(255,255,255,.25);}
+  .coach-details{margin-top:8px;border-top:1px solid var(--line);padding-top:7px;}
+  .coach-details summary{list-style:none;cursor:pointer;color:var(--a1);font-size:11.5px;font-weight:700;padding:3px 0;}
+  .coach-details summary::-webkit-details-marker{display:none;}
+  .coach-details summary::after{content:"  ·  more";font-weight:500;color:var(--muted);}
+  .coach-details[open] summary::after{content:"  ·  less";}
+  .coach-detail-body{padding-top:5px;}
+  #main-coach{padding-bottom:142px;}
+  #chatlog{padding-bottom:126px;}
+  .coach-new{padding:6px 11px;font-size:11.5px;border-radius:999px;background:rgba(var(--glow),.08);}
+  .coach-empty{margin:auto;max-width:390px;padding:42px 22px;text-align:center;color:var(--muted);}
+  .coach-empty-mark{width:52px;height:52px;margin:0 auto 14px;border-radius:18px;display:grid;place-items:center;
+    color:var(--a1);background:linear-gradient(145deg,rgba(var(--glow),.16),rgba(var(--glow),.06));
+    border:1px solid rgba(var(--glow),.16);box-shadow:inset 0 1px 0 rgba(255,255,255,.52);}
+  .coach-empty-mark svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+  .coach-empty b{display:block;color:var(--ink);font-size:16px;margin-bottom:4px;}
+  .coach-empty span{font-size:12.5px;line-height:1.5;}
+  .coach-compose{position:fixed;left:50%;bottom:24px;z-index:19;width:min(820px,calc(100% - 36px));transform:translateX(-50%);
+    padding:7px;border:1px solid rgba(255,255,255,.78);border-radius:29px;background:rgba(255,255,255,.74);
+    backdrop-filter:blur(28px) saturate(175%);-webkit-backdrop-filter:blur(28px) saturate(175%);
+    box-shadow:0 22px 58px -28px rgba(16,18,22,.58),inset 0 1px 0 rgba(255,255,255,.9);}
+  .chatbar{gap:7px;align-items:flex-end;}
+  .chatbar textarea{min-height:50px;max-height:132px;padding:13px 17px;border-radius:23px;font-size:16px;line-height:1.4;
+    background:rgba(246,246,248,.68);border-color:rgba(16,18,22,.08);box-shadow:inset 0 1px 2px rgba(16,18,22,.035);}
+  .chatbar textarea:focus{background:rgba(255,255,255,.88);box-shadow:0 0 0 3px rgba(var(--glow),.12),inset 0 1px 2px rgba(16,18,22,.03);}
+  .chatbar .primary{position:relative;flex:0 0 50px;width:50px;height:50px;padding:0;border-radius:50%;display:grid;place-items:center;}
+  .chatbar .primary svg{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:2.1;stroke-linecap:round;stroke-linejoin:round;}
+  .send-label{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+  .coach-hint{display:none;}
+
+  /* Fuel: remaining intake leads; the supporting gauges stay compact. */
+  .fuel-rings{align-items:stretch;gap:10px;}
+  .fring{padding:10px 13px;border-radius:16px;background:rgba(247,247,249,.72);border:1px solid rgba(16,18,22,.07);}
+  .fring.remaining{order:-1;min-width:180px;flex:1.3;background:linear-gradient(135deg,rgba(52,211,153,.14),rgba(255,255,255,.6));}
+  .fring.remaining .fv{font-size:34px;color:var(--good);}
+  .fring.session{flex:1;}
+  .macro{position:relative;display:grid;grid-template-columns:1fr auto;grid-template-areas:"copy gauge" "bar bar";align-items:center;gap:8px 12px;overflow:hidden;}
+  .macro-copy{grid-area:copy;min-width:0;}
+  .macro-gauge{grid-area:gauge;width:48px;height:48px;border-radius:50%;display:grid;place-items:center;
+    background:conic-gradient(var(--macro-color) calc(var(--pct)*1%),rgba(16,18,22,.07) 0);position:relative;}
+  .macro-gauge::before{content:"";position:absolute;inset:5px;border-radius:50%;background:var(--surface-solid);}
+  .macro-gauge span{position:relative;font-size:10px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums;}
+  .macro .mbar{grid-area:bar;margin-top:2px;}
+  #photo-btn{background:linear-gradient(135deg,rgba(var(--glow),.16),rgba(80,184,255,.1));min-height:42px;}
+
+  /* Analytics: direct-touch chart inspection. */
+  .pmc-plot{position:relative;touch-action:pan-y;border-radius:18px;padding:4px 0 0;}
+  .pmc-plot svg{display:block;}
+  .pmc-guide,.pmc-dot{opacity:0;transition:opacity .12s ease;pointer-events:none;}
+  .pmc-plot.inspecting .pmc-guide,.pmc-plot.inspecting .pmc-dot{opacity:1;}
+  .pmc-tip{position:absolute;z-index:4;top:8px;left:0;min-width:142px;padding:9px 11px;border-radius:15px;
+    background:rgba(255,255,255,.76);border:1px solid rgba(255,255,255,.85);backdrop-filter:blur(20px) saturate(165%);
+    -webkit-backdrop-filter:blur(20px) saturate(165%);box-shadow:0 18px 42px -28px rgba(16,18,22,.5);
+    opacity:0;transform:translateY(4px);transition:opacity .15s ease,transform .15s ease;pointer-events:none;}
+  .pmc-plot.inspecting .pmc-tip{opacity:1;transform:none;}
+  .pmc-tip .pt-date{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+  .pmc-tip .pt-values{font-size:12px;font-weight:650;margin-top:2px;white-space:nowrap;}
+
+  /* Elements become animated only after JS marks them, so content never depends on animation to appear. */
+  .reveal-ready{opacity:0;transform:translateY(15px) scale(.992);filter:blur(3px);
+    transition:opacity .55s ease,transform .7s var(--spring),filter .45s ease;}
+  .reveal-ready.revealed{opacity:1;transform:none;filter:none;}
+
+  @media(max-width:820px){
+    /* Reserve the iPhone safe-area in normal flow. Without this, sticky `top`
+       moves the header down visually while the first card keeps its old y-position. */
+    body{padding-top:max(8px,env(safe-area-inset-top,0px));}
+    header{top:max(8px,env(safe-area-inset-top,0px));width:calc(100% - 20px);margin:0 10px;padding:12px 12px 11px;
+      display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;border:1px solid rgba(255,255,255,.72);border-radius:28px;
+      background:var(--nav-glass);backdrop-filter:blur(26px) saturate(175%);-webkit-backdrop-filter:blur(26px) saturate(175%);
+      box-shadow:0 18px 50px -34px rgba(16,18,22,.68),inset 0 1px 0 rgba(255,255,255,.88);}
+    header .brand{grid-column:1 / -1;min-width:0;gap:9px;flex-wrap:nowrap;}
+    header .right{grid-column:1 / -1;justify-content:flex-end;gap:8px;}
+    header.header-compact{padding:7px 9px;min-height:54px;border-radius:24px;gap:4px 7px;background:rgba(255,255,255,.74);}
+    header.header-compact .brand{grid-column:1;overflow:hidden;}
+    header.header-compact .right{grid-column:2;min-width:0;}
+    header.header-compact .emblem{width:27px;height:27px;flex:none;}
+    header.header-compact .logo,header.header-compact #phase{opacity:0;width:0;overflow:hidden;margin:0;pointer-events:none;}
+    header.header-compact .todaychip{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:4px 8px;font-size:11px;}
+    header.header-compact .countdown .u{display:none;}
+    header.header-compact .countdown .n{font-size:22px;}
+    header.header-compact #refresh{width:36px;height:36px;padding:0;font-size:0;border-radius:50%;}
+    header.header-compact #refresh::before{content:"↻";font-size:19px;line-height:1;}
+    header.header-compact #notif-btn{width:36px;height:36px;padding:8px;}
+
+    .botnav{--tab-index:0;display:grid;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);
+      border:1px solid rgba(255,255,255,.78);border-radius:27px;padding:5px;background:var(--nav-glass);
+      backdrop-filter:blur(28px) saturate(180%);-webkit-backdrop-filter:blur(28px) saturate(180%);
+      box-shadow:0 24px 56px -32px rgba(17,14,32,.72),inset 0 1px 0 rgba(255,255,255,.9);overflow:hidden;}
+    .botnav::before{content:"";position:absolute;z-index:0;left:5px;top:5px;bottom:5px;width:calc((100% - 10px)/5);
+      border-radius:21px;background:linear-gradient(145deg,rgba(var(--glow),.17),rgba(var(--glow),.08));
+      border:1px solid rgba(var(--glow),.16);box-shadow:inset 0 1px 0 rgba(255,255,255,.65);
+      transform:translateX(calc(var(--tab-index)*100%));transition:transform .48s var(--spring);}
+    .botnav button{position:relative;z-index:1;min-height:52px;border-radius:20px;transition:color .24s ease,transform .2s var(--spring);}
+    .botnav button.on{background:transparent;color:var(--a1);}
+    .botnav button.on svg{transform:translateY(-1px) scale(1.05);}
+    .botnav button:active{transform:scale(.91);}
+    main{padding-bottom:calc(104px + env(safe-area-inset-bottom,0px))!important;}
+
+    .home-hero{grid-template-columns:1fr;padding:7px;border-radius:29px;}
+    .home-hero .racecard{border-right:0;border-bottom:1px solid rgba(16,18,22,.075);}
+    .home-hero .readycard{background:rgba(255,255,255,.36);}
+    .sheet{width:100%;max-height:93dvh;border-radius:30px 30px 0 0;}
+    .overlay{align-items:flex-end;padding:8vh 0 0;overflow:hidden;}
+    .sheet-head{padding-top:29px;touch-action:none;}
+    .sheet-head::before{content:"";position:absolute;top:9px;left:50%;width:42px;height:5px;border-radius:99px;
+      transform:translateX(-50%);background:rgba(107,114,128,.28);}
+    .sheet-body{padding-bottom:calc(28px + env(safe-area-inset-bottom,0px));}
+    .coach-compose{left:10px;right:10px;bottom:calc(82px + env(safe-area-inset-bottom,0px));width:auto;transform:none;margin:0;border-radius:29px;padding:6px;}
+    #main-coach{padding-bottom:calc(174px + env(safe-area-inset-bottom,0px));}
+    #chatlog{padding-bottom:calc(150px + env(safe-area-inset-bottom,0px));}
+  }
+
+  @media(max-width:600px){
+    #main,#main-fuel,#main-stats{padding-top:14px;gap:15px;}
+    .home-hero .racecard,.home-hero .readycard{padding:17px 16px;}
+    .rc-name{font-size:27px;}
+    .rc-count b{font-size:40px;}
+    .ready-top{align-items:flex-start;}
+    .ready-ring{width:82px;height:82px;}
+    .ready-tiles{grid-template-columns:repeat(4,minmax(72px,1fr));overflow-x:auto;scroll-snap-type:x mandatory;
+      scrollbar-width:none;margin-left:-2px;margin-right:-2px;padding:2px;}
+    .ready-tiles::-webkit-scrollbar{display:none;}
+    .rtile{scroll-snap-align:start;min-width:74px;padding:9px 8px;}
+    .modrow{border-radius:21px;padding:12px;}
+    #workout>.wo-tile{min-height:96px;padding:16px;border-radius:24px;}
+    #workout>.wo-tile .wt-ico{width:44px;height:44px;border-radius:15px;}
+    #rings-card{overflow:visible!important;padding-left:14px!important;padding-right:14px!important;}
+    .ringbank{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(232px,82vw);grid-template-columns:none;overflow-x:auto;
+      scroll-snap-type:x mandatory;overscroll-behavior-inline:contain;gap:12px;margin:0 -14px;padding:2px 14px 9px;scrollbar-width:none;}
+    .ringbank::-webkit-scrollbar{display:none;}
+    .bigring{scroll-snap-align:center;min-height:234px;justify-content:center;}
+    .activity-row{grid-template-columns:38px 32px minmax(0,1fr) 16px;gap:8px;padding:11px 0;}
+    .activity-metrics{grid-column:3;grid-row:2;text-align:left;margin-top:-7px;font-size:10.5px;}
+    .activity-arrow{grid-column:4;grid-row:1 / span 2;}
+    .activity-date{grid-row:1 / span 2;}
+    .activity-icon{grid-row:1 / span 2;}
+    .load-card{padding:17px 14px!important;}
+    .load-card-head{margin-bottom:13px;}
+    .load-card-head h2{font-size:23px;}
+    .load-card-head p{font-size:11.5px;}
+    .load-window{padding:5px 8px;font-size:8.5px;}
+    .load-summary{grid-template-columns:1fr;gap:10px;margin-bottom:15px;}
+    .load-score{padding:14px;}
+    .load-ratio{font-size:39px;}
+    .load-story{padding:14px;}
+    .load-story strong{font-size:17px;}
+    .load-story>p{margin-bottom:12px;}
+    .load-systems{grid-template-columns:1fr;}
+    .load-system{padding:12px 13px;}
+    .load-system-value{margin-top:9px;font-size:21px;}
+    .zones-card{padding:17px 14px!important;}
+    .zones-card-head h2{font-size:19px;}
+    .zone-row{grid-template-columns:1fr;gap:8px;padding:11px 11px 11px 13px;}
+    .zone-copy b{font-size:12.5px;}
+    .zone-copy span{font-size:9.5px;}
+    .zone-metric{padding:7px 8px;}
+    .zone-metric b{font-size:12px;}
+    .fuel-rings{display:grid;grid-template-columns:1fr 1fr;}
+    .fring.remaining{grid-column:1 / -1;min-height:84px;}
+    .fring.session{grid-column:1 / -1;}
+    .macrobank{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+    .macro{min-width:0;padding:11px;}
+    .macro .mv small{display:block;margin-top:2px;}
+    .macro-gauge{width:42px;height:42px;}
+    .coach-hint{display:none;}
+    .msg.assistant{border-radius:21px 21px 21px 7px;}
+    .msg.user{border-radius:21px 21px 7px 21px;}
+  }
+
+  @media(prefers-color-scheme:dark){
+    :root{color-scheme:dark;--bg:#111018;--ink:#f4f2f8;--muted:#aaa6b5;--line:rgba(255,255,255,.1);
+      --glass:#1d1b25;--glass2:#24222c;--surface:rgba(29,27,37,.83);--surface-solid:#1d1b25;
+      --surface-soft:rgba(38,35,48,.82);--nav-glass:rgba(28,26,36,.72);--glass-line:rgba(255,255,255,.12);
+      --shadow:0 1px 2px rgba(0,0,0,.2),0 10px 28px rgba(0,0,0,.18);}
+    body{background:radial-gradient(75vw 60vw at 5% -5%,rgba(var(--glow),.17),transparent 60%),#111018;}
+    body::after{background:radial-gradient(120vw 80vh at 50% -10%,rgba(255,255,255,.025),transparent 60%);}
+    header,header.header-compact{background:rgba(27,25,35,.72);border-color:rgba(255,255,255,.1);box-shadow:0 18px 50px -30px #000,inset 0 1px 0 rgba(255,255,255,.1);}
+    .tabs{background:rgba(42,39,50,.65);border-color:rgba(255,255,255,.09);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);}
+    .home-hero{background:radial-gradient(80% 150% at 0% 0%,rgba(var(--glow),.26),transparent 58%),radial-gradient(70% 130% at 100% 100%,rgba(80,184,255,.12),transparent 64%),rgba(29,27,37,.8);border-color:rgba(var(--glow),.24);box-shadow:0 28px 80px -45px #000,inset 0 1px 0 rgba(255,255,255,.09);}
+    .home-hero .readycard{background:rgba(255,255,255,.035);box-shadow:inset 0 1px 0 rgba(255,255,255,.05);}
+    .home-hero .racecard{border-color:rgba(255,255,255,.08);}
+    #workout>.wo-tile{background:linear-gradient(135deg,rgba(40,37,50,.94),rgba(var(--glow),.11));border-color:rgba(var(--glow),.24);box-shadow:0 22px 54px -38px #000,inset 0 1px 0 rgba(255,255,255,.08);}
+    #workout>.wo-tile.done{background:linear-gradient(135deg,rgba(24,48,42,.92),rgba(52,211,153,.08));}
+    .bigring,.fring{background:rgba(38,35,48,.72);box-shadow:inset 0 1px 0 rgba(255,255,255,.055);}
+    .sheet{background:rgba(29,27,37,.96);border-color:rgba(255,255,255,.1);box-shadow:0 48px 140px -32px #000,inset 0 1px 0 rgba(255,255,255,.08);}
+    .sheet-head,.coach-top,.coach-compose{background:rgba(29,27,37,.78);border-color:rgba(255,255,255,.08);}
+    .splitwrap th{background:#1d1b25;}
+    .msg.assistant{background:rgba(38,35,48,.88);border-color:rgba(255,255,255,.08);}
+    .chatbar textarea{background:rgba(45,42,54,.78);border-color:rgba(255,255,255,.09);}
+    .chatbar textarea:focus{background:rgba(45,42,54,.94);border-color:rgba(var(--glow),.5);}
+    .coach-avatar::after{border-color:#1d1b25;}
+    .macro-gauge::before{background:var(--surface-solid);}
+    .pmc-tip{background:rgba(38,35,48,.82);border-color:rgba(255,255,255,.12);}
+    .load-card{background:radial-gradient(75% 120% at 0% 0%,rgba(var(--glow),.22),transparent 68%),var(--surface)!important;}
+    .load-score,.load-story,.load-system{background:rgba(38,35,48,.62);border-color:rgba(255,255,255,.075);box-shadow:inset 0 1px 0 rgba(255,255,255,.055);}
+    .load-compare{background:rgba(255,255,255,.035);border-color:rgba(255,255,255,.055);}
+    .load-ratio-track,.load-meter{background:rgba(255,255,255,.085);}
+    .zones-card{background:radial-gradient(85% 85% at 100% 0%,rgba(var(--glow),.17),transparent 72%),var(--surface)!important;}
+    .zone-threshold{background:rgba(38,35,48,.62);border-color:rgba(255,255,255,.065);box-shadow:inset 0 1px 0 rgba(255,255,255,.05);}
+    .zone-row{background:linear-gradient(100deg,color-mix(in srgb,var(--a1) var(--zone-mix),transparent),rgba(38,35,48,.58) 48%);
+      border-color:rgba(255,255,255,.065);box-shadow:inset 0 1px 0 rgba(255,255,255,.045);}
+    .zone-number{border-color:rgba(255,255,255,.07);box-shadow:inset 0 1px 0 rgba(255,255,255,.06);}
+    .zone-metric{background:rgba(255,255,255,.035);border-color:rgba(255,255,255,.045);}
+    .zone-intensity{background:rgba(255,255,255,.075);}
+    .botnav{background:rgba(28,26,36,.76);border-color:rgba(255,255,255,.1);box-shadow:0 24px 60px -25px #000,inset 0 1px 0 rgba(255,255,255,.09);}
+    .botnav::before{box-shadow:inset 0 1px 0 rgba(255,255,255,.08);}
+  }
+
+  @media(prefers-reduced-transparency:reduce){
+    header,.botnav,.sheet-head,.coach-top,.coach-compose,.pmc-tip{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:var(--surface-solid)!important;}
+    .sheet{background:var(--surface-solid);}
+  }
+  @media(prefers-contrast:more){
+    :root{--line:rgba(16,18,22,.28);}
+    button,.card,.sheet,.home-hero{border-width:2px;}
+  }
+  @media(prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto;}
+    *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important;}
+    .reveal-ready{opacity:1;transform:none;filter:none;}
+    .home-hero::before{transform:none;}
+  }
 </style>
 </head>
 <body>
@@ -796,7 +1258,9 @@
   </div>
   <div class="right">
     <div class="countdown"><div id="cd-n" class="n">—</div><div class="u" id="cd-u"></div></div>
-    <button id="notif-btn" title="Enable nudge notifications" style="display:none;padding:8px 11px;">🔔</button>
+    <button id="notif-btn" title="Enable nudge notifications" aria-label="Enable nudge notifications" style="display:none;padding:8px 11px;">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
+    </button>
     <button id="refresh" class="primary">Refresh</button>
   </div>
 </header>
@@ -804,11 +1268,11 @@
   <div id="nudge-slot"></div>
   <div id="banner-slot"></div>
 
-  <!-- A-race hero: goal, countdown, phase progress -->
-  <div class="racecard" id="racecard"></div>
-
-  <!-- Readiness headline + the four markers that drive it -->
-  <div class="readycard" id="readycard"></div>
+  <!-- One adaptive hero: the goal and today's ability to train belong together. -->
+  <section class="home-hero" id="home-hero" aria-label="Race and readiness overview">
+    <div class="racecard" id="racecard"></div>
+    <div class="readycard" id="readycard"></div>
+  </section>
 
   <!-- Jump straight into the coach to change the plan -->
   <button class="modrow" id="modrow" type="button">
@@ -841,14 +1305,10 @@
 
   </div>
 
-  <div class="split">
+  <div class="rest onecol">
     <div class="card" id="activities-card">
       <h2>Recent activities</h2>
       <div id="activities"></div>
-    </div>
-    <div class="card" id="loadfocus-card">
-      <h2>Current training load</h2>
-      <div id="loadfocus"></div>
     </div>
   </div>
 
@@ -872,13 +1332,13 @@
     <div class="cal-cmdbar">
       <span class="cal-cmd-ico">🗓️✨</span>
       <input id="cal-cmd" type="text" autocomplete="off"
-        placeholder="Tell your calendar what to do — e.g. move my bike to Thursday 6am · add dentist Fri 2pm · make Saturday's ride 2h" />
+        placeholder="Tell your calendar what to do — e.g. move my bike to Thursday 6am · swap Tuesday and Wednesday · add dentist Fri 2pm" />
       <button id="cal-cmd-go" class="primary">Go</button>
     </div>
     <div class="cal-nav" id="cal-nav"></div>
     <div class="cal-cmdrow">
       <span id="cal-syncstatus" class="note" style="padding:0"></span>
-      <span class="note" style="padding:0;margin-left:auto">Drag to move · drag the edge to resize · tap to open · syncs to Google</span>
+      <span class="note" style="padding:0;margin-left:auto">Drag to move · tap to preview · session length is set with Coach</span>
     </div>
   </div>
   <div id="cal-body"></div>
@@ -888,15 +1348,18 @@
     <div class="card" id="coach-card">
       <div class="coach-top">
         <div class="coach-person"><div class="coach-avatar">S</div><div><b>Steve</b><span>your coach · straight answers</span></div></div>
-        <button id="clearchat" style="padding:4px 10px;font-size:12px;">Clear</button>
+        <button id="clearchat" class="coach-new" type="button">New chat</button>
       </div>
       <div id="chatlog"></div>
       <div class="coach-compose">
         <div class="chatbar">
-          <input id="chatinput" placeholder="Tell Steve what changed — time, fatigue, travel, niggles…" />
-          <button id="send" class="primary">Send</button>
+          <textarea id="chatinput" rows="1" aria-label="Message Coach Steve" placeholder="Message Steve…"></textarea>
+          <button id="send" class="primary" type="button" aria-label="Send message">
+            <span class="send-label">Send</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></svg>
+          </button>
         </div>
-        <div class="coach-hint">He’ll make the call, explain the numbers that matter, and skip the noise.</div>
+        <div class="coach-hint">He’ll make the call, explain the numbers that matter, and skip the noise. ⌘/Ctrl + Enter sends.</div>
       </div>
     </div>
 </main>
@@ -905,7 +1368,7 @@
   <div class="card">
     <div class="fuel-head">
       <div>
-        <h2 style="margin:0">🍽️ Fuel</h2>
+        <h2 style="margin:0">Fuel</h2>
         <div class="note" style="padding:0" id="fuel-basis">Loading today's targets…</div>
       </div>
       <select id="fuel-goal" class="lightsel">
@@ -957,8 +1420,18 @@
 </main>
 
 <main id="main-stats" style="display:none">
+  <section class="card load-card" id="training-load-card" aria-labelledby="training-load-title">
+    <div class="load-card-head">
+      <div>
+        <h2 id="training-load-title">Training load</h2>
+        <p>How recent work compares with the fitness you’ve built.</p>
+      </div>
+      <span class="load-window">7d / 28d</span>
+    </div>
+    <div id="stats-load"><div class="load-skeleton" aria-label="Loading training load"></div></div>
+  </section>
   <div class="card">
-    <h2>📈 Fitness · Fatigue · Form</h2>
+    <h2>Fitness · Fatigue · Form</h2>
     <div class="note" style="padding:0 0 6px">CTL (fitness) vs ATL (fatigue); form = TSB. Race-day target TSB +5 to +15.</div>
     <div id="pmc-now" class="pmc-now"></div>
     <div id="pmc-chart"></div>
@@ -969,19 +1442,17 @@
       <h2>Weekly volume by sport</h2>
       <div id="vol-chart"></div>
     </div>
-    <div class="card">
-      <h2>Training zones</h2>
-      <div class="note" style="padding:0 0 8px">Your real Garmin zones — what every pushed workout targets.</div>
+    <div class="card zones-card">
+      <div class="zones-card-head">
+        <div><h2>Training zones</h2><p>Use the right intensity without guessing.</p></div>
+        <span class="zones-source">Garmin</span>
+      </div>
       <div id="zone-table"></div>
     </div>
   </div>
-  <div class="card">
-    <h2>Load focus &amp; ramp</h2>
-    <div id="stats-load"></div>
-  </div>
 </main>
 
-<nav class="botnav" id="botnav">
+<nav class="botnav" id="botnav" aria-label="Primary">
   <button data-view="dash" class="on"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 4l9 6.5V19a1.5 1.5 0 0 1-1.5 1.5h-4V14h-7v6.5h-4A1.5 1.5 0 0 1 3 19z"/></svg>Home</button>
   <button data-view="coach"><svg viewBox="0 0 24 24"><path d="M21 12a7.5 7.5 0 0 1-7.5 7.5H8L3.5 22l1-4.2A7.5 7.5 0 1 1 21 12z"/></svg>Coach</button>
   <button data-view="calendar"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>Calendar</button>
@@ -989,11 +1460,11 @@
   <button data-view="stats"><svg viewBox="0 0 24 24"><path d="M4 20V9M10 20V4M16 20v-7M22 20H2"/></svg>Stats</button>
 </nav>
 
-<div class="overlay" id="act-overlay">
+<div class="overlay" id="act-overlay" role="dialog" aria-modal="true" aria-labelledby="act-title">
   <div class="sheet">
     <div class="sheet-head">
       <div><div class="t" id="act-title">Activity</div><div class="m" id="act-meta"></div></div>
-      <button class="xbtn" id="act-close">✕</button>
+      <button class="xbtn" id="act-close" aria-label="Close activity details">✕</button>
     </div>
     <div id="actmap"></div>
     <div class="sheet-body">
@@ -1004,11 +1475,11 @@
   </div>
 </div>
 
-<div class="overlay" id="pv-overlay">
+<div class="overlay" id="pv-overlay" role="dialog" aria-modal="true" aria-labelledby="pv-title">
   <div class="sheet">
     <div class="sheet-head">
       <div><div class="t" id="pv-title">Planned session</div><div class="m" id="pv-meta"></div></div>
-      <button class="xbtn" id="pv-close">✕</button>
+      <button class="xbtn" id="pv-close" aria-label="Close planned session">✕</button>
     </div>
     <div class="sheet-body">
       <div class="statgrid" id="pv-stats"></div>
@@ -1018,31 +1489,31 @@
   </div>
 </div>
 
-<div class="overlay" id="rd-overlay">
+<div class="overlay" id="rd-overlay" role="dialog" aria-modal="true" aria-labelledby="rd-title">
   <div class="sheet">
     <div class="sheet-head">
       <div><div class="t" id="rd-title">Breakdown</div><div class="m" id="rd-meta"></div></div>
-      <button class="xbtn" id="rd-close">✕</button>
+      <button class="xbtn" id="rd-close" aria-label="Close breakdown">✕</button>
     </div>
     <div class="sheet-body" id="rd-body"></div>
   </div>
 </div>
 
-<div class="overlay" id="hist-overlay">
+<div class="overlay" id="hist-overlay" role="dialog" aria-modal="true" aria-labelledby="hist-title">
   <div class="sheet">
     <div class="sheet-head">
       <div><div class="t" id="hist-title">Plan change history</div><div class="m">every change, newest first — undo any of them</div></div>
-      <button class="xbtn" id="hist-close">✕</button>
+      <button class="xbtn" id="hist-close" aria-label="Close plan history">✕</button>
     </div>
     <div class="sheet-body" id="hist-body"></div>
   </div>
 </div>
 
-<div class="overlay" id="wo-overlay">
+<div class="overlay" id="wo-overlay" role="dialog" aria-modal="true" aria-labelledby="wo-title">
   <div class="sheet">
     <div class="sheet-head">
       <div><div class="t" id="wo-title">Workout</div><div class="m" id="wo-meta"></div></div>
-      <button class="xbtn" id="wo-close">✕</button>
+      <button class="xbtn" id="wo-close" aria-label="Close workout details">✕</button>
     </div>
     <div class="sheet-body">
       <div id="wo-donechip"></div>
@@ -1084,6 +1555,19 @@
 <script>
 const $=id=>document.getElementById(id);
 const fmt=(v,d="—")=>(v===null||v===undefined||v===""?d:v);
+
+// Keep the installed app's layout at its designed scale. The viewport rule
+// handles iPhone pinch/double-tap zoom; these cover Safari gestures, trackpads,
+// mouse wheels, and the usual desktop zoom shortcuts while the page has focus.
+for(const ev of ["gesturestart","gesturechange","gestureend"]){
+  document.addEventListener(ev,e=>e.preventDefault(),{passive:false});
+}
+window.addEventListener("wheel",e=>{
+  if(e.ctrlKey||e.metaKey) e.preventDefault();
+},{passive:false});
+document.addEventListener("keydown",e=>{
+  if((e.ctrlKey||e.metaKey) && ["+","=","-","0"].includes(e.key)) e.preventDefault();
+});
 // Access token (only needed when the app is hosted publicly; blank locally).
 let _token = localStorage.getItem("tc_token") || "";
 let _prompting = false;
@@ -1136,10 +1620,16 @@ async function softRefresh(){
     _lastLoad=load; renderWorkout(sug); renderActivities(load);
     j("/api/rings").then(rg=>{ _lastRings=rg; renderRings(rg); renderReadyCard(rg, _lastReadiness); }).catch(()=>{});
     if(typeof loadNudges==="function") loadNudges();
-    if(grew) toast("✓ New activity detected — updated your day.");
+    if(grew){ toast("✓ New activity detected — updated your day."); maybeCoachEventBrief(); }
   }catch(e){}
 }
-document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") softRefresh(); });
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState!=="visible") return;
+  // iOS often resumes the PWA instead of reloading it. A resume starts a clean
+  // visible conversation, while the server retains Steve's private context.
+  resetCoachSessionView();
+  loadDashboard().then(()=>maybeCoachEventBrief());
+});
 setInterval(()=>{ if(document.visibilityState==="visible") softRefresh(); }, 240000);
 
 // ---- Proactive nudges ("big brick tomorrow — carb up tonight") ----
@@ -1164,15 +1654,14 @@ function renderNudges(d){
 async function loadDashboard(){
   $("refresh").disabled=true;
   try{
-    const [race, rd, sug, load, tl, planResp, health] = await Promise.all([
+    const [race, rd, sug, load, planResp, health] = await Promise.all([
       j("/api/race"), j("/api/readiness"), j("/api/suggestion"),
-      j("/api/load?days=14"), j("/api/training_load"), j("/api/plan"), j("/api/health"),
+      j("/api/load?days=14"), j("/api/plan"), j("/api/health"),
     ]);
     _lastReadiness=rd;
     renderRace(race);
     renderRaceCard(race, planResp);
     renderWorkout(sug);
-    renderLoadFocus(tl);
     renderPlan(planResp);
     renderActivities(load);
     renderBanners(health);
@@ -1239,6 +1728,8 @@ function renderReadyCard(rg, rd){
   const rec=(rg&&rg.readiness)||{};
   const score=rec.score!=null?Math.round(rec.score):null;
   const tone = score==null?"var(--muted)":(score>=75?"var(--good)":(score>=50?"var(--warn)":"var(--bad)"));
+  const hero=$("home-hero");
+  if(hero) hero.dataset.tone=score==null?"unknown":(score>=75?"good":(score>=50?"moderate":"poor"));
   const headline = score==null?"Readiness unavailable"
     :(score>=75?"You're recovered — green light for the quality work."
       :(score>=50?"Moderate readiness — hold intensity honest, don't chase extra.":
@@ -1673,7 +2164,11 @@ function workoutBlocks(st, disc, intensity){
     .replace(/,\s*(?=\d+(?:\s*[×x]\s*\d+)?\s*(?:m|km|min)\b)/gi,"; ").split(/;\s*/))
     .map(v=>v.trim()).filter(Boolean);
   return parts.map((text,i)=>{
-    const count=(text.match(/\b\d+\s*[×x]\s*\d+\b|\b\d+\s*(?:m|min|s|km)\b/i)||[])[0]||"Set";
+    // Repeats lead the label. A recovery instruction such as "rest 15 s"
+    // is metadata for the set, never the identity of the set itself.
+    const repeat=text.match(/\b(\d+)\s*[×x]\s*(\d+)\s*m?\b/i);
+    const count=repeat ? `${repeat[1]} × ${repeat[2]} m`
+      : (text.match(/\b\d+\s*(?:km|min|m|s)\b/i)||[])[0]||"Set";
     const target=(text.match(/(?:HR\s*[^,;]+|@\s*[^,;]+|Z\d[^,;]*|no faster than[^,;]+)/i)||[])[0]
       || (/easy|drill|cool|pull|kick/i.test(text)?"easy / technique" : intensity||"controlled");
     return {label:count, text, target, index:i+1};
@@ -1789,45 +2284,25 @@ function completedBanner(c, sess){
 }
 
 function acwrClass(r){ if(r==null) return "unknown"; if(r>=0.8&&r<=1.3) return "good"; if(r>1.5) return "bad"; return "warn"; }
-function renderLoadFocus(tl){
-  if(!tl || tl.error){ $("loadfocus").innerHTML=`<div class="muted">${(tl&&tl.error)||"unavailable"}</div>`; return; }
-  const r=tl.load_ratio, cls=acwrClass(r);
-  const statusColor={good:"var(--good)",warn:"var(--warn)",bad:"var(--bad)",unknown:"var(--muted)"}[cls];
-  let html=`<div class="acwr"><span class="v" style="color:${statusColor}">${fmt(r)}</span>
-    <span class="muted">ACWR · ${fmt(tl.acwr_status)}</span></div>
-    <div class="note">Acute ${fmt(tl.acute_load)} · Chronic ${fmt(tl.chronic_load)} <span class="muted">(sweet spot 0.8–1.3)</span></div>`;
-  const f=tl.load_focus;
-  if(f){
-    const rows=[
-      ["Low aerobic", f.aerobic_low, f.aerobic_low_target],
-      ["High aerobic", f.aerobic_high, f.aerobic_high_target],
-      ["Anaerobic", f.anaerobic, f.anaerobic_target],
-    ];
-    // scale bars to the largest target-max so they're comparable
-    const scale=Math.max(...rows.map(r=>(r[2]&&r[2][1])||r[1]||1),1);
-    html+=rows.map(([lbl,val,tgt])=>{
-      val=val||0; const[tmin,tmax]=tgt||[null,null];
-      let state="in"; if(tmin!=null&&val<tmin)state="under"; else if(tmax!=null&&val>tmax)state="over";
-      const w=Math.min(100,val/scale*100);
-      const tl_=tmin!=null?tmin/scale*100:null, tw=(tmin!=null&&tmax!=null)?(tmax-tmin)/scale*100:null;
-      return `<div class="focusrow">
-        <div class="top"><span class="lbl">${lbl}</span><span>${Math.round(val)} <span class="muted">/ ${tmin!=null?Math.round(tmin)+'–'+Math.round(tmax):'—'}</span></span></div>
-        <div class="bar"><div class="fill ${state}" style="width:${w}%"></div>
-          ${tl_!=null?`<div class="tgt" style="left:${tl_}%;width:${tw}%"></div>`:""}</div></div>`;
-    }).join("");
-    if(f.feedback) html+=`<div class="note flag" style="margin-top:8px">Garmin: ${f.feedback.replace(/_/g,' ').toLowerCase()}</div>`;
-  }
-  $("loadfocus").innerHTML=html;
-}
 function renderActivities(l){
   if(l.error){ $("activities").innerHTML=`<span class="err">${l.error}</span>`; return; }
   const acts=(l.activities||[]).slice(0,14);
   if(!acts.length){ $("activities").innerHTML=`<div class="muted">No recent activities.</div>`; return; }
-  $("activities").innerHTML=`<table><thead><tr><th>Date</th><th>Sport</th><th>Name</th><th class="num">km</th><th class="num">min</th><th class="num">HR</th></tr></thead>
-    <tbody>${acts.map(a=>`<tr class="${a.activity_id?"clickable":""}" data-aid="${a.activity_id||""}"><td>${(a.date||'').slice(5)}</td><td class="sport-${a.sport}">${a.sport}${a.manual?' <span class="mtag">logged</span>':''}</td><td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${fmt(a.name)}</td><td class="num">${fmt(a.km)}</td><td class="num">${fmt(a.minutes,0)}</td><td class="num">${fmt(a.hr_avg)}</td></tr>`).join("")}</tbody></table>
-    <div class="note" style="margin-top:6px">Tap any activity for the full breakdown — route, splits, and Coach Steve's take.</div>`;
-  $("activities").querySelectorAll("tr.clickable").forEach(tr=>{
-    tr.onclick=()=>{ if(tr.dataset.aid) openActivity(tr.dataset.aid); };
+  $("activities").innerHTML=`<div class="activity-list">${acts.map(a=>{
+    const bits=[a.km!=null?`${fmt(a.km)} km`:null,a.minutes!=null?`${fmt(a.minutes,0)} min`:null,a.hr_avg!=null?`${fmt(a.hr_avg)} bpm`:null].filter(Boolean).join(" · ");
+    const tag=a.activity_id?"button":"div";
+    return `<${tag} ${a.activity_id?'type="button"':''} class="activity-row" data-aid="${a.activity_id||""}">
+      <span class="activity-date">${(a.date||"").slice(5)}</span>
+      <span class="activity-icon">${_DISC_ICO[a.sport]||"•"}</span>
+      <span class="activity-main"><span class="activity-name">${fmt(a.name)}</span>
+        <span class="activity-sport">${a.sport||"activity"}${a.manual?' · logged':''}</span></span>
+      <span class="activity-metrics">${bits||"recorded"}</span>
+      <span class="activity-arrow">${a.activity_id?"›":""}</span>
+    </${tag}>`;
+  }).join("")}</div>
+    <div class="note activity-note">Tap any activity for the full breakdown — route, splits, and Coach Steve's take.</div>`;
+  $("activities").querySelectorAll(".activity-row[data-aid]").forEach(row=>{
+    row.onclick=()=>{ if(row.dataset.aid) openActivity(row.dataset.aid); };
   });
 }
 function renderLoad(l){
@@ -2044,8 +2519,21 @@ function coachHTML(text){
   flush();
   return html||esc(text);
 }
-function setCoachText(el,text){ el.classList.add("fmt"); el.innerHTML=coachHTML(text); }
+function setCoachText(el,text){
+  el.classList.add("fmt"); el.innerHTML=coachHTML(text);
+  // Keep the coaching decision visible first. Dense supporting numbers remain
+  // available in-place instead of turning every answer into a wall of text.
+  const rows=[...el.children].filter(n=>n.classList.contains("cb")||n.classList.contains("cline"));
+  if(rows.length>5){
+    const details=document.createElement("details"); details.className="coach-details";
+    const summary=document.createElement("summary"); summary.textContent="Detailed breakdown";
+    const body=document.createElement("div"); body.className="coach-detail-body";
+    rows.slice(4).forEach(n=>body.appendChild(n));
+    details.append(summary,body); el.appendChild(details);
+  }
+}
 function addMsg(role,text){
+  const empty=$("chatlog").querySelector(".coach-empty"); if(empty) empty.remove();
   const d=document.createElement("div"); d.className="msg "+role;
   if(role==="assistant") setCoachText(d,text); else d.textContent=text;
   $("chatlog").appendChild(d); $("chatlog").scrollTop=$("chatlog").scrollHeight; return d;
@@ -2136,31 +2624,37 @@ function addActivityLog(acts){
   };
   $("chatlog").appendChild(c); $("chatlog").scrollTop=$("chatlog").scrollHeight;
 }
-async function loadHistory(){
-  $("chatlog").innerHTML="";
-  const h=await j("/api/coach/history?limit=30");
-  const msgs=h.messages||[];
-  msgs.forEach(m=>addMsg(m.role,m.content));
-  // Always check latest training: a morning briefing, or a post-workout evaluation
-  // when a session has been completed since the last check.
-  const t=addMsg("assistant", msgs.length ? "Coach Steve is checking your latest training…"
-                                          : "Coach Steve is putting together your briefing…");
+let _coachSessionEpoch=0, _coachBriefChecking=false;
+function resetCoachSessionView(){
+  _coachSessionEpoch++;
+  $("chatlog").innerHTML=`<div class="coach-empty">
+    <div class="coach-empty-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a7.5 7.5 0 0 1-7.5 7.5H8L3.5 22l1-4.2A7.5 7.5 0 1 1 21 12z"/></svg></div>
+    <b>New conversation</b>
+    <span>Steve still has your plan, training history, and prior coaching context.</span>
+  </div>`;
+  $("chatlog").scrollTop=0;
+  $("chatinput").value="";
+  resizeChatInput();
+}
+async function maybeCoachEventBrief(){
+  if(_coachBriefChecking) return;
+  _coachBriefChecking=true;
+  const epoch=_coachSessionEpoch;
   try{
     const b=await j("/api/coach/brief",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
-    if(b.reply){ setCoachText(t,b.reply); }
-    else if(b.error){ t.className="msg error"; t.textContent=b.error; }
-    else { t.remove(); }  // skipped — nothing new since last brief
-  }catch(e){ t.className="msg error"; t.textContent=e.message; }
+    if(b.reply && epoch===_coachSessionEpoch) addMsg("assistant",b.reply);
+    // A skip or transient error stays silent: opening the app is not an update.
+  }catch(e){ console.warn("Coach event check failed",e); }
+  finally{ _coachBriefChecking=false; }
 }
-async function clearChat(){
-  if(!confirm("Clear today's coach chat?")) return;
-  await j("/api/coach/clear",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
-  loadHistory();  // empty → regenerates a fresh briefing
+function newCoachChat(){
+  resetCoachSessionView();
+  setTimeout(()=>$("chatinput").focus(),80);
 }
-$("clearchat").onclick=clearChat;
+$("clearchat").onclick=newCoachChat;
 async function send(){
   const inp=$("chatinput"); const text=inp.value.trim(); if(!text) return;
-  addMsg("user",text); inp.value=""; $("send").disabled=true;
+  addMsg("user",text); inp.value=""; resizeChatInput(); $("send").disabled=true;
   const thinking=addMsg("assistant","…");
   try{
     const r=await j("/api/coach/chat",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -2283,6 +2777,51 @@ $("hist-close").onclick=closeHist;
 $("hist-overlay").onclick=(e)=>{ if(e.target===$("hist-overlay")) closeHist(); };
 document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeActivity(); closePlanPreview(); closeRingDetail(); closeWorkoutDetail(); closeHist(); } });
 
+// Mobile sheets behave like native iOS cards: lock the page underneath and
+// allow a deliberate downward drag from the title bar to dismiss.
+function syncSheetState(){
+  document.body.classList.toggle("sheet-open",!!document.querySelector(".overlay.open"));
+}
+const _sheetClosers={
+  "act-overlay":closeActivity,
+  "pv-overlay":closePlanPreview,
+  "rd-overlay":closeRingDetail,
+  "wo-overlay":closeWorkoutDetail,
+  "hist-overlay":closeHist,
+};
+document.querySelectorAll(".overlay").forEach(ov=>{
+  new MutationObserver(syncSheetState).observe(ov,{attributes:true,attributeFilter:["class"]});
+  const sheet=ov.querySelector(".sheet"), head=ov.querySelector(".sheet-head");
+  if(!sheet||!head) return;
+  let startY=0, lastY=0, dragging=false;
+  head.addEventListener("pointerdown",e=>{
+    if(!window.matchMedia("(max-width:820px)").matches || e.target.closest("button,input,select,textarea,a")) return;
+    startY=lastY=e.clientY; dragging=true;
+    head.setPointerCapture(e.pointerId);
+    sheet.style.transition="none";
+  });
+  head.addEventListener("pointermove",e=>{
+    if(!dragging) return;
+    lastY=e.clientY;
+    const dy=Math.max(0,lastY-startY);
+    sheet.style.transform=`translateY(${dy}px)`;
+    ov.style.backgroundColor=`rgba(22,19,34,${Math.max(.08,.30-dy/700)})`;
+  });
+  const finishDrag=e=>{
+    if(!dragging) return;
+    dragging=false;
+    const dy=Math.max(0,lastY-startY);
+    sheet.style.transition="";
+    if(dy>110) (_sheetClosers[ov.id]||(()=>ov.classList.remove("open")))();
+    sheet.style.transform="";
+    ov.style.backgroundColor="";
+    try{ head.releasePointerCapture(e.pointerId); }catch(_){ /* already released */ }
+  };
+  head.addEventListener("pointerup",finishDrag);
+  head.addEventListener("pointercancel",finishDrag);
+});
+syncSheetState();
+
 async function openActivity(aid){
   const ov=$("act-overlay"); ov.classList.add("open");
   $("act-title").textContent="Loading…"; $("act-meta").textContent="";
@@ -2378,15 +2917,70 @@ $("fb-submit").onclick=async()=>{
     $("fb-note").value="";
     j("/api/plan").then(renderPlan);            // refresh calendar with adapted days
     j("/api/suggestion").then(renderWorkout);   // tiles pick up done/unconfirmed state
-    loadHistory();                              // coach re-briefs against the change
+    maybeCoachEventBrief();                     // feedback is a real coaching event
   }catch(e){ $("fb-result").className="fb-result show"; $("fb-result").textContent="Error: "+e.message; }
   finally{ btn.disabled=false; btn.textContent=old; }
 };
 
 $("pushwatch").onclick=pushToWatch;
 $("send").onclick=send;
-$("chatinput").addEventListener("keydown",e=>{if(e.key==="Enter")send();});
+function resizeChatInput(){
+  const input=$("chatinput");
+  input.style.height="auto";
+  input.style.height=Math.min(input.scrollHeight,180)+"px";
+}
+$("chatinput").addEventListener("input",resizeChatInput);
+$("chatinput").addEventListener("keydown",e=>{
+  if(e.key==="Enter"&&(e.metaKey||e.ctrlKey)){ e.preventDefault(); send(); }
+});
 $("refresh").onclick=loadDashboard;
+
+// Scroll-linked chrome stays intentionally subtle: the header compresses,
+// the hero shifts a few pixels, and cards reveal once as they enter view.
+const _viewIndex={dash:0,coach:1,calendar:2,fuel:3,stats:4};
+function syncFloatingNav(v){
+  const nav=$("botnav");
+  if(nav) nav.style.setProperty("--tab-index",_viewIndex[v]??0);
+}
+let _chromeTick=false;
+function updateScrollChrome(){
+  _chromeTick=false;
+  const y=window.scrollY||0;
+  const header=document.querySelector("header");
+  if(header) header.classList.toggle("header-compact",y>42);
+  document.documentElement.style.setProperty("--hero-shift",`${Math.min(13,y*.06)}px`);
+}
+window.addEventListener("scroll",()=>{
+  if(!_chromeTick){ _chromeTick=true; requestAnimationFrame(updateScrollChrome); }
+},{passive:true});
+
+const _reduceMotion=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const _revealObserver=("IntersectionObserver" in window && !_reduceMotion)
+  ? new IntersectionObserver(entries=>entries.forEach(entry=>{
+      if(entry.isIntersecting){
+        entry.target.classList.add("revealed");
+        _revealObserver.unobserve(entry.target);
+      }
+    }),{rootMargin:"0px 0px -7% 0px",threshold:.08})
+  : null;
+function refreshRevealTargets(){
+  const selectors=[
+    "#main > .home-hero","#main > .modrow","#main > .sess-head","#main > #workout-card",
+    "#main > .split","#main > .rest","#main-fuel > .card","#main-fuel > .split",
+    "#main-stats > .card","#main-stats > .split"
+  ];
+  document.querySelectorAll(selectors.join(",")).forEach((el,i)=>{
+    if(el.dataset.revealBound) return;
+    el.dataset.revealBound="1";
+    if(!_revealObserver){ el.classList.add("revealed"); return; }
+    el.classList.add("reveal-ready");
+    el.style.transitionDelay=`${Math.min(i%4,3)*45}ms`;
+    _revealObserver.observe(el);
+  });
+}
+syncFloatingNav("dash");
+updateScrollChrome();
+refreshRevealTargets();
 
 // ================= Calendar tab (draggable week grid) =================
 let _calLoaded=false;
@@ -2396,6 +2990,7 @@ let _fuelLoaded=false, _statsLoaded=false;
 function switchView(v){
   document.querySelectorAll("#tabs .tab").forEach(b=>b.classList.toggle("active",b.dataset.view===v));
   document.querySelectorAll("#botnav button").forEach(b=>b.classList.toggle("on",b.dataset.view===v));
+  syncFloatingNav(v);
   $("main").style.display = v==="dash"?"":"none";
   $("main-coach").style.display = v==="coach"?"":"none";
   $("main-calendar").style.display = v==="calendar"?"":"none";
@@ -2407,6 +3002,8 @@ function switchView(v){
   if(v==="fuel" && !_fuelLoaded){ _fuelLoaded=true; loadFuel(); }
   if(v==="stats" && !_statsLoaded){ _statsLoaded=true; loadStats(); }
   window.scrollTo({top:0,behavior:"instant"});
+  updateScrollChrome();
+  setTimeout(refreshRevealTargets,40);
   if(v==="coach"){ const i=document.getElementById("chatinput"); if(i) setTimeout(()=>i.focus(),120); }
 }
 document.querySelectorAll("#botnav button").forEach(b=>b.onclick=()=>switchView(b.dataset.view));
@@ -2425,19 +3022,20 @@ function renderFuelTab(day){
   if(t.goal && $("fuel-goal").value!==t.goal) $("fuel-goal").value=t.goal;
   const burn=(day.expenditure||t.kcal||0), eaten=tot.kcal||0;
   $("fuel-rings").innerHTML=`
-    <div class="fring"><div><div class="fk">Eaten</div><div class="fv">${Math.round(eaten)}</div></div></div>
-    <div class="fring"><div><div class="fk">Target</div><div class="fv">${Math.round(t.kcal||0)}</div></div></div>
-    <div class="fring"><div><div class="fk">Remaining</div><div class="fv" style="color:${eaten>(t.kcal||0)?'var(--bad)':'var(--good)'}">${Math.round((t.kcal||0)-eaten)}</div></div></div>
-    ${s.discipline?`<div class="fring"><div><div class="fk">Today's session</div><div class="fv" style="font-size:17px">${(s.is_rest||s.discipline==="rest")?"Rest day":`${s.discipline} ${s.duration_min||""}m`}</div></div></div>`:""}`;
+    <div class="fring eaten"><div><div class="fk">Eaten</div><div class="fv">${Math.round(eaten)}</div></div></div>
+    <div class="fring target"><div><div class="fk">Target</div><div class="fv">${Math.round(t.kcal||0)}</div></div></div>
+    <div class="fring remaining"><div><div class="fk">Remaining today</div><div class="fv" style="color:${eaten>(t.kcal||0)?'var(--bad)':'var(--good)'}">${Math.round((t.kcal||0)-eaten)}</div></div></div>
+    ${s.discipline?`<div class="fring session"><div><div class="fk">Today's session</div><div class="fv" style="font-size:17px">${(s.is_rest||s.discipline==="rest")?"Rest day":`${s.discipline} ${s.duration_min||""}m`}</div></div></div>`:""}`;
   const defs=[["Calories","kcal","kcal_range",t.kcal,"var(--a1)"],["Carbs","carb_g","carb_range",t.carb_g,"#f59e0b"],
               ["Protein","protein_g","protein_range",t.protein_g,"#ef4444"],["Fat","fat_g",null,t.fat_g,"#8b5cf6"]];
   $("fuel-macros").innerHTML=defs.map(([label,key,rk,tgt,color])=>{
     const got=tot[key]||0, range=rk?t[rk]:null;
     const tgtLabel=range?`${range[0]}–${range[1]}`:`~${tgt||0}`;
     const pct=tgt?Math.min(100,Math.round(got/tgt*100)):0;
-    return `<div class="macro"><div class="mk">${label}</div>
+    return `<div class="macro" style="--pct:${pct};--macro-color:${color}"><div class="macro-copy"><div class="mk">${label}</div>
       <div class="mv">${Math.round(got)}<small> / ${tgtLabel}${key==="kcal"?"":"g"}</small></div>
-      <div class="mtarget">${Math.max(0,Math.round((tgt||0)-got))}${key==="kcal"?" kcal":"g"} to go</div>
+      <div class="mtarget">${Math.max(0,Math.round((tgt||0)-got))}${key==="kcal"?" kcal":"g"} to go</div></div>
+      <div class="macro-gauge" aria-label="${label} ${pct}% of target"><span>${pct}%</span></div>
       <div class="mbar"><div class="mfill" style="width:${pct}%;background:${color}"></div></div></div>`;
   }).join("");
   const f=day.fueling||{};
@@ -2528,10 +3126,14 @@ $("fuel-goal").onchange=async()=>{
 // ================= Analytics tab =================
 async function loadStats(){
   $("pmc-chart").innerHTML=`<div class="muted"><span class="pulse"></span> loading…</div>`;
+  $("stats-load").innerHTML=`<div class="load-skeleton" aria-label="Loading training load"></div>`;
   try{
     const [pmc,load,tl,zn]=await Promise.all([j("/api/pmc?days=90"),j("/api/load?days=42"),j("/api/training_load"),j("/api/zones")]);
     renderPMC(pmc); renderVolume(load); renderZones(zn); renderStatsLoad(tl);
-  }catch(e){ $("pmc-chart").innerHTML=`<span class="err">${e.message}</span>`; }
+  }catch(e){
+    $("pmc-chart").innerHTML=`<span class="err">${e.message}</span>`;
+    $("stats-load").innerHTML=`<div class="load-empty">Training load is temporarily unavailable.</div>`;
+  }
 }
 function renderPMC(p){
   if(!p||p.error){ $("pmc-chart").innerHTML=`<span class="err">${(p&&p.error)||"unavailable"}</span>`; return; }
@@ -2549,12 +3151,39 @@ function renderPMC(p){
   const x=i=>pad+i*(W-pad*2)/Math.max(1,series.length-1);
   const y=v=>H-pad-(v/mx)*(H-pad*2);
   const path=a=>a.map((v,i)=>`${i?"L":"M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-  $("pmc-chart").innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
-    <line x1="${pad}" y1="${H-pad}" x2="${W-pad}" y2="${H-pad}" stroke="var(--line)"/>
-    <path d="${path(ctl)}" fill="none" stroke="var(--a1)" stroke-width="2.5"/>
-    <path d="${path(atl)}" fill="none" stroke="var(--muted)" stroke-width="1.8" stroke-dasharray="4 4"/>
-  </svg>
+  const inspectData=series.map((d,i)=>({date:d.date||d.day||"",ctl:ctl[i],atl:atl[i],tsb:d.tsb!=null?d.tsb:ctl[i]-atl[i]}));
+  $("pmc-chart").innerHTML=`<div class="pmc-plot" aria-label="Interactive fitness and fatigue chart">
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
+      <line x1="${pad}" y1="${H-pad}" x2="${W-pad}" y2="${H-pad}" stroke="var(--line)"/>
+      <path d="${path(ctl)}" fill="none" stroke="var(--a1)" stroke-width="2.5"/>
+      <path d="${path(atl)}" fill="none" stroke="var(--muted)" stroke-width="1.8" stroke-dasharray="4 4"/>
+      <line class="pmc-guide" x1="0" y1="${pad}" x2="0" y2="${H-pad}" stroke="var(--line)" stroke-width="1"/>
+      <circle class="pmc-dot pmc-dot-ctl" cx="0" cy="0" r="5" fill="var(--surface-solid)" stroke="var(--a1)" stroke-width="3"/>
+      <circle class="pmc-dot pmc-dot-atl" cx="0" cy="0" r="4" fill="var(--surface-solid)" stroke="var(--muted)" stroke-width="2.5"/>
+    </svg>
+    <div class="pmc-tip" aria-live="polite"></div>
+  </div>
   <div class="note" style="padding:4px 0 0"><span style="color:var(--a1)">━ Fitness (CTL)</span> · <span style="color:var(--muted)">┄ Fatigue (ATL)</span> · last ${series.length} days</div>`;
+  const plot=$("pmc-chart").querySelector(".pmc-plot"), svg=plot.querySelector("svg"), tip=plot.querySelector(".pmc-tip");
+  const guide=plot.querySelector(".pmc-guide"), ctlDot=plot.querySelector(".pmc-dot-ctl"), atlDot=plot.querySelector(".pmc-dot-atl");
+  const inspect=ev=>{
+    const rect=svg.getBoundingClientRect();
+    const ux=Math.max(pad,Math.min(W-pad,(ev.clientX-rect.left)/Math.max(1,rect.width)*W));
+    const idx=Math.max(0,Math.min(inspectData.length-1,Math.round((ux-pad)/(W-pad*2)*Math.max(1,inspectData.length-1))));
+    const d=inspectData[idx], gx=x(idx), cy=y(d.ctl), ay=y(d.atl);
+    guide.setAttribute("x1",gx); guide.setAttribute("x2",gx);
+    ctlDot.setAttribute("cx",gx); ctlDot.setAttribute("cy",cy);
+    atlDot.setAttribute("cx",gx); atlDot.setAttribute("cy",ay);
+    const nice=d.date?new Date(d.date+"T00:00:00").toLocaleDateString([], {month:"short",day:"numeric"}):`Day ${idx+1}`;
+    const form=Math.round(d.tsb*10)/10;
+    tip.innerHTML=`<div class="pt-date">${nice}</div><div class="pt-values">Fitness ${Math.round(d.ctl)} · Fatigue ${Math.round(d.atl)} · Form ${form>0?"+":""}${form}</div>`;
+    plot.classList.add("inspecting");
+    const px=gx/W*plot.clientWidth;
+    tip.style.left=Math.max(8,Math.min(plot.clientWidth-154,px-72))+"px";
+  };
+  plot.addEventListener("pointermove",inspect);
+  plot.addEventListener("pointerdown",inspect);
+  plot.addEventListener("pointerleave",()=>plot.classList.remove("inspecting"));
   $("pmc-note").textContent = (p.interpretation&&(p.interpretation.headline||p.interpretation.note)) || "";
 }
 function renderVolume(l){
@@ -2570,29 +3199,109 @@ function renderVolume(l){
   }).join("");
 }
 function renderZones(z){
-  if(!z||z.error||!z.zones){ $("zone-table").innerHTML=`<div class="muted">Zones unavailable.</div>`; return; }
+  if(!z||z.error||!z.zones){ $("zone-table").innerHTML=`<div class="zone-empty">Training zones are temporarily unavailable.</div>`; return; }
   const run=z.zones.DEFAULT||{}, bike=z.zones.CYCLING||{};
   const pace=z.pace_by_zone||{};
-  let html=`<div class="note" style="padding:0 0 6px">LT HR ${z.lt_hr||"—"} · max ${z.max_hr||"—"} · threshold pace ${z.threshold_pace_per_km||"—"}/km</div>`;
-  html+=[1,2,3,4,5].map(i=>`<div class="zrow"><div class="zn">Z${i}</div>
-    <div class="zb">run ${run[i]?run[i][0]+"–"+run[i][1]:"—"} bpm${bike[i]?` · bike ${bike[i][0]}–${bike[i][1]}`:""}</div>
-    <div class="zp">${pace[i]||""}</div></div>`).join("");
-  $("zone-table").innerHTML=html;
+  const meta=[
+    ["Recovery","Easy / reset"],
+    ["Endurance","Aerobic base"],
+    ["Tempo","Steady pressure"],
+    ["Threshold","Race-strength work"],
+    ["VO₂ max","Hard / maximal"],
+  ];
+  const thresholdPace=String(z.threshold_pace_per_km||"—").replace(/\/km$/i,"");
+  const threshold=(label,value,unit)=>`<div class="zone-threshold"><span>${label}</span><b>${value||"—"}${value?`<small>${unit}</small>`:""}</b></div>`;
+  const metric=(label,value,unit)=>`<div class="zone-metric"><span>${label}</span><b>${value}${value!=="—"&&unit?`<small>${unit}</small>`:""}</b></div>`;
+  const zones=[1,2,3,4,5].map(i=>{
+    const runRange=run[i]?`${run[i][0]}–${run[i][1]}`:"—";
+    const bikeRange=bike[i]?`${bike[i][0]}–${bike[i][1]}`:"—";
+    const paceRange=String(pace[i]||"—").replace(/\/km$/i,"");
+    return `<article class="zone-row" aria-label="Zone ${i} ${meta[i-1][0]}" style="--zone-mix:${10+i*8}%;--zone-width:${i*20}%">
+      <div class="zone-identity"><span class="zone-number">Z${i}</span><div class="zone-copy"><b>${meta[i-1][0]}</b><span>${meta[i-1][1]}</span></div></div>
+      <div class="zone-metrics">
+        ${metric("Run HR",runRange,"bpm")}
+        ${metric("Bike HR",bikeRange,"bpm")}
+        ${metric("Run pace",paceRange,"/km")}
+      </div>
+      <div class="zone-intensity" aria-hidden="true"><i></i></div>
+    </article>`;
+  }).join("");
+  $("zone-table").innerHTML=`
+    <div class="zone-thresholds">
+      ${threshold("LT heart rate",z.lt_hr,"bpm")}
+      ${threshold("Max heart rate",z.max_hr,"bpm")}
+      ${threshold("Threshold pace",thresholdPace,"/km")}
+    </div>
+    <div class="zone-list-head"><b>Your five zones</b><span>easy → maximal</span></div>
+    <div class="zone-list">${zones}</div>`;
 }
 function renderStatsLoad(tl){
-  if(!tl||tl.error){ $("stats-load").innerHTML=`<div class="muted">unavailable</div>`; return; }
+  if(!tl||tl.error){ $("stats-load").innerHTML=`<div class="load-empty">Training load is temporarily unavailable.</div>`; return; }
+  const ratioRaw=tl.load_ratio==null?NaN:Number(tl.load_ratio), ratio=Number.isFinite(ratioRaw)?ratioRaw:null;
+  const acute=Math.round(Number(tl.acute_load)||0), chronic=Math.round(Number(tl.chronic_load)||0);
+  const cls=acwrClass(ratio), tone={good:"var(--good)",warn:"var(--warn)",bad:"var(--bad)",unknown:"var(--muted)"}[cls];
+  const balance=ratio==null
+    ? {label:"No ratio",title:"Building your baseline",body:"More recorded training is needed before recent and long-term load can be compared."}
+    : ratio<.8
+      ? {label:"Below target",title:"Fresh, but load is light",body:"Your last 7 days are lighter than your established base. That can be exactly right during recovery or taper."}
+      : ratio<=1.3
+        ? {label:"In range",title:"Load is in the sweet spot",body:"Recent work is balanced with the fitness you’ve built — a productive range without a sharp load spike."}
+        : ratio<=1.5
+          ? {label:"Elevated",title:"Load is climbing",body:"Recent work is running above your established base. Keep recovery and session quality in view."}
+          : {label:"High",title:"Load spike detected",body:"The last 7 days are much heavier than your established base. Recovery deserves priority."};
+  const ratioPos=ratio==null?0:Math.max(0,Math.min(100,ratio/2*100));
+  const acuteDelta=chronic?Math.round((acute/chronic-1)*100):null;
+  const deltaText=acuteDelta==null?"recent work":acuteDelta===0?"matches base":`${Math.abs(acuteDelta)}% ${acuteDelta>0?"above":"below"} base`;
   const lf=tl.load_focus||{};
-  const rows=[["Aerobic low","aerobic_low"],["Aerobic high","aerobic_high"],["Anaerobic","anaerobic"]];
-  $("stats-load").innerHTML=`<div class="note" style="padding:0 0 8px">ACWR ${tl.load_ratio} · ${tl.acwr_status} — acute ${tl.acute_load} vs chronic ${tl.chronic_load}</div>`+
-    rows.map(([lbl,k])=>{
+  const rows=[
+    ["Low aerobic","Easy endurance work","aerobic_low"],
+    ["High aerobic","Tempo and threshold work","aerobic_high"],
+    ["Anaerobic","Short, high-intensity work","anaerobic"],
+  ];
+  const systems=rows.map(([lbl,caption,k])=>{
       const v=Math.round(lf[k]||0), t=lf[k+"_target"]||[0,1];
-      const pct=Math.min(100,Math.round(v/Math.max(t[1],1)*100));
-      const state=v<t[0]?"under":(v>t[1]?"over":"in");
+      const t0=Number(t[0])||0, t1=Number(t[1])||1;
+      const state=v<t0?"under":(v>t1?"over":"in");
       const col=state==="in"?"var(--good)":(state==="under"?"var(--warn)":"var(--bad)");
-      return `<div class="lbar"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
-        <span>${lbl}</span><span class="muted">${v} / ${t[0]}–${t[1]}</span></div>
-        <div class="lbar-track"><div style="width:${pct}%;background:${col};height:100%;border-radius:5px"></div></div></div>`;
+      const stateLabel={in:"In range",under:"Below",over:"Above"}[state];
+      const scale=Math.max(v,t1,1)*1.12;
+      const valuePos=Math.max(v?2:0,Math.min(96,v/scale*100));
+      const targetStart=Math.min(96,t0/scale*100), targetWidth=Math.max(2,Math.min(100-targetStart,(t1-t0)/scale*100));
+      return `<article class="load-system" style="--system-tone:${col}">
+        <div class="load-system-top"><span class="load-system-name">${lbl}</span><span class="load-system-state">${stateLabel}</span></div>
+        <div class="load-system-value">${v}<small>target ${Math.round(t0)}–${Math.round(t1)}</small></div>
+        <div class="load-meter" style="--value-pos:${valuePos}%;--target-start:${targetStart}%;--target-width:${targetWidth}%">
+          <span class="target"></span><span class="current"></span>
+        </div>
+        <div class="load-system-caption">${caption}</div>
+      </article>`;
     }).join("");
+  const rawFeedback=String(lf.feedback||"").replace(/_/g," ").trim().toLowerCase();
+  const feedback=rawFeedback?`<div class="load-feedback" style="--feedback-tone:${tone}">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10m0 4v.01"/><circle cx="12" cy="12" r="9"/></svg>
+    <span><b>Garmin load focus:</b> ${rawFeedback}.</span>
+  </div>`:"";
+  $("stats-load").innerHTML=`
+    <div class="load-summary">
+      <div class="load-score" style="--load-tone:${tone};--ratio-pos:${ratioPos}%">
+        <div class="load-score-top">
+          <div><div class="load-score-label">Acute : chronic</div><div class="load-ratio">${ratio==null?"—":ratio.toFixed(2)}<small>ACWR</small></div></div>
+          <span class="load-state">${balance.label}</span>
+        </div>
+        <div class="load-ratio-track"><span class="sweet"></span><span class="marker"></span></div>
+        <div class="load-ratio-scale"><span>0</span><span>sweet spot 0.8–1.3</span><span>2.0</span></div>
+      </div>
+      <div class="load-story">
+        <div><strong>${balance.title}</strong><p>${balance.body}</p></div>
+        <div class="load-comparison">
+          <div class="load-compare"><span>7-day load</span><b>${acute}</b><em>${deltaText}</em></div>
+          <div class="load-compare"><span>28-day base</span><b>${chronic}</b><em>chronic</em></div>
+        </div>
+      </div>
+    </div>
+    <div class="load-focus-head"><b>Energy-system balance</b><span>current · Garmin target range</span></div>
+    <div class="load-systems">${systems}</div>
+    ${feedback}`;
 }
 const _toMin=(hhmm)=>{ if(!hhmm) return null; const [h,m]=hhmm.split(":").map(Number); return h*60+m; };
 const _fmtMin=(min)=>`${String(Math.floor(min/60)).padStart(2,"0")}:${String(min%60).padStart(2,"0")}`;
@@ -2766,8 +3475,7 @@ function renderCalendar(cal, plan){
       const dur=w.duration_min||60;
       const icons=dayIcons(w);
       evs+=`<div class="cg-ev wo" data-date="${dt}" data-dur="${dur}" data-min="${sMin}" style="top:${topOf(sMin)}px;height:${Math.max(24,dur/60*CAL_HOURPX)}px">
-        <div class="evt">${icons} ${fmt(w.title)}</div><div class="evtime">${_fmtClock(sMin)} · ${dur}m</div>
-        <div class="resize" title="Drag to resize"></div></div>`;
+        <div class="evt">${icons} ${fmt(w.title)}</div><div class="evtime">${_fmtClock(sMin)} · ${dur}m</div></div>`;
     }
     cols+=`<div class="cg-col" data-date="${dt}" style="height:${colH}px">${lines}${band}${evs}</div>`;
   });
@@ -2832,12 +3540,11 @@ function renderCalAgenda(cal, plan){
   });
 }
 
-// Optimistically mirror a move/resize in the local plan so the grid re-renders
-// instantly (the Google push happens in the background). Mirrors move_session.
-function _applyMoveLocal(fromDate, toDate, newStart, newDur){
+// Optimistically mirror a move in the local plan so the grid re-renders instantly.
+// Duration is deliberately immutable here; changing it also changes the prescription.
+function _applyMoveLocal(fromDate, toDate, newStart){
   const days=(_calPlan&&_calPlan.days)||[];
   const src=days.find(d=>d.date===fromDate); if(!src) return;
-  if(newDur) src.duration_min=newDur;
   if(!toDate || toDate===fromDate){ if(newStart) src.start_time=newStart; return; }
   const dst=days.find(d=>d.date===toDate);
   const sf=d=>({discipline:d.discipline,title:d.title,structure:d.structure,duration_min:d.duration_min,intensity:d.intensity,why:d.why,is_rest:d.is_rest});
@@ -2858,36 +3565,28 @@ async function _postMove(payload){
     else{ setCalStatus("Saved · syncing to Google"); j("/api/plan").then(p=>{ _calPlan=p; renderPlan(p); }); }
   }catch(err){ setCalStatus("Error: "+err.message,true); loadCalendar(); }
 }
-// Pointer interactions on a workout block: drag the body to move (time+day),
-// drag the bottom edge to resize (duration), tap (no drag) to open the preview.
+// Pointer interactions on a workout block: drag to reschedule, tap to preview.
+// The session duration is a coaching prescription, not a calendar affordance.
 function _wireCalDrag(){
   document.querySelectorAll(".cg-ev.wo").forEach(el=>{
     el.addEventListener("pointerdown",(e)=>{
       e.preventDefault();
-      const isResize=e.target.classList.contains("resize");
       const fromDate=el.dataset.date, dur=+el.dataset.dur||60, sMin=+el.dataset.min||360;
       const cols=[...document.querySelectorAll(".cg-col")].map(c=>{ const r=c.getBoundingClientRect();
         return {date:c.dataset.date, left:r.left, right:r.right, top:r.top}; });
       const startX=e.clientX, startY=e.clientY;
-      let moved=false, curDate=fromDate, curMin=sMin, curDur=dur;
+      let moved=false, curDate=fromDate, curMin=sMin;
       el.classList.add("dragging"); el.setPointerCapture(e.pointerId);
       const tt=el.querySelector(".evtime");
       const onMove=(ev)=>{
         const dx=ev.clientX-startX, dy=ev.clientY-startY;
         if(Math.abs(dx)>4||Math.abs(dy)>4) moved=true;
-        if(isResize){
-          // Resize: change duration from the drag distance (snap 5, min 15).
-          curDur=Math.max(15, Math.round((dur + dy/CAL_HOURPX*60)/5)*5);
-          el.style.height=Math.max(24, curDur/60*CAL_HOURPX)+"px";
-          if(tt) tt.textContent=`${_fmtClock(sMin)} · ${curDur}m`;
-        } else {
-          el.style.transform=`translate(${dx}px,${dy}px)`;
-          const col=cols.find(c=>ev.clientX>=c.left&&ev.clientX<c.right)||cols.find(c=>c.date===fromDate);
-          curDate=col.date;
-          let min=CAL_START_H*60+Math.round(((ev.clientY-col.top)/CAL_HOURPX*60)/15)*15;
-          curMin=Math.max(CAL_START_H*60, Math.min(min, CAL_END_H*60-15));
-          if(tt) tt.textContent=`${_fmtClock(curMin)} · ${dur}m`;
-        }
+        el.style.transform=`translate(${dx}px,${dy}px)`;
+        const col=cols.find(c=>ev.clientX>=c.left&&ev.clientX<c.right)||cols.find(c=>c.date===fromDate);
+        curDate=col.date;
+        let min=CAL_START_H*60+Math.round(((ev.clientY-col.top)/CAL_HOURPX*60)/15)*15;
+        curMin=Math.max(CAL_START_H*60, Math.min(min, CAL_END_H*60-15));
+        if(tt) tt.textContent=`${_fmtClock(curMin)} · ${dur}m`;
       };
       const onUp=(ev)=>{
         el.releasePointerCapture(e.pointerId);
@@ -2896,20 +3595,13 @@ function _wireCalDrag(){
         el.classList.remove("dragging"); el.style.transform="";
         if(!moved){
           // A tap — open the same detail sheet as the Training cards.
-          if(!isResize) openDayDetail(_calWorkouts[fromDate]);
-          else { el.style.height=Math.max(24,dur/60*CAL_HOURPX)+"px"; }
+          openDayDetail(_calWorkouts[fromDate]);
           return;
         }
-        if(isResize){
-          _applyMoveLocal(fromDate, null, null, curDur);
-          renderCalendar(_calCal, _calPlan);
-          _postMove({date:fromDate, new_duration:curDur});
-        } else {
-          const newStart=_fmtMin(curMin), changedDay=curDate!==fromDate;
-          _applyMoveLocal(fromDate, changedDay?curDate:null, newStart, null);
-          renderCalendar(_calCal, _calPlan);   // instant, correct position — no glitch
-          _postMove({date:fromDate, new_date:changedDay?curDate:undefined, new_start:newStart});
-        }
+        const newStart=_fmtMin(curMin), changedDay=curDate!==fromDate;
+        _applyMoveLocal(fromDate, changedDay?curDate:null, newStart);
+        renderCalendar(_calCal, _calPlan);   // instant, correct position — no glitch
+        _postMove({date:fromDate, new_date:changedDay?curDate:undefined, new_start:newStart});
       };
       el.addEventListener("pointermove",onMove);
       el.addEventListener("pointerup",onUp);
@@ -2969,8 +3661,8 @@ async function enablePush(){
 }
 initPush();
 
-loadDashboard();
-loadHistory();
+resetCoachSessionView();
+loadDashboard().then(()=>maybeCoachEventBrief());
 </script>
 </body>
 </html>

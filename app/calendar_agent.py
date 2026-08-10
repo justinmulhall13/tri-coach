@@ -24,8 +24,8 @@ Output ONLY a JSON object, no prose around it:
 {"reply": "<one short sentence confirming what you did>", "actions": [ ... ]}
 
 Action types (use the exact date strings from CONTEXT; resolve "tomorrow/Friday/tonight" from `today`):
-- {"type":"move","date":"YYYY-MM-DD","new_date":"YYYY-MM-DD"(optional),"new_start":"HH:MM"(optional,24h),"new_duration":<minutes>(optional)}
-    Reschedule/resize a WORKOUT that currently sits on "date". Omit fields you aren't changing.
+- {"type":"move","date":"YYYY-MM-DD","new_date":"YYYY-MM-DD"(optional),"new_start":"HH:MM"(optional,24h)}
+    Reschedule a WORKOUT that currently sits on "date". Omit fields you aren't changing.
     Moving onto a day that already has a workout SWAPS them.
 - {"type":"add_event","title":"...","date":"YYYY-MM-DD","start":"HH:MM"(optional),"duration_min":<int>(optional),"all_day":<bool>(optional)}
     Add a personal (non-training) event. Use all_day:true and omit start for all-day things.
@@ -33,7 +33,9 @@ Action types (use the exact date strings from CONTEXT; resolve "tomorrow/Friday/
     Remove a personal event the athlete added.
 - {"type":"rest","date":"YYYY-MM-DD"}  Turn a day into a rest day (removes its workout).
 
-Rules: only include actions the athlete clearly asked for; [] if it's just a question (answer in "reply"). \
+Rules: workout duration and workout contents are set only by Coach Steve. If asked to make a workout
+longer/shorter or change its prescribed work, return no actions and say to ask Coach Steve. Only include
+actions the athlete clearly asked for; [] if it's just a question (answer in "reply"). \
 Prefer morning workout times before their 9-4 workday unless told otherwise. Keep "reply" to one sentence."""
 
 
@@ -87,6 +89,9 @@ def command(text: str) -> dict[str, Any]:
         return {"reply": "I couldn't parse that — try rephrasing.", "actions": [], "applied": 0}
 
     actions = data.get("actions") or []
+    if any(a.get("type") == "move" and a.get("new_duration") is not None for a in actions if isinstance(a, dict)):
+        return {"reply": "Workout length stays fixed in Calendar — ask Coach Steve to change the session.",
+                "actions": [], "applied": 0}
     done: list[str] = []
     touched: list[str] = []   # workout dates that need pushing to Google
     for a in actions:
@@ -108,8 +113,7 @@ def _apply(a: dict[str, Any], touched: list[str]) -> str:
     t = a.get("type")
     if t == "move":
         r = calendar_sync.move_session(a["date"], new_date=a.get("new_date"),
-                                       new_start=a.get("new_start"),
-                                       new_duration=a.get("new_duration"), do_reconcile=False)
+                                       new_start=a.get("new_start"), do_reconcile=False)
         touched.extend(r.get("changed") or [a["date"]])
         return f"moved {a['date']}"
     if t == "rest":
