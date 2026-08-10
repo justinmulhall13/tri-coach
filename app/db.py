@@ -421,6 +421,15 @@ def get_nutrition(date: str) -> list[dict[str, Any]]:
         "SELECT * FROM nutrition_log WHERE date=? ORDER BY id", (date,)).fetchall()]
 
 
+def get_nutrition_by_description(date: str, description: str) -> dict[str, Any] | None:
+    """Find a generated nutrition entry so one-tap actions remain idempotent."""
+    row = _conn().execute(
+        "SELECT * FROM nutrition_log WHERE date=? AND description=? ORDER BY id DESC LIMIT 1",
+        (date, description),
+    ).fetchone()
+    return dict(row) if row else None
+
+
 def delete_nutrition(entry_id: int) -> bool:
     c = _conn()
     cur = c.execute("DELETE FROM nutrition_log WHERE id=?", (entry_id,))

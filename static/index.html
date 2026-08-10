@@ -750,6 +750,23 @@
   .fuel-math summary{cursor:pointer;color:var(--a1);font-weight:600;}
   .fuel-math ul{margin:6px 0 0;padding-left:18px;color:var(--muted);line-height:1.6;}
   .fuel-math .fk{font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);}
+  .fuel-confirm{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+    margin-top:14px;padding:13px 14px;border-radius:14px;background:rgba(52,211,153,.08);
+    border:1px solid rgba(52,211,153,.3);}
+  .fuel-confirm b{font-size:13px;display:block;}.fuel-confirm span{font-size:11.5px;color:var(--muted);}
+
+  /* Coach: a useful, familiar conversation surface rather than a report panel. */
+  #coach-card{max-width:780px;margin:0 auto;padding:0;overflow:hidden;background:rgba(255,255,255,.86);}
+  .coach-top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px 12px;border-bottom:1px solid var(--line);}
+  .coach-person{display:flex;align-items:center;gap:10px;}.coach-avatar{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,var(--a1),var(--a2));color:#fff;font-size:16px;box-shadow:0 5px 16px -7px rgba(var(--glow),.8);}
+  .coach-person b{display:block;font-size:14px;}.coach-person span{display:block;font-size:11px;color:var(--muted);margin-top:1px;}
+  #chatlog{padding:16px 18px;gap:12px;min-height:280px;max-height:calc(100vh - 275px);background:linear-gradient(180deg,rgba(var(--glow),.035),transparent 35%);}
+  .msg{max-width:min(88%,590px);padding:10px 13px;font-size:13px;line-height:1.48;border-radius:18px;box-shadow:0 2px 8px rgba(16,18,22,.035);}
+  .msg.fmt{padding:12px 14px;}.msg.assistant{border-bottom-left-radius:5px;background:#fff;}.msg.user{border-bottom-right-radius:5px;}
+  .msg .tldr{font-size:14px;padding:0 0 8px;margin-bottom:7px;}.msg .cb,.msg .cline{font-size:12.5px;line-height:1.45;padding:3px 0;}.msg .cbl{min-width:52px;font-size:10px;}
+  .coach-compose{padding:11px 14px 14px;border-top:1px solid var(--line);background:#fff;}.chatbar{gap:7px;}.chatbar input{border-radius:18px;padding:12px 14px;font-size:13px;}.chatbar .primary{border-radius:16px;padding:11px 15px;}
+  .coach-hint{padding:7px 3px 0;font-size:11.5px;color:var(--muted);}
+  @media(max-width:600px){#coach-card{margin:-4px -2px 0;border-radius:18px;}#chatlog{padding:14px 12px;min-height:calc(100vh - 270px);max-height:none;}.coach-top{padding:13px 14px 10px;}.msg{max-width:92%;}.coach-compose{padding:10px 12px 12px;}.chatbar .primary{padding:11px 13px;}}
 </style>
 </head>
 <body>
@@ -869,16 +886,18 @@
 
 <main id="main-coach" style="display:none">
     <div class="card" id="coach-card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-        <h2 style="margin:0;">🧢 Coach Steve · today</h2>
+      <div class="coach-top">
+        <div class="coach-person"><div class="coach-avatar">S</div><div><b>Steve</b><span>your coach · straight answers</span></div></div>
         <button id="clearchat" style="padding:4px 10px;font-size:12px;">Clear</button>
       </div>
       <div id="chatlog"></div>
-      <div class="chatbar">
-        <input id="chatinput" placeholder="e.g. only 45 min today, legs are cooked — what should I do?" />
-        <button id="send" class="primary">Send</button>
+      <div class="coach-compose">
+        <div class="chatbar">
+          <input id="chatinput" placeholder="Tell Steve what changed — time, fatigue, travel, niggles…" />
+          <button id="send" class="primary">Send</button>
+        </div>
+        <div class="coach-hint">He’ll make the call, explain the numbers that matter, and skip the noise.</div>
       </div>
-      <div class="note" style="margin-top:6px">Tell Coach Steve what he can't see (time, fatigue, travel, niggles). He remembers what matters for today's training on his own. Shows <b>today only</b>, hit Clear to reset.</div>
     </div>
 </main>
 
@@ -902,6 +921,11 @@
   <div class="card" id="intra-card" style="display:none">
     <h2>⚡ Fuelling today's session</h2>
     <div id="intra-body"></div>
+    <div class="fuel-confirm" id="fuel-confirm">
+      <div><b>Finished today’s workout and took the suggested fuel?</b><span>We’ll add only the prescribed during-workout carbs to today’s intake.</span></div>
+      <button class="primary" id="fuel-confirm-btn">Yep — log it</button>
+    </div>
+    <div id="fuel-confirm-status" class="note"></div>
   </div>
 
   <div class="split">
@@ -1517,12 +1541,26 @@ function splitSessions(s){
   const w=s.suggestion||{}, st=w.structure||{};
   const out=[{kind:"main", disc:w.discipline, title:w.title, dur:w.duration_min,
     intensity:w.intensity, is_rest:w.is_rest,
-    structure:{warmup:st.warmup, main:st.main, cooldown:st.cooldown, run:st.run}, why:w.why}];
+    structure:{warmup:st.warmup, main:st.main, cooldown:st.cooldown}, why:w.why}];
+  // A day can contain several real sessions. Make each one independently tappable
+  // instead of burying the lift, optional swim, or brick run in the primary card.
   if(st.strength){
     out[0].dur = w.duration_min ? Math.max(0,(w.duration_min)-25) : w.duration_min;
     out.push({kind:"strength", disc:"strength", title:"Full-body maintenance lift", dur:25,
       intensity:"strength", structure:{main:st.strength},
       why:"Hold strength and durability without cooking the legs."});
+  }
+  if(st.run){
+    const mins=+(String(st.run).match(/(\d+)\s*(?:min|minute)/i)||[])[1]||20;
+    out[0].dur=w.duration_min?Math.max(0,w.duration_min-mins):w.duration_min;
+    out.push({kind:"run", disc:"run", title:"Brick run", dur:mins, intensity:"race pace",
+      structure:{main:st.run}, why:"Practice the bike-to-run changeover while your legs are loaded."});
+  }
+  if(st.swim){
+    const mins=+(String(st.swim).match(/(?:~|about )?(\d+)\s*(?:min|minute)/i)||[])[1]||30;
+    out[0].dur=w.duration_min?Math.max(0,w.duration_min-mins):w.duration_min;
+    out.push({kind:"swim", disc:"swim", title:"Easy swim", dur:mins, intensity:"easy aerobic",
+      structure:{main:st.swim}, why:"Keep water feel without adding a hard second session."});
   }
   return out;
 }
@@ -1626,6 +1664,21 @@ function refreshPlanEverywhere(){
   j("/api/plan").then(p=>{ renderPlan(p); if($("main-calendar").style.display!=="none") loadCalendar(); });
 }
 let _woOpenIdx=0;
+function workoutBlocks(st, disc, intensity){
+  if(Array.isArray(st.blocks)&&st.blocks.length) return st.blocks;
+  const raw=[st.warmup,st.main,st.cooldown].filter(v=>v&&v!=="—");
+  // Semicolons separate prescribed sets in legacy plan data. Each interval
+  // remains intact, so 6×100 stays one actionable block rather than six rows.
+  const parts=raw.flatMap(v=>String(v).replace(/,\s*then\s+/gi,"; ")
+    .replace(/,\s*(?=\d+(?:\s*[×x]\s*\d+)?\s*(?:m|km|min)\b)/gi,"; ").split(/;\s*/))
+    .map(v=>v.trim()).filter(Boolean);
+  return parts.map((text,i)=>{
+    const count=(text.match(/\b\d+\s*[×x]\s*\d+\b|\b\d+\s*(?:m|min|s|km)\b/i)||[])[0]||"Set";
+    const target=(text.match(/(?:HR\s*[^,;]+|@\s*[^,;]+|Z\d[^,;]*|no faster than[^,;]+)/i)||[])[0]
+      || (/easy|drill|cool|pull|kick/i.test(text)?"easy / technique" : intensity||"controlled");
+    return {label:count, text, target, index:i+1};
+  });
+}
 function openWorkoutDetail(i){
   const x=_woSessions[i]; if(!x||!_woDay) return;
   _woOpenIdx=i;
@@ -1646,11 +1699,10 @@ function openWorkoutDetail(i){
   } else { sched.style.display="none"; }
   $("wo-donechip").innerHTML = completedBanner(s.completed, x);
   $("wo-vibe").textContent=sessionVibe(x.disc,x.intensity,x.title);
-  const steps=[["Warm-up",st.warmup],["Main set",st.main],["Cool-down",st.cooldown],
-               ["2nd leg · Run off the bike",st.run]].filter(([,v])=>v&&v!=="—");
+  const steps=workoutBlocks(st,x.disc,x.intensity);
   $("wo-steps").innerHTML = x.is_rest
     ? `<div class="pv-restnote">Planned rest day — recovery is the work. No structured session.</div>`
-    : steps.map(([k,v])=>`<div class="pv-step sport-${x.disc||"other"}"><div class="pv-k">${k}</div><div class="pv-v">${v}</div></div>`).join("")
+    : steps.map((b,n)=>`<div class="pv-step sport-${x.disc||"other"}"><div class="pv-k">${fmt(b.label||("Block "+(n+1)))}</div><div class="pv-v">${fmt(b.text||b)}<div class="note" style="padding-top:4px">Priority · ${fmt(b.target||x.intensity||"controlled")}</div></div></div>`).join("")
       || `<div class="pv-restnote">No structured steps recorded.</div>`;
   $("wo-why").textContent=x.why||"—";
   renderFuel(x);
@@ -2401,6 +2453,17 @@ function renderFuelTab(day){
   } else { $("intra-card").style.display="none"; }
   renderFoodList(day.logged||[]);
 }
+async function confirmCompletedFueling(){
+  const btn=$("fuel-confirm-btn"), status=$("fuel-confirm-status");
+  if(!btn) return;
+  btn.disabled=true; status.textContent="Adding the prescribed fuel…";
+  try{
+    const r=await j("/api/nutrition/complete-fueling",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+    status.textContent=r.note||"Updated today's intake.";
+    btn.textContent=r.already_logged?"Already logged":r.added?"✓ Logged":"Nothing to add";
+    if(r.day) renderFuelTab(r.day);
+  }catch(e){ status.innerHTML=`<span class="err">${e.message}</span>`; btn.disabled=false; }
+}
 function renderFoodList(list){
   if(!list.length){ $("log-list").innerHTML=`<div class="muted" style="font-size:12px;margin-top:8px">Nothing logged yet today.</div>`; return; }
   $("log-list").innerHTML=list.map(e=>`<div class="food-row" data-id="${e.id}">
@@ -2453,6 +2516,7 @@ $("photo-btn").onclick=logPhoto;
 $("ask-btn").onclick=()=>{ const q=$("ask-input").value.trim(); if(q){ askChef(q); $("ask-input").value=""; } };
 $("ask-input").addEventListener("keydown",e=>{if(e.key==="Enter")$("ask-btn").click();});
 $("suggest-btn").onclick=()=>askChef("");
+$("fuel-confirm-btn").onclick=confirmCompletedFueling;
 $("fuel-goal").onchange=async()=>{
   const g=$("fuel-goal").value;
   $("fuel-basis").textContent="Updating targets…";

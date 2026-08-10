@@ -8,7 +8,9 @@ It pulls live Garmin recovery and training data, models readiness, runs a
 periodized plan toward a race, and keeps two AI agents in the loop: a
 conversational coach that can reprogram the plan, and a natural-language
 calendar assistant that schedules workouts around a real calendar with two-way
-Google sync. It runs as an installable PWA and is deployed on Fly.io.
+Google sync. It runs as an installable PWA and is deployed on Fly.io. Built solo, with Claude
+Code and OpenAI Codex doing most of the typing — see
+[Built with AI, deliberately](#built-with-ai-deliberately).
 
 Built for training toward **T100 Vancouver** (2.0 km swim / 80 km bike /
 18 km run), but the engine is general to any endurance build.
@@ -267,13 +269,37 @@ The machine scales to zero and wakes on request.
 
 ---
 
-## A note on how this was built
+## Built with AI, deliberately
 
-This was built quickly and iteratively with heavy use of AI coding tools — which
-is rather the point. Every feature, data model, and product decision here was
-mine; the AI was the pair that let one person design, build, debug, and ship a
-system this broad on nights and weekends. That collaboration is the interesting
-part, not something to paper over.
+This was built with AI coding tools doing most of the typing — **Claude Code** and
+**OpenAI Codex**, used side by side. That is not a disclaimer, it is the method.
+
+What I brought was the part that actually determines whether a system like this
+works: deciding what it should do, how the data model should be shaped, and where
+it was wrong. A few examples of that line in practice, all of which are in the
+commit history:
+
+- The readiness engine originally *replaced* my planned session when HRV looked
+  low. It swapped a key VO2 workout for a recovery spin, I saw the easy session
+  and went back to bed, and the numbers turned out to be fine. I had it rewritten
+  so readiness advises and the athlete decides. That is a product judgement, not a
+  code change.
+- The calendar sync quietly accumulated duplicate events because reconciliation
+  only pruned events on *unsynced* days. Diagnosing that took reading the sync
+  logic against the Google API's actual behaviour, then making the reconcile
+  idempotent by construction.
+- The block counter read "Wk 5 of 8" beside "9 days out" — two derivations of the
+  same fact that could drift apart. It now derives from a single source so the two
+  cannot contradict.
+- Fuelling was a flat carbohydrate target until I specified it against intestinal
+  transport limits, because I have a documented GI failure from overfuelling
+  glucose. Now it caps glucose at 60 g/h, holds a 2:1 ratio above that, and shows
+  its arithmetic so I can check it.
+
+Working this way well is a skill: knowing what to ask for, catching the plausible-
+looking answer that is wrong, and keeping architectural coherence across a system
+one person could not otherwise have shipped on nights and weekends. That is the
+part worth showing.
 
 ## License
 

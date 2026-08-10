@@ -553,6 +553,12 @@ def nutrition_log(body: dict = Body(...)) -> JSONResponse:
     return JSONResponse(result, status_code=502 if result.get("error") else 200)
 
 
+@app.post("/api/nutrition/complete-fueling")
+def nutrition_complete_fueling() -> JSONResponse:
+    """One-tap confirmation that today's planned intra-workout fuel was taken."""
+    return JSONResponse(nutrition.log_completed_fueling())
+
+
 @app.post("/api/nutrition/suggest")
 def nutrition_suggest(body: dict = Body(default={})) -> JSONResponse:
     result = nutrition.suggest_meal((body.get("request") or "").strip())

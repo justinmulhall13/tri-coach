@@ -373,6 +373,35 @@ def get_day() -> dict[str, Any]:
     }
 
 
+def log_completed_fueling() -> dict[str, Any]:
+    """Record the carbohydrate energy from today's prescribed intra-session fuel.
+
+    This deliberately logs only what the athlete was told to take *during* the
+    session. It does not guess at recovery food or exercise calories, and uses a
+    stable description to make the confirmation button safe to tap twice.
+    """
+    today = config.local_today().isoformat()
+    session = _today_session()
+    plan = fueling_plan(session)
+    if not plan.get("needed"):
+        return {"ok": True, "added": False, "note": plan.get("note", "No fuel was prescribed."),
+                "day": get_day()}
+
+    carbs = int(round((plan.get("total_carb_g") or [0, 0])[1] or 0))
+    title = (session.get("title") or session.get("discipline") or "workout").strip()
+    description = f"Workout fuel · {title}"
+    existing = db.get_nutrition_by_description(today, description)
+    if existing:
+        return {"ok": True, "added": False, "already_logged": True,
+                "note": "Today's prescribed workout fuel is already in your intake.", "day": get_day()}
+
+    db.add_nutrition(today, description, eaten_at="during workout", meal="during",
+                     kcal=carbs * 4, carb_g=carbs, protein_g=0, fat_g=0)
+    return {"ok": True, "added": True, "carb_g": carbs, "kcal": carbs * 4,
+            "note": f"Added {carbs} g carbohydrate ({carbs * 4} kcal) from today's prescribed workout fuel.",
+            "day": get_day()}
+
+
 # --- Context for the AI -------------------------------------------------------
 def _context_block() -> str:
     today = config.local_now()
