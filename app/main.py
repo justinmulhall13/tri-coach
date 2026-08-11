@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import threading
 import time
+import json
 from typing import Any
 
 from pathlib import Path
 
 from fastapi import Body, FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import (activity_detail, baselines, calendar_agent, calendar_source,
@@ -322,6 +323,7 @@ def plan_feedback(body: dict = Body(...)) -> JSONResponse:
         rpe = None
     result = plan_adapt.apply_session_feedback(
         date_str, status=body.get("status", "done"), rpe=rpe, note=body.get("note", ""))
+    coach.invalidate_context_cache()
     db.set_meta("brief_sig", "")  # force the coach to re-brief against the change
     _bg_sync()
     return JSONResponse(result)
@@ -352,14 +354,21 @@ def morning(force: bool = False) -> JSONResponse:
         except Exception as e:
             return {"error": f"{type(e).__name__}: {e}"}
 
+    readiness = safe(garmin_source.get_readiness)
+    fitness = safe(garmin_source.get_fitness_markers)
+    load = safe(lambda: garmin_source.get_recent_load(14))
     payload = {
         "race": config.race_phase(),
-        "readiness": safe(garmin_source.get_readiness),
-        "fitness": safe(garmin_source.get_fitness_markers),
-        "load": safe(lambda: garmin_source.get_recent_load(14)),
-        "suggestion": safe(suggest.todays_suggestion),
+        "readiness": readiness,
+        "fitness": fitness,
+        "load": load,
+        "suggestion": safe(lambda: suggest.todays_suggestion(
+            readiness if isinstance(readiness, dict) else {},
+            load if isinstance(load, dict) else {},
+        )),
         "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
+    coach.prime_context_cache(readiness=readiness, fitness=fitness, load=load)
     with _lock:
         _cache["morning"] = payload
         _cache["ts"] = time.time()
@@ -418,6 +427,7 @@ def plan_revert(history_id: int) -> JSONResponse:
 def add_completion(body: dict = Body(...)) -> JSONResponse:
     db.add_completion(body["date"], body.get("status", "done"),
                       body.get("notes", ""), body.get("garmin_activity_id", ""))
+    coach.invalidate_context_cache()
     return JSONResponse({"ok": True})
 
 
@@ -501,6 +511,7 @@ def coach_brief(force: bool = False) -> JSONResponse:
         return JSONResponse({"skipped": True, "reason": "event baseline established"})
     if not force and previous == sig:
         return JSONResponse({"skipped": True, "reason": "no new sleep or workout event"})
+    coach.invalidate_context_cache()
     result = coach.morning_brief()
     if not result.get("error"):
         db.set_meta("coach_event_sig", sig)
@@ -524,6 +535,28 @@ def coach_chat(body: dict = Body(...)) -> JSONResponse:
     result = coach.chat(message, log_as_constraint=bool(body.get("log_as_constraint")))
     status = 502 if result.get("error") else 200
     return JSONResponse(result, status_code=status)
+
+
+@app.post("/api/coach/chat/stream")
+def coach_chat_stream(body: dict = Body(...)):
+    """NDJSON Coach stream: status, text deltas, then the complete result."""
+    message = (body.get("message") or "").strip()
+    if not message:
+        return JSONResponse({"error": "message is required"}, status_code=400)
+
+    def lines():
+        for event in coach.chat_events(
+                message, log_as_constraint=bool(body.get("log_as_constraint"))):
+            yield json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n"
+
+    return StreamingResponse(
+        lines(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-store, no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/api/coach/accept")
@@ -564,7 +597,10 @@ def log_manual_activity(body: dict = Body(...)) -> JSONResponse:
 
 @app.delete("/api/activity/manual/{entry_id}")
 def delete_manual_activity(entry_id: int) -> JSONResponse:
-    return JSONResponse({"ok": db.delete_manual_activity(entry_id)})
+    ok = db.delete_manual_activity(entry_id)
+    if ok:
+        coach.invalidate_context_cache()
+    return JSONResponse({"ok": ok})
 
 
 # --- Nutrition (Chef Gordo) ---------------------------------------------------

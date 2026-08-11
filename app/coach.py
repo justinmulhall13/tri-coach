@@ -18,9 +18,13 @@ from __future__ import annotations
 import datetime
 import json
 import re
+import threading
+import time
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from . import config, db, garmin_source, suggest, zones
+from . import config, db, garmin_source, rings, suggest, zones
 
 _SYSTEM = """You are Coach Steve, a triathlon coach for a single athlete preparing \
 for a T100 triathlon (2.0 km swim / 80 km bike / 18 km run). You are direct, \
@@ -169,18 +173,53 @@ worth keeping (most messages).
 _TRANSIENT = ("RemoteProtocolError", "APIConnectionError", "ConnectionError",
               "ReadTimeout", "APITimeoutError", "InternalServerError", "OverloadedError")
 
+_CLIENT: Any = None
+_CLIENT_LOCK = threading.Lock()
+_CONTEXT_CACHE: dict[str, Any] = {"at": 0.0, "date": None, "data": None}
+_CONTEXT_LOCK = threading.Lock()
+_CONTEXT_TTL_S = 90
+
+
+def _anthropic_client() -> Any:
+    """Reuse HTTP/TLS connections instead of creating a client per message."""
+    global _CLIENT
+    if _CLIENT is None:
+        with _CLIENT_LOCK:
+            if _CLIENT is None:
+                import anthropic
+                _CLIENT = anthropic.Anthropic(
+                    api_key=config.ANTHROPIC_API_KEY,
+                    max_retries=2,
+                )
+    return _CLIENT
+
+
+def _message_kwargs(max_tokens: int, messages: list[dict[str, Any]]) -> dict[str, Any]:
+    """Shared low-latency request shape for chat and event briefs."""
+    return {
+        "model": config.COACH_MODEL,
+        "max_tokens": max_tokens,
+        "system": [{
+            "type": "text",
+            "text": _SYSTEM,
+            "cache_control": {"type": "ephemeral", "ttl": "1h"},
+        }],
+        "thinking": {"type": "adaptive"},
+        "output_config": {"effort": config.COACH_EFFORT},
+        # Automatic caching keeps the stable system/history prefix hot while
+        # the final live-context/user turn changes on each message.
+        "cache_control": {"type": "ephemeral"},
+        "messages": messages,
+    }
+
 
 def _stream_reply(max_tokens: int, messages: list[dict[str, Any]]) -> Any:
     """Stream a completion with a retry on transient network/streaming errors."""
-    import anthropic
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY, max_retries=2)
+    client = _anthropic_client()
     last: Exception | None = None
     for _ in range(3):
         try:
-            with client.messages.stream(
-                model=config.COACH_MODEL, max_tokens=max_tokens, system=_SYSTEM,
-                thinking={"type": "adaptive"}, messages=messages,
-            ) as stream:
+            with client.messages.stream(**_message_kwargs(max_tokens, messages)) as stream:
                 return stream.get_final_message()
         except Exception as e:  # noqa: BLE001
             last = e
@@ -188,6 +227,60 @@ def _stream_reply(max_tokens: int, messages: list[dict[str, Any]]) -> Any:
                 continue
             raise
     raise last  # type: ignore[misc]
+
+
+def invalidate_context_cache() -> None:
+    """Force the next Coach request to pull a fresh Garmin snapshot."""
+    with _CONTEXT_LOCK:
+        _CONTEXT_CACHE.update({"at": 0.0, "date": None, "data": None})
+
+
+def prime_context_cache(**sections: Any) -> None:
+    """Seed Coach with Garmin data the dashboard already fetched."""
+    usable = {name: value for name, value in sections.items() if value is not None}
+    if not usable:
+        return
+    today = config.local_today().isoformat()
+    with _CONTEXT_LOCK:
+        existing = (_CONTEXT_CACHE.get("data") or {}) if _CONTEXT_CACHE.get("date") == today else {}
+        _CONTEXT_CACHE.update({
+            "at": time.monotonic(),
+            "date": today,
+            "data": {**existing, **usable},
+        })
+
+
+def _live_context(safe) -> dict[str, Any]:
+    """Fetch independent Garmin sections in parallel and briefly reuse them.
+
+    A normal conversation sends several follow-ups against the same workout and
+    recovery state. Re-querying Garmin for every follow-up was both slower and
+    less reliable, while a short cache keeps the context effectively live.
+    """
+    today = config.local_today().isoformat()
+    now = time.monotonic()
+    with _CONTEXT_LOCK:
+        cache_is_fresh = (_CONTEXT_CACHE.get("date") == today
+                          and now - float(_CONTEXT_CACHE.get("at") or 0) < _CONTEXT_TTL_S)
+        cached = dict(_CONTEXT_CACHE.get("data") or {}) if cache_is_fresh else {}
+
+        from . import fitness_trend
+        calls = {
+            "readiness": garmin_source.get_readiness,
+            "load": lambda: garmin_source.get_recent_load(14),
+            "training_load": garmin_source.get_training_load,
+            "fitness": garmin_source.get_fitness_markers,
+            "pmc": lambda: fitness_trend.get_pmc(90),
+            "zones": zones.summary,
+        }
+        missing = {name: fn for name, fn in calls.items() if name not in cached}
+        if not missing:
+            return cached
+        with ThreadPoolExecutor(max_workers=len(missing)) as pool:
+            futures = {name: pool.submit(safe, fn) for name, fn in missing.items()}
+            data = {**cached, **{name: future.result() for name, future in futures.items()}}
+        _CONTEXT_CACHE.update({"at": time.monotonic(), "date": today, "data": data})
+        return data
 
 
 def _context_block() -> str:
@@ -198,16 +291,33 @@ def _context_block() -> str:
         except Exception as e:
             return {"error": f"{type(e).__name__}: {e}"}
 
-    from . import baselines, fitness_trend, insights
+    from . import baselines, insights
     phase = config.race_phase()
-    readiness = safe(garmin_source.get_readiness)
-    load = safe(lambda: garmin_source.get_recent_load(14))
-    training_load = safe(garmin_source.get_training_load)
-    fitness = safe(garmin_source.get_fitness_markers)
-    pmc = safe(lambda: fitness_trend.get_pmc(90))
+    live = _live_context(safe)
+    readiness = live["readiness"]
+    load = live["load"]
+    training_load = live["training_load"]
+    fitness = live["fitness"]
+    pmc = live["pmc"]
     baseline = safe(baselines.get_baselines)
-    signals = safe(insights.get_insights)
-    sugg = safe(suggest.todays_suggestion)
+    ready_score = (((readiness.get("training_readiness") or {}).get("score"))
+                   if isinstance(readiness, dict) else None)
+    ring_context = {"t100": rings.t100_readiness(
+        load if isinstance(load, dict) else {},
+        training_load if isinstance(training_load, dict) else {},
+        ready_score,
+        phase.get("days_remaining", 0),
+    )}
+    signals = safe(lambda: insights.get_insights(
+        baseline_data=baseline if isinstance(baseline, dict) else {},
+        pmc_data=pmc if isinstance(pmc, dict) else {},
+        training_load_data=training_load if isinstance(training_load, dict) else {},
+        rings_data=ring_context,
+    ))
+    sugg = safe(lambda: suggest.todays_suggestion(
+        readiness if isinstance(readiness, dict) else {},
+        load if isinstance(load, dict) else {},
+    ))
     now = config.local_now()
     today = now.date().isoformat()
     week_end = (now.date() + datetime.timedelta(days=7)).isoformat()
@@ -222,7 +332,7 @@ def _context_block() -> str:
         "today": today,
         "local_time": now.strftime("%A %H:%M %Z"),
         "athlete_profile": config.ATHLETE_PROFILE,
-        "athlete_zones": safe(zones.summary),
+        "athlete_zones": live["zones"],
         "race": phase,
         "todays_readiness": readiness,
         "fitness_markers": fitness,
@@ -255,7 +365,9 @@ def _context_block() -> str:
             {"date": c["date"], "fact": c["text"]} for c in memory
         ],
     }
-    return json.dumps(payload, indent=2, default=str)
+    # Compact JSON preserves every field while reducing prompt bytes/tokens and
+    # therefore input-processing time.
+    return json.dumps(payload, separators=(",", ":"), default=str)
 
 
 _ADJ_RE = re.compile(r"```adjustment\s*(\{.*?\})\s*```", re.DOTALL)
@@ -334,21 +446,19 @@ def _extract_weekplan(text: str) -> list[dict[str, Any]] | None:
     return out or None
 
 
-def chat(user_message: str, log_as_constraint: bool = False) -> dict[str, Any]:
-    """Send one coach turn with full context. Returns reply + any proposed adjustment.
-    The coach now decides itself what's worth remembering (via a ```remember block),
-    so no manual 'log' toggle is needed; `log_as_constraint` is kept for compatibility."""
+def _key_error() -> dict[str, Any] | None:
     key = config.ANTHROPIC_API_KEY
     if not key or key.strip() in ("", "sk-ant-...") or key.strip().endswith("..."):
         return {
             "error": "ANTHROPIC_API_KEY is not set (still the .env placeholder)",
             "hint": "Put your real key in coach/.env as ANTHROPIC_API_KEY=sk-ant-..., then retry.",
         }
+    return None
 
-    import anthropic
 
+def _prepare_chat(user_message: str) -> tuple[str, list[dict[str, Any]]]:
+    """Build the private conversation window and append fresh training context."""
     today = config.local_today().isoformat()
-
     # The visible UI starts fresh each time the app launches, but Steve's context
     # does not. Keep a generous private window of prior turns across days and trim
     # only if it would crowd out current training data/model reasoning.
@@ -371,12 +481,11 @@ def chat(user_message: str, log_as_constraint: bool = False) -> dict[str, Any]:
         "role": "user",
         "content": f"<context>\n{context}\n</context>\n\n{user_message}",
     })
+    return today, messages
 
-    try:
-        msg = _stream_reply(8000, messages)   # room for thinking + a full-week rebuild block
-    except Exception as e:
-        return {"error": f"{type(e).__name__}: {e}", "source": "anthropic"}
 
+def _finish_chat(user_message: str, today: str, msg: Any) -> dict[str, Any]:
+    """Extract structured proposals, persist the clean exchange, and return it."""
     reply = "".join(b.text for b in msg.content if b.type == "text").strip()
     adjustment = _extract_adjustment(reply)
     week = _extract_weekplan(reply)
@@ -420,6 +529,71 @@ def chat(user_message: str, log_as_constraint: bool = False) -> dict[str, Any]:
         "model": msg.model,
         "stop_reason": msg.stop_reason,
     }
+
+
+def chat_events(user_message: str,
+                log_as_constraint: bool = False) -> Iterator[dict[str, Any]]:
+    """Yield status/text/final events so the UI can render the answer immediately."""
+    del log_as_constraint  # compatibility with the pre-memory API
+    key_error = _key_error()
+    if key_error:
+        yield {"type": "error", **key_error}
+        return
+
+    started_at = time.monotonic()
+    yield {"type": "status", "message": "Checking your latest training data"}
+    try:
+        today, messages = _prepare_chat(user_message)
+    except Exception as e:  # noqa: BLE001
+        yield {"type": "error", "error": f"{type(e).__name__}: {e}"}
+        return
+    context_ms = round((time.monotonic() - started_at) * 1000)
+    yield {"type": "status", "message": "Reviewing your plan and recent context"}
+
+    try:
+        client = _anthropic_client()
+    except Exception as e:  # noqa: BLE001
+        yield {"type": "error", "error": f"{type(e).__name__}: {e}", "source": "anthropic"}
+        return
+    first_token_ms: int | None = None
+    last: Exception | None = None
+    for attempt in range(3):
+        sent_text = False
+        try:
+            with client.messages.stream(**_message_kwargs(8000, messages)) as stream:
+                for text in stream.text_stream:
+                    if not text:
+                        continue
+                    sent_text = True
+                    if first_token_ms is None:
+                        first_token_ms = round((time.monotonic() - started_at) * 1000)
+                    yield {"type": "delta", "text": text}
+                msg = stream.get_final_message()
+            result = _finish_chat(user_message, today, msg)
+            result["timing_ms"] = {
+                "context": context_ms,
+                "first_text": first_token_ms,
+                "total": round((time.monotonic() - started_at) * 1000),
+            }
+            yield {"type": "done", "result": result}
+            return
+        except Exception as e:  # noqa: BLE001
+            last = e
+            if type(e).__name__ in _TRANSIENT and not sent_text and attempt < 2:
+                yield {"type": "status", "message": "Connection hiccup — retrying"}
+                continue
+            break
+    yield {"type": "error", "error": f"{type(last).__name__}: {last}", "source": "anthropic"}
+
+
+def chat(user_message: str, log_as_constraint: bool = False) -> dict[str, Any]:
+    """Compatibility JSON response for clients that cannot consume NDJSON."""
+    for event in chat_events(user_message, log_as_constraint=log_as_constraint):
+        if event["type"] == "done":
+            return event["result"]
+        if event["type"] == "error":
+            return {k: v for k, v in event.items() if k != "type"}
+    return {"error": "Coach stream ended before a reply", "source": "anthropic"}
 
 
 _BRIEF_INSTRUCTION = """I just opened my dashboard. Look at `todays_completed_activities` \
@@ -565,4 +739,5 @@ def log_activities(activities: list[dict[str, Any]]) -> dict[str, Any]:
             hr_avg=integer(a.get("hr_avg")), notes=str(a.get("notes") or "")[:300])
         added.append(eid)
     db.set_meta("brief_sig", "")   # so the coach re-evaluates with the new activity
+    invalidate_context_cache()
     return {"ok": bool(added), "count": len(added)}

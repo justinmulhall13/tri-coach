@@ -51,7 +51,7 @@ def _readiness_signal(readiness: dict[str, Any]) -> dict[str, Any]:
     return {"level": "good", "reason": "recovery markers in range", "downregulate": False}
 
 
-def _todays_completion(today: str) -> dict[str, Any] | None:
+def _todays_completion(today: str, recent_load: dict[str, Any] | None = None) -> dict[str, Any] | None:
     """Report today's training state for the workout card.
 
     A workout is only *verified* complete when a real Garmin activity for today
@@ -61,7 +61,7 @@ def _todays_completion(today: str) -> dict[str, Any] | None:
     and asks the athlete to double-check rather than claiming it's done."""
     acts: list[dict[str, Any]] = []
     try:
-        load = garmin_source.get_recent_load(3)
+        load = recent_load if recent_load is not None else garmin_source.get_recent_load(3)
         acts = [a for a in (load.get("activities") or []) if (a.get("date") or "") == today]
     except Exception:
         acts = []
@@ -93,15 +93,19 @@ def _todays_completion(today: str) -> dict[str, Any] | None:
     }
 
 
-def todays_suggestion() -> dict[str, Any]:
+def todays_suggestion(readiness_data: dict[str, Any] | None = None,
+                      recent_load: dict[str, Any] | None = None) -> dict[str, Any]:
     today = config.local_today().isoformat()
     plan_day = db.get_plan_day(today)
 
     # Pull live inputs (best effort).
-    try:
-        readiness = garmin_source.get_readiness()
-    except Exception as e:
-        readiness = {"error": f"{type(e).__name__}: {e}"}
+    if readiness_data is not None:
+        readiness = readiness_data
+    else:
+        try:
+            readiness = garmin_source.get_readiness()
+        except Exception as e:
+            readiness = {"error": f"{type(e).__name__}: {e}"}
 
     signal = _readiness_signal(readiness)
 
@@ -111,7 +115,7 @@ def todays_suggestion() -> dict[str, Any]:
             "has_plan": False,
             "message": "No plan entry for today. Seed the plan (POST /api/plan/seed).",
             "readiness_signal": signal,
-            "completed": _todays_completion(today),
+            "completed": _todays_completion(today, recent_load),
         }
 
     base = {
@@ -176,6 +180,6 @@ def todays_suggestion() -> dict[str, Any]:
         "readiness_signal": signal,
         "today_constraints": constraints,
         "notes": notes,
-        "completed": _todays_completion(today),
+        "completed": _todays_completion(today, recent_load),
         "data_flags": (readiness.get("missing") if isinstance(readiness, dict) else None),
     }

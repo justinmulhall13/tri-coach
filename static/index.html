@@ -1001,6 +1001,29 @@
     -webkit-backdrop-filter:blur(24px) saturate(165%);box-shadow:0 14px 34px -32px rgba(16,18,22,.55);}
   .coach-avatar{position:relative;box-shadow:0 10px 24px -12px rgba(var(--glow),.85),inset 0 1px 0 rgba(255,255,255,.36);}
   .coach-avatar::after{content:"";position:absolute;right:-1px;bottom:-1px;width:9px;height:9px;border:2px solid #fff;border-radius:50%;background:var(--good);}
+  .coach-avatar.is-thinking{animation:steve-header-glow 1.65s ease-in-out infinite;}
+  .msg.thinking{min-width:min(310px,84%);padding:11px 13px;}
+  .coach-thinking{display:grid;grid-template-columns:35px 1fr auto;align-items:center;gap:10px;min-height:38px;}
+  .coach-thinking-orb{position:relative;width:35px;height:35px;border-radius:13px;display:grid;place-items:center;
+    color:#fff;font:700 13px var(--disp);background:linear-gradient(145deg,var(--a1),var(--a2));
+    box-shadow:0 0 0 0 rgba(var(--glow),.12),0 9px 24px -13px rgba(var(--glow),.95),inset 0 1px 0 rgba(255,255,255,.3);
+    animation:steve-orb-glow 1.65s ease-in-out infinite;}
+  .coach-thinking-orb::before{content:"";position:absolute;inset:-4px;border-radius:16px;border:1px solid rgba(var(--glow),.22);
+    opacity:.45;animation:steve-orbit 1.65s ease-in-out infinite;}
+  .coach-thinking-copy{min-width:0;display:flex;flex-direction:column;gap:2px;}
+  .coach-thinking-copy b{font-size:12.5px;color:var(--ink);font-weight:700;}
+  .coach-thinking-status{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:10.5px;}
+  .coach-thinking-dots{display:flex;align-items:center;gap:3px;padding:0 3px;}
+  .coach-thinking-dots i{width:5px;height:5px;border-radius:50%;background:var(--a1);opacity:.28;animation:steve-dot 1.05s ease-in-out infinite;}
+  .coach-thinking-dots i:nth-child(2){animation-delay:.14s}.coach-thinking-dots i:nth-child(3){animation-delay:.28s}
+  .msg.streaming{white-space:pre-wrap;}
+  .msg.streaming::after{content:"";display:inline-block;width:6px;height:14px;margin-left:3px;vertical-align:-2px;border-radius:2px;
+    background:rgba(var(--glow),.7);animation:steve-cursor .85s steps(2,end) infinite;}
+  @keyframes steve-header-glow{50%{filter:brightness(1.28);box-shadow:0 0 28px -5px rgba(var(--glow),.92),inset 0 1px 0 rgba(255,255,255,.5);}}
+  @keyframes steve-orb-glow{50%{filter:brightness(1.22);transform:scale(1.045);box-shadow:0 0 24px 2px rgba(var(--glow),.31),0 12px 28px -12px rgba(var(--glow),1),inset 0 1px 0 rgba(255,255,255,.4);}}
+  @keyframes steve-orbit{50%{inset:-7px;opacity:.08;}}
+  @keyframes steve-dot{0%,55%,100%{opacity:.24;transform:translateY(0)}28%{opacity:1;transform:translateY(-4px)}}
+  @keyframes steve-cursor{50%{opacity:.12}}
   #chatlog{background:
     radial-gradient(50% 28% at 50% 0%,rgba(var(--glow),.07),transparent 100%),
     linear-gradient(180deg,rgba(255,255,255,.2),transparent 35%);}
@@ -2624,6 +2647,65 @@ function addActivityLog(acts){
   };
   $("chatlog").appendChild(c); $("chatlog").scrollTop=$("chatlog").scrollHeight;
 }
+function addCoachThinking(){
+  const empty=$("chatlog").querySelector(".coach-empty"); if(empty) empty.remove();
+  const d=document.createElement("div");
+  d.className="msg assistant thinking";
+  d.setAttribute("role","status");
+  d.setAttribute("aria-live","polite");
+  d.innerHTML=`<div class="coach-thinking">
+    <span class="coach-thinking-orb" aria-hidden="true">S</span>
+    <span class="coach-thinking-copy"><b>Steve is thinking</b><span class="coach-thinking-status">Checking your latest training data</span></span>
+    <span class="coach-thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+  </div>`;
+  $("chatlog").appendChild(d); $("chatlog").scrollTop=$("chatlog").scrollHeight;
+  document.querySelector(".coach-avatar")?.classList.add("is-thinking");
+  return d;
+}
+function setCoachThinkingStatus(el,message){
+  const status=el.querySelector(".coach-thinking-status");
+  if(status) status.textContent=message||"Steve is thinking";
+}
+function visibleCoachDraft(text){
+  const cut=String(text||"").search(/(?:^|\n)```(?:adjustment|weekplan|logactivity|calendar_event|remember)\b/i);
+  return (cut<0?String(text||""):String(text||"").slice(0,cut)).trimStart();
+}
+async function streamCoachMessage(text,onEvent){
+  if(!window.ReadableStream||!window.TextDecoder){
+    return j("/api/coach/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:text})});
+  }
+  const headers=new Headers({"Content-Type":"application/json"});
+  if(_token) headers.set("X-Access-Token",_token);
+  const response=await fetch("/api/coach/chat/stream",{method:"POST",headers,body:JSON.stringify({message:text})});
+  if(response.status===401){ promptToken(); throw new Error("unauthorized"); }
+  if(!response.ok){
+    let detail={}; try{ detail=await response.json(); }catch(_e){}
+    throw new Error(detail.error||`Coach request failed (${response.status})`);
+  }
+  if(!response.body) throw new Error("Streaming is unavailable in this browser");
+  const reader=response.body.getReader(), decoder=new TextDecoder();
+  let buffer="", result=null;
+  const consume=line=>{
+    if(!line.trim()) return;
+    const event=JSON.parse(line); onEvent(event);
+    if(event.type==="done") result=event.result;
+    if(event.type==="error"){
+      const err=new Error(event.error||"Coach could not answer");
+      if(event.hint) err.hint=event.hint;
+      throw err;
+    }
+  };
+  while(true){
+    const {value,done}=await reader.read();
+    buffer+=decoder.decode(value||new Uint8Array(),{stream:!done});
+    const lines=buffer.split("\n"); buffer=lines.pop()||"";
+    lines.forEach(consume);
+    if(done) break;
+  }
+  if(buffer.trim()) consume(buffer);
+  if(!result) throw new Error("Coach stream ended before the final response");
+  return result;
+}
 let _coachSessionEpoch=0, _coachBriefChecking=false;
 function resetCoachSessionView(){
   _coachSessionEpoch++;
@@ -2654,15 +2736,38 @@ function newCoachChat(){
 $("clearchat").onclick=newCoachChat;
 async function send(){
   const inp=$("chatinput"); const text=inp.value.trim(); if(!text) return;
+  const epoch=_coachSessionEpoch;
   addMsg("user",text); inp.value=""; resizeChatInput(); $("send").disabled=true;
-  const thinking=addMsg("assistant","…");
+  $("chatlog").setAttribute("aria-busy","true");
+  const thinking=addCoachThinking(); let draft="";
   try{
-    const r=await j("/api/coach/chat",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({message:text})});
-    if(r.error){ thinking.className="msg error"; thinking.textContent=r.error+(r.hint?("\n→ "+r.hint):""); }
-    else{ setCoachText(thinking,r.reply||"(no reply)"); if(r.proposed_adjustment) addAdjustment(r.proposed_adjustment); if(r.proposed_week) addWeekPlan(r.proposed_week); if(r.proposed_activities) addActivityLog(r.proposed_activities); if(r.proposed_event) addCalendarEvent(r.proposed_event); }
-  }catch(e){ thinking.className="msg error"; thinking.textContent=e.message; }
-  finally{ $("send").disabled=false; }
+    const r=await streamCoachMessage(text,event=>{
+      if(epoch!==_coachSessionEpoch) return;
+      if(event.type==="status") setCoachThinkingStatus(thinking,event.message);
+      if(event.type==="delta"){
+        draft+=event.text||"";
+        thinking.className="msg assistant streaming";
+        thinking.removeAttribute("role");
+        thinking.textContent=visibleCoachDraft(draft);
+        $("chatlog").scrollTop=$("chatlog").scrollHeight;
+      }
+    });
+    if(epoch!==_coachSessionEpoch) return;
+    if(r.error){ throw Object.assign(new Error(r.error),{hint:r.hint}); }
+    thinking.className="msg assistant";
+    thinking.removeAttribute("role"); thinking.removeAttribute("aria-live");
+    setCoachText(thinking,r.reply||"(no reply)");
+    if(r.proposed_adjustment) addAdjustment(r.proposed_adjustment);
+    if(r.proposed_week) addWeekPlan(r.proposed_week);
+    if(r.proposed_activities) addActivityLog(r.proposed_activities);
+    if(r.proposed_event) addCalendarEvent(r.proposed_event);
+  }catch(e){
+    if(epoch===_coachSessionEpoch){ thinking.className="msg error"; thinking.textContent=e.message+(e.hint?("\n→ "+e.hint):""); }
+  }finally{
+    document.querySelector(".coach-avatar")?.classList.remove("is-thinking");
+    $("chatlog").removeAttribute("aria-busy");
+    $("send").disabled=false;
+  }
 }
 // ---- Readiness-swap confirmation (never change the workout without asking) ----
 function confirmDownregulation(reason, planned, adjusted){

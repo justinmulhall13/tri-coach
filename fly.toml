@@ -14,6 +14,7 @@ primary_region = 'sjc'
   DB_PATH = '/data/coach.db'
   GARMIN_TOKENSTORE = '/data/garminconnect'
   COACH_MODEL = 'claude-sonnet-5'
+  COACH_EFFORT = 'medium'
   GOOGLE_CREDENTIALS_FILE = '/data/credentials.json'
   GOOGLE_TOKEN_FILE = '/data/token.json'
 

@@ -43,6 +43,11 @@ NUTRITION_PREFS = _get("NUTRITION_PREFS", "No restrictions — suggest anything 
 # --- Anthropic ----------------------------------------------------------------
 ANTHROPIC_API_KEY = _get("ANTHROPIC_API_KEY")
 COACH_MODEL = _get("COACH_MODEL", "claude-opus-4-8")
+# Medium keeps adaptive reasoning for real plan changes without paying the
+# default high-effort latency on every ordinary coaching question.
+COACH_EFFORT = _get("COACH_EFFORT", "medium").lower()
+if COACH_EFFORT not in {"low", "medium", "high", "xhigh", "max"}:
+    COACH_EFFORT = "medium"
 # Fast, cheap model for structured/low-reasoning tasks (calendar command parsing).
 FAST_MODEL = _get("FAST_MODEL", "claude-haiku-4-5-20251001")
 

@@ -34,13 +34,23 @@ def _trailing_run(values: list[float], *, down: bool) -> int:
     return n
 
 
-def get_insights() -> dict[str, Any]:
+def get_insights(*, baseline_data: dict[str, Any] | None = None,
+                 pmc_data: dict[str, Any] | None = None,
+                 training_load_data: dict[str, Any] | None = None,
+                 rings_data: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Build deterministic signals, optionally reusing data a caller already has.
+
+    The dashboard still calls this with no arguments. Coach passes its existing
+    readiness/load snapshot so generating prompt context does not hit Garmin a
+    second time for the exact same metrics.
+    """
     signals: list[dict[str, Any]] = []
 
-    base = _safe(baselines.get_baselines, {}) or {}
-    pmc = _safe(lambda: fitness_trend.get_pmc(90), {}) or {}
-    tl = _safe(garmin_source.get_training_load, {}) or {}
-    rg = _safe(rings.get_rings, {}) or {}
+    base = baseline_data if baseline_data is not None else (_safe(baselines.get_baselines, {}) or {})
+    pmc = pmc_data if pmc_data is not None else (_safe(lambda: fitness_trend.get_pmc(90), {}) or {})
+    tl = (training_load_data if training_load_data is not None
+          else (_safe(garmin_source.get_training_load, {}) or {}))
+    rg = rings_data if rings_data is not None else (_safe(rings.get_rings, {}) or {})
     from . import db
     wellness = _safe(lambda: db.get_wellness(14), []) or []
     race = config.race_phase()

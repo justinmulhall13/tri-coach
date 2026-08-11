@@ -89,6 +89,10 @@ result is a fresh screen without an amnesiac coach. Automatic briefs are
 event-driven rather than launch-driven — a new sleep/recovery day, synced workout
 or completion log can trigger one; simply reopening the app cannot.
 
+Replies stream into the conversation as Steve writes them. While fresh Garmin
+context is being assembled, a compact glowing-avatar and bouncing-dot state keeps
+the composer stable and makes the wait explicit without blocking the rest of the UI.
+
 It will reprogram any upcoming day, rebuild a whole week around a constraint,
 log sessions you did off-plan, propose calendar events from a passing mention,
 and decide on its own what is worth remembering (availability, niggles, travel)
