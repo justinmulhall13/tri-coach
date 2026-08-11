@@ -93,6 +93,14 @@ Replies stream into the conversation as Steve writes them. While fresh Garmin
 context is being assembled, a compact glowing-avatar and bouncing-dot state keeps
 the composer stable and makes the wait explicit without blocking the rest of the UI.
 
+Completed structured sessions are evaluated step by step. Garmin's recorded
+ACTIVE interval boundaries are joined to the timestamped HR trace, so Steve sees
+the duration-weighted average/max and exact minutes below, inside and above the
+target for every work bout. The blended activity average is never used to grade
+interval execution, because warm-up, recoveries and cool-down intentionally pull
+it down. Explicit HR ranges are also encoded verbatim in future watch workouts so
+the workout text and Garmin target cannot silently disagree.
+
 Race questions are routed through a structured, page-linked digest of the supplied
 2026 Vancouver Athlete Guide. Steve knows the exact check-in schedule, transitions,
 course/cutoffs and bike/run aid-station locations and products, while explicitly
@@ -206,6 +214,7 @@ app/
   rings.py           the four dashboard rings
   ring_detail.py     per-ring drill-downs (contributors, stages, charts)
   activity_detail.py per-activity deep dive + cached AI analysis
+  interval_analysis.py recorded work bouts + duration-weighted HR execution
 
   zones.py           the athlete's REAL Garmin HR zones (per sport), LT, FTP
   plan.py            periodized plan generator (build / peak / taper)

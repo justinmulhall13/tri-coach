@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from . import config, garmin_source, zones
+from . import config, garmin_source, interval_analysis, zones
 
 FTP = int(config.ATHLETE_PROFILE.get("ftp_w") or 288)
 
@@ -187,9 +187,13 @@ def _bike_steps(main: str, intensity: str, order: int, title: str = "") -> tuple
     steps: list[dict[str, Any]] = []
     o = order
     indoor = _is_indoor(main, title)
+    explicit_hr = interval_analysis.explicit_hr_range(main)
 
     def note(inten: str) -> str:
-        hr = _hr_note(inten, "bike", title)
+        # An explicit bpm prescription must be the target encoded on the watch,
+        # not just text that can disagree with a generic zone target.
+        hr = (f"HR {explicit_hr[0]}-{explicit_hr[1]}"
+              if explicit_hr and inten == intensity else _hr_note(inten, "bike", title))
         if indoor:
             w = zones.watt_range(inten, title)
             if w:
@@ -201,14 +205,18 @@ def _bike_steps(main: str, intensity: str, order: int, title: str = "") -> tuple
         reps, dur = int(m.group(1)), int(m.group(2))
         rec = re.search(r"w/\s*(\d+)\s*min", main)
         rec_min = int(rec.group(1)) if rec else 3
-        work = _exec(o + 1, "interval", "time", dur * 60, _hr_for(intensity, "bike", title),
+        work_target = (_hr_bpm_target(*explicit_hr) if explicit_hr
+                       else _hr_for(intensity, "bike", title))
+        work = _exec(o + 1, "interval", "time", dur * 60, work_target,
                      desc=note(intensity))
         recov = _exec(o + 2, "recovery", "time", rec_min * 60, _hr_for("recovery", "bike"),
                       desc=f"easy spin · {_hr_note('recovery', 'bike')}".strip(" ·"))
         steps.append(_repeat(o, reps, [work, recov]))
         return steps, o + 3
     dur = _mins(main) or 45
-    steps.append(_exec(o, "interval", "time", dur * 60, _hr_for(intensity, "bike", title),
+    work_target = (_hr_bpm_target(*explicit_hr) if explicit_hr
+                   else _hr_for(intensity, "bike", title))
+    steps.append(_exec(o, "interval", "time", dur * 60, work_target,
                        desc=note(intensity)))
     return steps, o + 1
 

@@ -25,7 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from . import (athlete_guide, config, db, fueling_reference, garmin_source,
-               rings, suggest, zones)
+               interval_analysis, rings, suggest, zones)
 
 _SYSTEM = """You are Coach Steve, a triathlon coach for a single athlete preparing \
 for a T100 triathlon (2.0 km swim / 80 km bike / 18 km run). You are direct, \
@@ -76,6 +76,14 @@ discarded assumption.
 `deduplicated_sync_count` are one workout, not multiple sessions; never restore the ignored copy
 into totals. If the athlete flags an unmarked duplicate, accept the correction and reason from one
 session unless independent timing data proves they are separate.
+- A structured interval workout MUST be graded from `todays_interval_execution`, not from the
+whole-activity average HR. That average deliberately blends warm-up, recoveries and cool-down.
+Read every ACTIVE interval: its prescribed duration, duration-weighted average/max HR, and minutes
+below/in/above the prescribed band. Allow for normal HR rise during the opening portion of a work
+bout. Never claim the work "didn't land" merely because the session average is below the interval
+target. The associated Garmin workout is the authoritative prescription actually performed. If
+`structured_target_mismatch` exists, identify it as an app/workout-construction error, never an
+athlete execution failure.
 
 FUELING AND ATHLETE-GUIDE RULES:
 1. `vancouver_athlete_guide` is the authoritative supplied race guide. Use its page-linked facts
@@ -369,6 +377,18 @@ def _context_block(user_query: str = "") -> str:
     all_acts = (load.get("activities") or []) if isinstance(load, dict) else []
     todays_done = [a for a in all_acts if (a.get("date") or "") == today]
     todays_plan = db.get_plan_day(today)
+    todays_intervals = []
+    for activity in todays_done:
+        candidate_ids = [activity.get("activity_id"), *(activity.get("deduplicated_activity_ids") or [])]
+        execution = None
+        # A duplicate pair may contain one native Garmin recording (with workout
+        # steps) and one trainer sync (without them), so try every collapsed id.
+        for candidate in dict.fromkeys(i for i in candidate_ids if i):
+            execution = safe(lambda candidate=candidate: interval_analysis.get(int(candidate)))
+            if execution and not execution.get("error"):
+                break
+        if execution and not execution.get("error"):
+            todays_intervals.append(execution)
 
     payload = {
         "today": today,
@@ -392,6 +412,7 @@ def _context_block(user_query: str = "") -> str:
             "structure": todays_plan.get("structure"),
         } if todays_plan else None,
         "todays_completed_activities": todays_done,
+        "todays_interval_execution": todays_intervals,
         "todays_suggested_workout": sugg,
         # Week shape only — omit each day's full warmup/main/cooldown (big, and the
         # coach regenerates structures when it rebuilds anyway). Today's full
@@ -661,7 +682,8 @@ and `todays_planned_workout`, then give me a tight, unprompted status brief — 
 Did I complete the planned session, a modified version, or something different? Judge the \
 actual numbers (distance, duration, HR, power/pace) against the target. Tell me how it went, \
 whether it hit the intent, and what it means for the rest of the week. If a second session \
-is still planned today and I haven't done it, say what's left.
+is still planned today and I haven't done it, say what's left. For structured intervals, use \
+`todays_interval_execution` bout by bout and NEVER use whole-session average HR as the grade.
 - If I have NOT trained yet today: give the morning briefing — readiness read with the key \
 signal, today's planned session and its main target, and the single most important thing to nail, \
 drawing on my load focus and where I'm behind for the race.
@@ -675,7 +697,9 @@ _NIGHTLY_INSTRUCTION = """It's evening — give me my nightly review of TODAY, n
 Use `local_time`, `todays_completed_activities`, `todays_planned_workout`, and today's \
 readiness/load context.
 - Recap what I actually trained today vs what was planned. Judge the real numbers \
-(distance, duration, HR, power/pace) against the target — did I hit the intent, over/under-do it?
+(distance, duration, HR, power/pace) against the target — did I hit the intent, over/under-do it? \
+For structured intervals, use `todays_interval_execution` bout by bout and NEVER use \
+whole-session average HR as the grade.
 - If I did NOT train today and a session was planned, say so plainly and whether it's worth \
 salvaging tomorrow or writing off.
 - Give one honest takeaway on where today leaves me for the week and the race, and one \

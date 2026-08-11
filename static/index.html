@@ -2706,9 +2706,10 @@ async function streamCoachMessage(text,onEvent){
   if(!result) throw new Error("Coach stream ended before the final response");
   return result;
 }
-let _coachSessionEpoch=0, _coachBriefChecking=false;
+let _coachSessionEpoch=0, _coachInteractionEpoch=0, _coachBriefChecking=false;
 function resetCoachSessionView(){
   _coachSessionEpoch++;
+  _coachInteractionEpoch++;
   $("chatlog").innerHTML=`<div class="coach-empty">
     <div class="coach-empty-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a7.5 7.5 0 0 1-7.5 7.5H8L3.5 22l1-4.2A7.5 7.5 0 1 1 21 12z"/></svg></div>
     <b>New conversation</b>
@@ -2719,12 +2720,16 @@ function resetCoachSessionView(){
   resizeChatInput();
 }
 async function maybeCoachEventBrief(){
-  if(_coachBriefChecking) return;
+  const log=$("chatlog");
+  // Event briefs belong at the start of a clean session. Never drop one into an
+  // active conversation (or race an answer the athlete is already waiting for).
+  if(_coachBriefChecking || log.querySelector(".msg.user") || log.getAttribute("aria-busy")==="true") return;
   _coachBriefChecking=true;
-  const epoch=_coachSessionEpoch;
+  const epoch=_coachSessionEpoch, interaction=_coachInteractionEpoch;
   try{
     const b=await j("/api/coach/brief",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
-    if(b.reply && epoch===_coachSessionEpoch) addMsg("assistant",b.reply);
+    if(b.reply && epoch===_coachSessionEpoch && interaction===_coachInteractionEpoch
+      && !log.querySelector(".msg.user") && log.getAttribute("aria-busy")!=="true") addMsg("assistant",b.reply);
     // A skip or transient error stays silent: opening the app is not an update.
   }catch(e){ console.warn("Coach event check failed",e); }
   finally{ _coachBriefChecking=false; }
@@ -2736,6 +2741,7 @@ function newCoachChat(){
 $("clearchat").onclick=newCoachChat;
 async function send(){
   const inp=$("chatinput"); const text=inp.value.trim(); if(!text) return;
+  _coachInteractionEpoch++;
   const epoch=_coachSessionEpoch;
   addMsg("user",text); inp.value=""; resizeChatInput(); $("send").disabled=true;
   $("chatlog").setAttribute("aria-busy","true");

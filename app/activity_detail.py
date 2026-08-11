@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from . import db, garmin_source
+from . import db, garmin_source, interval_analysis
 
 
 def _safe(fn, default=None):
@@ -194,12 +194,16 @@ and series summaries). Give me your read on this session in 4–6 sentences:
 2. Execution quality — pacing/power/HR discipline, split consistency, decoupling if visible.
 3. Training effect — what this did for me physiologically and how it fits my T100 build \
 and current load focus.
+For a structured interval session, grade each ACTIVE bout from `interval_execution` and never \
+compare whole-session average HR with the work target.
 Direct, evidence-based, reference specific numbers. No adjustment block, no preamble."""
 
 
 def analyze(activity_id: int) -> dict[str, Any]:
     """Coach Steve's take on one activity — cached per activity id."""
-    cache_key = f"analysis_{activity_id}"
+    # v2 includes recorded interval boundaries and duration-weighted HR; do not
+    # reuse older analyses that graded interval days from whole-session averages.
+    cache_key = f"analysis_v2_{activity_id}"
     cached = db.get_meta(cache_key)
     if cached:
         return {"analysis": cached, "cached": True}
@@ -207,6 +211,9 @@ def analyze(activity_id: int) -> dict[str, Any]:
     from . import coach  # late import to avoid cycles
     detail = get_detail(activity_id)
     slim = {"stats": detail["stats"], "splits": detail["splits"][:20]}
+    interval_execution = interval_analysis.get(activity_id)
+    if interval_execution:
+        slim["interval_execution"] = interval_execution
     ser = detail.get("series") or {}
     if ser.get("hr"):
         hr = [v for v in ser["hr"] if v]
