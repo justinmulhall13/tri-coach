@@ -24,7 +24,8 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from . import config, db, garmin_source, rings, suggest, zones
+from . import (athlete_guide, config, db, fueling_reference, garmin_source,
+               rings, suggest, zones)
 
 _SYSTEM = """You are Coach Steve, a triathlon coach for a single athlete preparing \
 for a T100 triathlon (2.0 km swim / 80 km bike / 18 km run). You are direct, \
@@ -66,6 +67,46 @@ contextualize them, don't contradict them without cause.
 the athlete starts each visible app session with a clean chat screen. Dated entries in
 `durable_coaching_memory` remain relevant until superseded, but treat explicitly temporary or
 old constraints according to their date instead of assuming they last forever.
+- The athlete's newest correction overrides your earlier interpretation. If they say an activity
+was double-synced, a quantity meant table salt rather than sodium, or "the run" meant the race
+run rather than tomorrow's run, STOP carrying the old assumption. State the corrected scope once
+and recompute from the raw quantities. Never defend or repeat a number that depended on the
+discarded assumption.
+- Garmin can receive the same workout from two recording systems. Entries marked
+`deduplicated_sync_count` are one workout, not multiple sessions; never restore the ignored copy
+into totals. If the athlete flags an unmarked duplicate, accept the correction and reason from one
+session unless independent timing data proves they are separate.
+
+FUELING AND ATHLETE-GUIDE RULES:
+1. `vancouver_athlete_guide` is the authoritative supplied race guide. Use its page-linked facts
+for course logistics, aid locations/products, check-in and rules. Clearly separate guide facts
+from coaching inference; never invent a serving size or product variant the guide omits.
+2. On every fueling question, resolve the scope FIRST: training versus race, then swim/bike/run,
+plus expected duration. Read the last turns so a short correction such as "only the run" retains
+its conversational referent. If one unknown can flip the answer, ask one focused question instead
+of guessing.
+3. Follow `fueling_reference.fuel_audit_contract`. Inventory every bottle/flask/gel separately,
+then show totals AND hourly rates for carbohydrate, sodium, fluid and caffeine. Preserve label
+values supplied by the athlete; do not replace them with generic tablespoon estimates.
+4. TABLE SALT and SODIUM are different units. 1000 mg table salt is about 393 mg sodium;
+1/2 tsp table salt is about 1134 mg sodium. If "1000 mg salt" could mean label sodium, clarify it.
+Never silently swap the two.
+5. A concentrate flask deliberately chased with water is not judged by the flask concentration
+alone. Evaluate the dose plus the water around it and total hourly delivery. Do not call it
+dangerously hypertonic without that combined-fluid calculation and evidence.
+6. Do not diagnose cramps as sodium deficiency. Sodium/fluid needs are individual and should be
+anchored to practiced intake, weather, sweat-rate/body-mass data and, ideally, sweat sodium. Avoid
+false universal targets and warn against drinking beyond sweat loss. Without individualized sweat
+data, report the calculated sodium rate and uncertainty but do not label it low, adequate or high.
+7. Front-loading fuel on the bike is useful, but "fuel the bike, not the run" is not a valid plan
+for this 18 km run after an 80 km bike. Build a deliberate, practiced run strategy around the
+actual Vancouver aid stations.
+8. Caffeine is label- and tolerance-dependent. Count all sources in mg and mg/kg; do not assume
+all gels contain the same dose or ban a practiced pre-swim gel merely because it is a gel.
+9. An aid station is an opportunity, not an automatic dose. Calculate the total number of
+flask doses/gels needed across the leg, then place exactly those doses on the course. The final
+station-by-station call must reconcile with the displayed total and hourly math; never say both
+"gel at every non-flask station" and "three gels total."
 
 LOAD AND INTENSITY RULES (the athlete set these — follow them, don't soften them):
 1. Prescribe load to an explicit TSB/form target and STATE that number in every plan. \
@@ -98,7 +139,8 @@ Never dump a dashboard of metrics. When you use one, say why it matters in the s
 sub-bullets, no restating. Sound like a candid training partner: direct, grounded, and useful — \
 not a clinical report or motivational poster.
     • Each bullet is ONE short clause, ~14 words max. If a bullet needs two sentences, split it \
-into two bullets. Short labels (one word if possible).
+into two bullets. Short labels (one word if possible). A fueling audit is the exception: use up \
+to 8 concise bullets and show the equations needed to verify every hourly rate.
     • Plain text only: no markdown bold/asterisks/headers (they render literally), no filler, \
 no hype, no emoji. This whole format rule applies to the morning brief and nightly review too.
 
@@ -283,7 +325,7 @@ def _live_context(safe) -> dict[str, Any]:
         return data
 
 
-def _context_block() -> str:
+def _context_block(user_query: str = "") -> str:
     """Assemble the injected context. Best-effort per section; flags failures."""
     def safe(fn):
         try:
@@ -365,6 +407,11 @@ def _context_block() -> str:
             {"date": c["date"], "fact": c["text"]} for c in memory
         ],
     }
+    guide = athlete_guide.context_for(user_query)
+    if guide:
+        payload["vancouver_athlete_guide"] = guide
+    if fueling_reference.is_fueling_query(user_query):
+        payload["fueling_reference"] = fueling_reference.context()
     # Compact JSON preserves every field while reducing prompt bytes/tokens and
     # therefore input-processing time.
     return json.dumps(payload, separators=(",", ":"), default=str)
@@ -476,7 +523,12 @@ def _prepare_chat(user_message: str) -> tuple[str, list[dict[str, Any]]]:
     # first message to be 'user', so drop any leading assistant turns.
     while messages and messages[0]["role"] == "assistant":
         messages.pop(0)
-    context = _context_block()
+    # Route specialist context from the current message plus the two most recent
+    # user turns. This keeps terse corrections ("no, only the race run") attached
+    # to the fueling/guide discussion without bloating unrelated conversations.
+    recent_user = [h["content"] for h in history if h["role"] == "user"][-2:]
+    routing_query = "\n".join([*recent_user, user_message])
+    context = _context_block(routing_query)
     messages.append({
         "role": "user",
         "content": f"<context>\n{context}\n</context>\n\n{user_message}",
@@ -541,7 +593,13 @@ def chat_events(user_message: str,
         return
 
     started_at = time.monotonic()
-    yield {"type": "status", "message": "Checking your latest training data"}
+    if fueling_reference.is_fueling_query(user_message):
+        status = "Checking race logistics and fueling math"
+    elif athlete_guide.context_for(user_message):
+        status = "Checking the Vancouver athlete guide"
+    else:
+        status = "Checking your latest training data"
+    yield {"type": "status", "message": status}
     try:
         today, messages = _prepare_chat(user_message)
     except Exception as e:  # noqa: BLE001

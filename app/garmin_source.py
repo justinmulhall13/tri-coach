@@ -407,6 +407,88 @@ def _bucket(type_key: str | None, name: str | None = None) -> str:
     return "other"
 
 
+def _start_delta_minutes(a: dict[str, Any], b: dict[str, Any]) -> float | None:
+    """Absolute start delta, or None when either provider omitted local time."""
+    left, right = a.get("start_local"), b.get("start_local")
+    if not left or not right:
+        return None
+    try:
+        la = datetime.datetime.fromisoformat(str(left).replace("Z", "+00:00"))
+        rb = datetime.datetime.fromisoformat(str(right).replace("Z", "+00:00"))
+        return abs((la - rb).total_seconds()) / 60
+    except (TypeError, ValueError):
+        return None
+
+
+def _same_synced_session(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Conservative duplicate test for one workout synced by two recorders.
+
+    Same-day doubles remain separate unless their start times and physiology are
+    nearly identical. If start time is missing, require the normalized name too.
+    """
+    if a.get("manual") or b.get("manual"):
+        return False
+    if a.get("date") != b.get("date") or a.get("sport") != b.get("sport"):
+        return False
+    if a.get("multisport_parent") != b.get("multisport_parent"):
+        return False
+
+    start_delta = _start_delta_minutes(a, b)
+    if start_delta is not None and start_delta > 15:
+        return False
+    if start_delta is None:
+        normalize = lambda value: _re.sub(r"\W+", "", str(value or "").lower())
+        if normalize(a.get("name")) != normalize(b.get("name")):
+            return False
+
+    duration_a, duration_b = float(a.get("minutes") or 0), float(b.get("minutes") or 0)
+    if max(duration_a, duration_b) <= 0:
+        return False
+    if abs(duration_a - duration_b) > max(2.0, 0.06 * max(duration_a, duration_b)):
+        return False
+
+    comparable = 1  # duration
+    km_a, km_b = a.get("km"), b.get("km")
+    if isinstance(km_a, (int, float)) and isinstance(km_b, (int, float)):
+        comparable += 1
+        if abs(km_a - km_b) > max(0.3, 0.04 * max(km_a, km_b, 1)):
+            return False
+    hr_a, hr_b = a.get("hr_avg"), b.get("hr_avg")
+    if isinstance(hr_a, (int, float)) and isinstance(hr_b, (int, float)):
+        comparable += 1
+        if abs(hr_a - hr_b) > 3:
+            return False
+    max_a, max_b = a.get("hr_max"), b.get("hr_max")
+    if isinstance(max_a, (int, float)) and isinstance(max_b, (int, float)):
+        comparable += 1
+        if abs(max_a - max_b) > 4:
+            return False
+    return comparable >= 2 and (start_delta is not None or comparable >= 3)
+
+
+def _dedupe_synced_activities(activities: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse confidently duplicated provider rows and retain an audit marker."""
+    unique: list[dict[str, Any]] = []
+    for activity in activities:
+        existing = next((row for row in unique if _same_synced_session(row, activity)), None)
+        if existing is None:
+            unique.append(activity)
+            continue
+        existing["deduplicated_sync_count"] = int(existing.get("deduplicated_sync_count") or 1) + 1
+        ids = existing.setdefault("deduplicated_activity_ids", [existing.get("activity_id")])
+        if activity.get("activity_id") not in ids:
+            ids.append(activity.get("activity_id"))
+        names = existing.setdefault("deduplicated_names", [existing.get("name")])
+        if activity.get("name") and activity.get("name") not in names:
+            names.append(activity.get("name"))
+        # Keep the richer copy without ever adding the duplicated load/volume.
+        for key in ("km", "hr_avg", "hr_max", "load", "avg_power_w", "norm_power_w",
+                    "pace_min_km", "start_local"):
+            if existing.get(key) is None and activity.get(key) is not None:
+                existing[key] = activity[key]
+    return unique
+
+
 def get_recent_load(days: int = 14) -> dict[str, Any]:
     """Recent activities + weekly volume/load by discipline (ramp check)."""
     c = get_client()
@@ -423,6 +505,7 @@ def get_recent_load(days: int = 14) -> dict[str, Any]:
         sport = _bucket(tk, a.get("activityName"))
         entry = {
             "date": start,
+            "start_local": a.get("startTimeLocal"),
             "name": a.get("activityName"),
             "sport": sport,
             "type_key": tk,
@@ -463,7 +546,8 @@ def get_recent_load(days: int = 14) -> dict[str, Any]:
                     else:
                         label = l["sport"]
                     leg_entry = {
-                        "date": start, "name": f"{pname} · {label}",
+                        "date": start, "start_local": a.get("startTimeLocal"),
+                        "name": f"{pname} · {label}",
                         "sport": l["sport"], "type_key": l["type_key"],
                         "km": l["km"], "minutes": l["minutes"],
                         "hr_avg": l["hr_avg"], "hr_max": l["hr_max"],
@@ -477,6 +561,8 @@ def get_recent_load(days: int = 14) -> dict[str, Any]:
                     acts.append(leg_entry)
                 continue  # skip the parent "other" row
         acts.append(entry)
+
+    acts = _dedupe_synced_activities(acts)
 
     # Merge coach/manually-logged activities (e.g. "I biked this morning" before the
     # watch has synced). Dedup: if Garmin already has that sport on that day, assume

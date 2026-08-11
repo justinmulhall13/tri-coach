@@ -93,6 +93,11 @@ Replies stream into the conversation as Steve writes them. While fresh Garmin
 context is being assembled, a compact glowing-avatar and bouncing-dot state keeps
 the composer stable and makes the wait explicit without blocking the rest of the UI.
 
+Race questions are routed through a structured, page-linked digest of the supplied
+2026 Vancouver Athlete Guide. Steve knows the exact check-in schedule, transitions,
+course/cutoffs and bike/run aid-station locations and products, while explicitly
+refusing to invent serving volumes or variants the guide does not specify.
+
 It will reprogram any upcoming day, rebuild a whole week around a constraint,
 log sessions you did off-plan, propose calendar events from a passing mention,
 and decide on its own what is worth remembering (availability, niggles, travel)
@@ -133,6 +138,13 @@ cannot be absorbed. Drink concentration is held to 6–8% by mass and any carb
 beyond what the bottle can carry is assigned to gels with plain water. Every plan
 shows its arithmetic, states what it assumed about product composition, lists the
 labels to verify, and carries an abort protocol for GI distress.
+
+Custom fueling questions use a shared audit contract in both Fuel and Coach:
+resolve the exact race/training leg, distinguish table-salt mass from sodium,
+inventory every bottle/flask/gel, reconcile totals with hourly rates, then place
+only those doses at the Athlete Guide's actual aid stations. Concentrate flasks are
+evaluated with the water taken alongside them, and uncertain labels trigger a
+focused question instead of a confident guess.
 
 ### Analytics
 ![Analytics tab](docs/screenshots/analytics.png)

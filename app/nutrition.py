@@ -21,7 +21,7 @@ import json
 import re
 from typing import Any
 
-from . import config, db, garmin_source, suggest
+from . import athlete_guide, config, db, fueling_reference, garmin_source, suggest
 
 def weight_info() -> dict[str, Any]:
     """Live weight from Garmin (auto-updates on each weigh-in), else the .env default."""
@@ -70,16 +70,32 @@ ALL pure glucose — a product listing only these has ZERO fructose. Sucrose and
 50/50; honey is ~40% fructose. Their carb powder is 100% glucose: assume zero fructose from it.
 - Rate by duration: under 60 min none (water only); 60-150 min 30-60 g/h; over 150 min 70-90 g/h
 with the 2:1 split mandatory. ALWAYS state the glucose rate separately from the total.
-- Fluid/sodium: heavy salty sweater at ~1 L/h; 800-900 mg sodium per litre from TABLE SALT
-(3/8 tsp = 850 mg), not tablets. Never add magnesium — the carb powder contains it and magnesium
-at dose is a laxative. Keep drink concentration 6-8% carb by mass; carb beyond that goes in gels
-with plain water.
-- Caffeine 3-6 mg/kg from coffee, not gels (gels are ~20 mg). ~5 h half-life. NEVER before swimming.
-- Never introduce a new product, mix or rate on race day. Give an ABORT PROTOCOL on every long
-session. Fuel the bike, not the run. SHOW THE ARITHMETIC (g/h, glucose/h, fructose/h, sodium/h,
-fluid/h) and state which product labels to verify.
+- The 1 L/h fluid and 800-900 mg sodium/L values in the deterministic day card are working
+estimates, not measured facts. For custom advice, use practiced thirst/intake, weather, body-mass
+change or sweat testing when available. Do not diagnose cramps as sodium deficiency, prescribe a
+universal sodium target, or encourage drinking beyond sweat losses. Without individualized data,
+report the sodium rate and uncertainty but do not label it low, adequate or high.
+- TABLE SALT and SODIUM are different units: 1000 mg table salt is about 393 mg sodium; 1/2 tsp
+table salt is about 1134 mg sodium. If the athlete's wording or label is ambiguous, ask before
+calculating. A concentrate flask chased with separate water must be evaluated with that water,
+not condemned from flask concentration alone.
+- Caffeine is label- and tolerance-dependent. Count every source in mg and mg/kg. Maurten Gel 100
+Caf 100 has 100 mg, not ~20 mg; a practiced pre-swim gel is not automatically prohibited.
+- Never introduce a new product, mix or rate on race day. Front-load carbohydrate on the bike when
+practical, but the 18 km run after an 80 km bike still needs a deliberate practiced fueling plan.
+- For every fueling audit, resolve training versus race and the exact leg/duration first. Inventory
+each bottle, flask, gel and aid-station serving separately; preserve user-supplied label values;
+then SHOW totals and rates (carb g/h, sodium mg/h, fluid mL/h, caffeine mg and mg/kg). If a missing
+serving size or "salt versus sodium" ambiguity can flip the verdict, ask one focused question.
+- Use `vancouver_athlete_guide` for aid locations/products and `fueling_reference` for arithmetic.
+Never invent the cup/bottle volume or exact product variant when the guide does not state it.
+- Aid stations are opportunities, not automatic doses. Calculate the units needed over the leg,
+then place only that many; the station schedule must reconcile with the displayed totals/rates.
+- The athlete's newest correction replaces the prior assumption. Recalculate from the original
+quantities and scope; do not repeat or defend the discarded answer.
 - OUTPUT FORMAT — never a wall of text. Lead with a one-line "TL;DR:" then 2–5 short \
 "• Label — one line" bullets (labels like Now, Pre, Post, Portion, Macros, Timing, Verdict). \
+Fueling audits may use up to 8 concise bullets so every equation remains checkable. \
 Plain text only: no markdown bold/asterisks, no emoji, no filler."""
 
 
@@ -198,8 +214,8 @@ GLUCOSE_CEILING_G_H = 60
 FRUCTOSE_CEILING_G_H = 30
 MAX_CARB_G_H = GLUCOSE_CEILING_G_H + FRUCTOSE_CEILING_G_H     # 90
 DRINK_CONC_MIN, DRINK_CONC_MAX = 0.06, 0.08   # 6-8% carb by mass
-SWEAT_L_H = 1.0                                # heavy, salty sweater
-SODIUM_MG_PER_L = (800, 900)
+SWEAT_L_H = 1.0                                # working default; not a measured sweat rate
+SODIUM_MG_PER_L = (800, 900)                   # working band; personalize when measured
 TSP_SALT_MG_SODIUM = 2267.0    # 1 tsp table salt ~ 2267 mg sodium (3/8 tsp ~ 850)
 
 
@@ -322,7 +338,7 @@ def fueling_plan(session: dict[str, Any]) -> dict[str, Any]:
         "assumptions": [
             "Carb powder is 100% glucose (maltodextrin/dextrose/cyclic dextrin are all glucose) — zero fructose assumed.",
             "Table sugar is 50/50 glucose/fructose; it is the fructose source here.",
-            "Sweat rate assumed 1 L/h and salty — the default for this athlete.",
+            "Sweat rate is provisionally 1 L/h with 800-900 mg sodium/L; neither value is measured.",
             "No magnesium added: the carb powder already contains it and magnesium at dose is a laxative.",
         ],
         "verify_labels": [
@@ -332,7 +348,8 @@ def fueling_plan(session: dict[str, Any]) -> dict[str, Any]:
         ],
     }
     if disc in ("bike", "brick"):
-        plan["placement"] = "Fuel the bike, not the run. Carbs absorb far better on the bike and GI problems surface on the run."
+        plan["placement"] = ("Front-load carbohydrate on the bike, then continue a practiced run plan. "
+                             "The run rate may be lower for tolerance, but it is not zero by default.")
     elif disc == "run" and hours > 2.5:
         plan["placement"] = "Long run: carry the rate at the low end. The run is where GI failure shows up."
     return plan
@@ -403,7 +420,7 @@ def log_completed_fueling() -> dict[str, Any]:
 
 
 # --- Context for the AI -------------------------------------------------------
-def _context_block() -> str:
+def _context_block(user_request: str = "") -> str:
     today = config.local_now()
     tdi = today.date().isoformat()
     week_end = (today.date() + datetime.timedelta(days=6)).isoformat()
@@ -420,6 +437,7 @@ def _context_block() -> str:
         readiness = {}
     payload = {
         "now_local": today.strftime("%A %H:%M %Z"),
+        "race": config.race_phase(),
         "athlete_weight_kg": day["weight"]["kg"],
         "prefs": config.NUTRITION_PREFS,
         "today_session": day["session"],
@@ -433,7 +451,12 @@ def _context_block() -> str:
         "plan_this_week": [{"date": d["date"], "discipline": d["discipline"], "title": d["title"],
                             "duration_min": d["duration_min"]} for d in plan_week],
     }
-    return json.dumps(payload, indent=2, default=str)
+    guide = athlete_guide.context_for(user_request)
+    if guide:
+        payload["vancouver_athlete_guide"] = guide
+    if fueling_reference.is_fueling_query(user_request):
+        payload["fueling_reference"] = fueling_reference.context()
+    return json.dumps(payload, separators=(",", ":"), default=str)
 
 
 def _ok_key() -> str | None:
@@ -448,7 +471,7 @@ def suggest_meal(user_request: str = "") -> dict[str, Any]:
     """Proactive next-meal suggestion, or answer a request like 'can I eat a burger?'."""
     if not _ok_key():
         return {"error": "ANTHROPIC_API_KEY is not set"}
-    ctx = _context_block()
+    ctx = _context_block(user_request)
     if user_request.strip():
         ask = (f"The athlete asks: \"{user_request.strip()}\"\n\nAnswer it using the context — if it's "
                "a 'can I eat X' question, give a verdict + how much fits today and what to pair it with. "
