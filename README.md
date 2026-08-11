@@ -89,6 +89,12 @@ result is a fresh screen without an amnesiac coach. Automatic briefs are
 event-driven rather than launch-driven — a new sleep/recovery day, synced workout
 or completion log can trigger one; simply reopening the app cannot.
 
+The configured A-race finish is its own one-time event. Once Garmin syncs the
+race-day swim, bike and run, Steve celebrates the result before attempting any
+critique or next-block planning, using the recorded leg data so the message is
+specific to the actual finish. The Coach screen adds a brief, reduced-motion-safe
+finish-line celebration and then returns to its normal event-driven behavior.
+
 Replies stream into the conversation as Steve writes them. While fresh Garmin
 context is being assembled, a compact glowing-avatar and bouncing-dot state keeps
 the composer stable and makes the wait explicit without blocking the rest of the UI.

@@ -111,6 +111,17 @@
     box-shadow:0 12px 40px -12px rgba(16,18,22,0.13);opacity:0;pointer-events:none;transition:.35s cubic-bezier(.22,1,.36,1);}
   #toast.show{opacity:1;transform:translate(-50%,0);}
 
+  /* One-time finish-line celebration after the configured A-race syncs. */
+  .race-confetti{position:fixed;inset:0;z-index:190;pointer-events:none;overflow:hidden;}
+  .race-confetti i{position:absolute;top:-8vh;left:var(--x);width:9px;height:15px;border-radius:3px;
+    background:var(--c);opacity:.95;transform:rotate(var(--r));
+    animation:race-confetti-fall var(--dur) cubic-bezier(.18,.68,.3,1) var(--delay) forwards;}
+  @keyframes race-confetti-fall{
+    0%{transform:translate3d(0,-4vh,0) rotate(var(--r));opacity:0;}
+    8%{opacity:.95;}
+    100%{transform:translate3d(var(--drift),112vh,0) rotate(calc(var(--r) + 720deg));opacity:.2;}
+  }
+
   /* phase timeline */
   #phase-strip{margin-bottom:16px;}
   .phase-track{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
@@ -1633,6 +1644,24 @@ function toast(msg){
   t.textContent=msg; t.className="show";
   clearTimeout(t._h); t._h=setTimeout(()=>t.className="",4200);
 }
+function celebrateRaceFinish(){
+  toast("🏁 T100 complete — you did it.");
+  if(window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  document.querySelector(".race-confetti")?.remove();
+  const layer=document.createElement("div"); layer.className="race-confetti"; layer.setAttribute("aria-hidden","true");
+  const colors=["#6244e6","#8b75f1","#10b981","#f59e0b","#f43f5e","#f8fafc"];
+  for(let i=0;i<44;i++){
+    const piece=document.createElement("i");
+    piece.style.setProperty("--x",`${Math.random()*100}%`);
+    piece.style.setProperty("--c",colors[i%colors.length]);
+    piece.style.setProperty("--r",`${Math.random()*360}deg`);
+    piece.style.setProperty("--drift",`${-80+Math.random()*160}px`);
+    piece.style.setProperty("--dur",`${2.8+Math.random()*1.8}s`);
+    piece.style.setProperty("--delay",`${Math.random()*.8}s`);
+    layer.appendChild(piece);
+  }
+  document.body.appendChild(layer); setTimeout(()=>layer.remove(),5400);
+}
 // "Did I just work out?" — the app checks for you. On focus + every few minutes it
 // re-pulls today's state so a new activity shows up without you hitting Refresh.
 function actCount(l){ return l&&l.activities?l.activities.length:0; }
@@ -2729,7 +2758,10 @@ async function maybeCoachEventBrief(){
   try{
     const b=await j("/api/coach/brief",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
     if(b.reply && epoch===_coachSessionEpoch && interaction===_coachInteractionEpoch
-      && !log.querySelector(".msg.user") && log.getAttribute("aria-busy")!=="true") addMsg("assistant",b.reply);
+      && !log.querySelector(".msg.user") && log.getAttribute("aria-busy")!=="true"){
+      addMsg("assistant",b.reply);
+      if(b.celebrate) celebrateRaceFinish();
+    }
     // A skip or transient error stays silent: opening the app is not an update.
   }catch(e){ console.warn("Coach event check failed",e); }
   finally{ _coachBriefChecking=false; }

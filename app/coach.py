@@ -84,6 +84,11 @@ bout. Never claim the work "didn't land" merely because the session average is b
 target. The associated Garmin workout is the authoritative prescription actually performed. If
 `structured_target_mismatch` exists, identify it as an app/workout-construction error, never an
 athlete execution failure.
+- Completing the configured goal race is different from completing an ordinary workout. When
+`goal_race_completion.celebration_pending` is true, CELEBRATE
+first and enthusiastically. Name the race and use the recorded swim/bike/run facts so it feels
+earned and specific. Do not lead with critique, load balance, what was missed, or the next training
+block. A short evidence-based reflection and immediate recovery guidance can follow the celebration.
 
 FUELING AND ATHLETE-GUIDE RULES:
 1. `vancouver_athlete_guide` is the authoritative supplied race guide. Use its page-linked facts
@@ -333,6 +338,74 @@ def _live_context(safe) -> dict[str, Any]:
         return data
 
 
+def _goal_race_completion(activities: list[dict[str, Any]], race: dict[str, Any]) -> dict[str, Any] | None:
+    """Recognize the configured A-race from its Garmin swim/bike/run recordings.
+
+    Native Garmin multisport children share a parent id. A fallback handles three
+    separate recordings, but requires substantial distance in every discipline so
+    a race-morning shakeout cannot trigger the finish celebration.
+    """
+    race_date = race.get("date")
+    rows = [a for a in activities if a.get("date") == race_date]
+    if not rows:
+        return None
+
+    grouped: dict[Any, list[dict[str, Any]]] = {}
+    for row in rows:
+        parent = row.get("multisport_parent")
+        if parent is not None:
+            grouped.setdefault(parent, []).append(row)
+
+    candidate: list[dict[str, Any]] | None = None
+    detected_from = None
+    for group in grouped.values():
+        if {a.get("sport") for a in group} >= {"swim", "bike", "run"}:
+            candidate = group
+            detected_from = "Garmin multisport recording"
+            break
+
+    if candidate is None:
+        by_sport = {sport: [a for a in rows if a.get("sport") == sport]
+                    for sport in ("swim", "bike", "run")}
+        distances = race.get("distances") or {}
+        minimums = {
+            "swim": float(distances.get("swim_km") or 2) * 0.5,
+            "bike": float(distances.get("bike_km") or 80) * 0.5,
+            "run": float(distances.get("run_km") or 18) * 0.5,
+        }
+        if all(sum(float(a.get("km") or 0) for a in by_sport[sport]) >= minimums[sport]
+               for sport in by_sport):
+            candidate = [a for sport in ("swim", "bike", "run") for a in by_sport[sport]]
+            detected_from = "separate Garmin race-day recordings"
+
+    if not candidate:
+        return None
+
+    ordered = sorted(candidate, key=lambda a: (a.get("leg") or 99, a.get("start_local") or ""))
+    race_legs = [a for a in ordered if a.get("sport") in {"swim", "bike", "run"}]
+    return {
+        "completed": True,
+        "race_name": race.get("name"),
+        "race_date": race_date,
+        "detected_from": detected_from,
+        "multisport_parent": next((a.get("multisport_parent") for a in ordered
+                                    if a.get("multisport_parent") is not None), None),
+        "total_elapsed_min": round(sum(float(a.get("minutes") or 0) for a in ordered), 1),
+        "legs": [
+            {
+                "sport": a.get("sport"),
+                "distance_km": a.get("km"),
+                "duration_min": a.get("minutes"),
+                "avg_hr": a.get("hr_avg"),
+                "max_hr": a.get("hr_max"),
+                "pace_min_km": a.get("pace_min_km"),
+                "avg_power_w": a.get("avg_power_w"),
+            }
+            for a in race_legs
+        ],
+    }
+
+
 def _context_block(user_query: str = "") -> str:
     """Assemble the injected context. Best-effort per section; flags failures."""
     def safe(fn):
@@ -389,6 +462,10 @@ def _context_block(user_query: str = "") -> str:
                 break
         if execution and not execution.get("error"):
             todays_intervals.append(execution)
+    race_completion = _goal_race_completion(all_acts, phase)
+    if race_completion:
+        celebrated_key = f"race_finish_celebrated_{race_completion['race_date']}"
+        race_completion["celebration_pending"] = not bool(db.get_meta(celebrated_key))
 
     payload = {
         "today": today,
@@ -396,6 +473,7 @@ def _context_block(user_query: str = "") -> str:
         "athlete_profile": config.ATHLETE_PROFILE,
         "athlete_zones": live["zones"],
         "race": phase,
+        "goal_race_completion": race_completion,
         "todays_readiness": readiness,
         "fitness_markers": fitness,
         "training_load_and_focus": training_load,
@@ -692,6 +770,20 @@ Use the TL;DR + bullets format from your rules (TL;DR line, then 2–5 labeled b
 No paragraphs, no adjustment block."""
 
 
+_RACE_FINISH_INSTRUCTION = """The configured goal race in `goal_race_completion` has just \
+finished syncing. This is the athlete's A-race finish, not another training-session review.
+
+Celebrate it properly. Open with one short, genuinely excited headline that names the race and \
+says they did it. Then use 3–5 concise bullets:
+- recognize the full swim-bike-run achievement using specific recorded leg/duration facts;
+- call out one or two moments in the data worth being proud of, without inventing a story;
+- acknowledge the entire build and the fact that they reached the finish;
+- finish with a simple tonight-only recovery instruction.
+
+Do NOT lead with criticism, load metrics, targets they missed, or a new plan. Do not propose an \
+adjustment. There will be time for the honest race debrief later. This message is the celebration."""
+
+
 _NIGHTLY_INSTRUCTION = """It's evening — give me my nightly review of TODAY, no preamble.
 
 Use `local_time`, `todays_completed_activities`, `todays_planned_workout`, and today's \
@@ -725,8 +817,20 @@ def morning_brief() -> dict[str, Any]:
     if not key or key.strip().endswith("..."):
         return {"error": "ANTHROPIC_API_KEY is not set (still the .env placeholder)"}
 
-    instruction = _NIGHTLY_INSTRUCTION if _is_evening(config.local_now()) else _BRIEF_INSTRUCTION
     context = _context_block()
+    try:
+        context_data = json.loads(context)
+    except json.JSONDecodeError:
+        context_data = {}
+    race_completion = context_data.get("goal_race_completion") or {}
+    race_date = race_completion.get("race_date")
+    celebration_key = f"race_finish_celebrated_{race_date}" if race_date else None
+    celebrate = bool(race_completion.get("completed")
+                     and race_completion.get("celebration_pending") and celebration_key)
+    if celebrate:
+        instruction = _RACE_FINISH_INSTRUCTION
+    else:
+        instruction = _NIGHTLY_INSTRUCTION if _is_evening(config.local_now()) else _BRIEF_INSTRUCTION
     messages = [{"role": "user",
                  "content": f"<context>\n{context}\n</context>\n\n{instruction}"}]
     try:
@@ -739,7 +843,9 @@ def morning_brief() -> dict[str, Any]:
     if not reply:
         return {"error": f"empty reply (stop_reason={msg.stop_reason})", "source": "anthropic"}
     db.add_chat("assistant", reply)  # standalone greeting; chat() trims leading assistant turns
-    return {"reply": reply, "model": msg.model}
+    if celebrate and celebration_key:
+        db.set_meta(celebration_key, config.local_now().isoformat())
+    return {"reply": reply, "model": msg.model, "celebrate": celebrate}
 
 
 def accept_adjustment(adjustment: dict[str, Any]) -> dict[str, Any] | None:

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from app import athlete_guide, fueling_reference, garmin_source
+from app import athlete_guide, coach, fueling_reference, garmin_source
 
 
 class AthleteGuideContextTests(unittest.TestCase):
@@ -54,6 +57,69 @@ class SyncedActivityDedupeTests(unittest.TestCase):
             self._ride(2, "2026-08-11 17:00:00", 44.0, 126),
         ])
         self.assertEqual(len(rows), 2)
+
+
+class GoalRaceCelebrationTests(unittest.TestCase):
+    @staticmethod
+    def _race() -> dict:
+        return {
+            "name": "T100 Vancouver",
+            "date": "2026-08-16",
+            "distances": {"swim_km": 2, "bike_km": 80, "run_km": 18},
+        }
+
+    def test_native_multisport_finish_is_recognized(self) -> None:
+        activities = [
+            {"date": "2026-08-16", "sport": "swim", "km": 2.0, "minutes": 38,
+             "multisport_parent": 77, "leg": 1, "hr_avg": 132},
+            {"date": "2026-08-16", "sport": "other", "km": 0.1, "minutes": 5,
+             "multisport_parent": 77, "leg": 2},
+            {"date": "2026-08-16", "sport": "bike", "km": 80.1, "minutes": 170,
+             "multisport_parent": 77, "leg": 3, "hr_avg": 145},
+            {"date": "2026-08-16", "sport": "run", "km": 18.0, "minutes": 105,
+             "multisport_parent": 77, "leg": 5, "hr_avg": 158},
+        ]
+
+        finish = coach._goal_race_completion(activities, self._race())
+
+        self.assertTrue(finish["completed"])
+        self.assertEqual(finish["multisport_parent"], 77)
+        self.assertEqual([leg["sport"] for leg in finish["legs"]], ["swim", "bike", "run"])
+        self.assertEqual(finish["total_elapsed_min"], 318.0)
+
+    def test_short_race_day_shakeout_does_not_trigger_finish(self) -> None:
+        activities = [
+            {"date": "2026-08-16", "sport": "swim", "km": 0.2, "minutes": 6},
+            {"date": "2026-08-16", "sport": "bike", "km": 4, "minutes": 10},
+            {"date": "2026-08-16", "sport": "run", "km": 1, "minutes": 6},
+        ]
+        self.assertIsNone(coach._goal_race_completion(activities, self._race()))
+
+    def test_finish_brief_is_marked_as_a_one_time_celebration(self) -> None:
+        context = json.dumps({"goal_race_completion": {
+            "completed": True,
+            "celebration_pending": True,
+            "race_date": "2026-08-16",
+            "race_name": "T100 Vancouver",
+            "legs": [],
+        }})
+        message = SimpleNamespace(
+            content=[SimpleNamespace(type="text", text="YOU DID IT — T100 Vancouver finished!")],
+            model="test-model",
+            stop_reason="end_turn",
+        )
+        with (
+            patch.object(coach.config, "ANTHROPIC_API_KEY", "test-key"),
+            patch.object(coach, "_context_block", return_value=context),
+            patch.object(coach, "_stream_reply", return_value=message),
+            patch.object(coach.db, "add_chat"),
+            patch.object(coach.db, "set_meta") as set_meta,
+        ):
+            result = coach.morning_brief()
+
+        self.assertTrue(result["celebrate"])
+        set_meta.assert_called_once()
+        self.assertEqual(set_meta.call_args.args[0], "race_finish_celebrated_2026-08-16")
 
 
 if __name__ == "__main__":
