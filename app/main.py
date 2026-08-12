@@ -500,6 +500,25 @@ def _training_signature() -> str:
     }, sort_keys=True, separators=(",", ":"))
 
 
+def _coach_unread() -> dict[str, Any] | None:
+    raw = db.get_meta("coach_unread")
+    if not raw:
+        return None
+    try:
+        item = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return item if isinstance(item, dict) and item.get("id") and item.get("reply") else None
+
+
+def _brief_response(payload: dict[str, Any]) -> JSONResponse:
+    inbox = _coach_unread()
+    return JSONResponse(
+        {**payload, "unread": bool(inbox), "inbox": inbox},
+        status_code=502 if payload.get("error") else 200,
+    )
+
+
 @app.post("/api/coach/brief")
 def coach_brief(force: bool = False) -> JSONResponse:
     # First call establishes a quiet baseline. Thereafter Steve speaks only when
@@ -508,14 +527,48 @@ def coach_brief(force: bool = False) -> JSONResponse:
     previous = db.get_meta("coach_event_sig")
     if not force and previous is None:
         db.set_meta("coach_event_sig", sig)
-        return JSONResponse({"skipped": True, "reason": "event baseline established"})
+        return _brief_response({"skipped": True, "reason": "event baseline established"})
     if not force and previous == sig:
-        return JSONResponse({"skipped": True, "reason": "no new sleep or workout event"})
+        return _brief_response({"skipped": True, "reason": "no new sleep or workout event"})
     coach.invalidate_context_cache()
     result = coach.morning_brief()
     if not result.get("error"):
         db.set_meta("coach_event_sig", sig)
-    return JSONResponse(result, status_code=502 if result.get("error") else 200)
+        import datetime
+        import hashlib
+        event_id = hashlib.sha256(sig.encode()).hexdigest()[:16]
+        db.set_meta("coach_unread", json.dumps({
+            "id": event_id,
+            "reply": result.get("reply"),
+            "celebrate": bool(result.get("celebrate")),
+            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+        }, separators=(",", ":")))
+    return _brief_response(result)
+
+
+@app.get("/api/coach/inbox")
+def coach_inbox() -> JSONResponse:
+    inbox = _coach_unread()
+    return JSONResponse({"unread": bool(inbox), "inbox": inbox})
+
+
+@app.post("/api/coach/inbox/read")
+def coach_inbox_read(body: dict = Body(default={})) -> JSONResponse:
+    """Acknowledge only the message the client actually opened.
+
+    Matching the id avoids a slower device clearing a newer update generated
+    while its request was in flight.
+    """
+    inbox = _coach_unread()
+    event_id = body.get("id")
+    if inbox and not event_id:
+        return JSONResponse({"ok": False, "reason": "message id is required", "unread": True},
+                            status_code=400)
+    if inbox and event_id and inbox.get("id") != event_id:
+        return JSONResponse({"ok": False, "reason": "newer unread message exists", "unread": True})
+    if inbox:
+        db.set_meta("coach_unread", "")
+    return JSONResponse({"ok": True, "unread": False})
 
 
 @app.post("/api/coach/clear")

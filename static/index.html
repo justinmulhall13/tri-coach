@@ -261,6 +261,12 @@
     padding:6px 14px;border-radius:9px;cursor:pointer;transition:.15s;font-family:inherit;}
   .tab:hover{color:var(--ink);}
   .tab.active{background:linear-gradient(120deg,var(--a1),var(--a2));color:#fff;}
+  [data-view="coach"]{position:relative;}
+  .coach-unread-dot{display:none;position:absolute;z-index:3;top:2px;right:3px;min-width:16px;height:16px;
+    padding:0 4px;align-items:center;justify-content:center;border-radius:999px;background:#ef3340;color:#fff;
+    border:2px solid var(--glass);font:800 9px/1 var(--body);box-shadow:0 3px 10px rgba(239,51,64,.48);}
+  [data-view="coach"].has-coach-unread .coach-unread-dot{display:flex;animation:unread-pop .38s var(--spring);}
+  @keyframes unread-pop{from{opacity:0;transform:scale(.35)}70%{transform:scale(1.18)}to{opacity:1;transform:scale(1)}}
   /* ── calendar tab ─────────────────────────────────────────── */
   .calday{margin-top:12px;}
   .cal-ev{display:flex;gap:12px;padding:9px 0;border-top:1px solid var(--line);}
@@ -605,6 +611,7 @@
     .botnav button{background:none;border:0;font-family:inherit;font-size:10.5px;font-weight:600;color:var(--muted);
       display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;cursor:pointer;border-radius:10px;}
     .botnav button span{font-size:19px;line-height:1;}
+    .botnav button .coach-unread-dot{top:3px;right:calc(50% - 24px);font-size:9px;line-height:1;}
     .botnav button.on{color:var(--a1);}
     main{padding-bottom:84px !important;}
   }
@@ -1284,7 +1291,7 @@
     <span id="phase" class="phasepill"></span>
     <nav class="tabs" id="tabs">
       <button class="tab active" data-view="dash">Home</button>
-      <button class="tab" data-view="coach">Coach</button>
+      <button class="tab" data-view="coach">Coach<span class="coach-unread-dot" aria-hidden="true">1</span></button>
       <button class="tab" data-view="calendar">Calendar</button>
       <button class="tab" data-view="fuel">Fuel</button>
       <button class="tab" data-view="stats">Analytics</button>
@@ -1488,7 +1495,7 @@
 
 <nav class="botnav" id="botnav" aria-label="Primary">
   <button data-view="dash" class="on"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 4l9 6.5V19a1.5 1.5 0 0 1-1.5 1.5h-4V14h-7v6.5h-4A1.5 1.5 0 0 1 3 19z"/></svg>Home</button>
-  <button data-view="coach"><svg viewBox="0 0 24 24"><path d="M21 12a7.5 7.5 0 0 1-7.5 7.5H8L3.5 22l1-4.2A7.5 7.5 0 1 1 21 12z"/></svg>Coach</button>
+  <button data-view="coach"><svg viewBox="0 0 24 24"><path d="M21 12a7.5 7.5 0 0 1-7.5 7.5H8L3.5 22l1-4.2A7.5 7.5 0 1 1 21 12z"/></svg>Coach<span class="coach-unread-dot" aria-hidden="true">1</span></button>
   <button data-view="calendar"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>Calendar</button>
   <button data-view="fuel"><svg viewBox="0 0 24 24"><path d="M12 21c3.6 0 6.2-2.6 6.2-6 0-4.2-4.3-7.4-6.2-12-1.9 4.6-6.2 7.8-6.2 12 0 3.4 2.6 6 6.2 6z"/></svg>Fuel</button>
   <button data-view="stats"><svg viewBox="0 0 24 24"><path d="M4 20V9M10 20V4M16 20v-7M22 20H2"/></svg>Stats</button>
@@ -1676,12 +1683,18 @@ async function softRefresh(){
   }catch(e){}
 }
 document.addEventListener("visibilitychange",()=>{
-  if(document.visibilityState!=="visible") return;
-  // iOS often resumes the PWA instead of reloading it. A resume starts a clean
-  // visible conversation, while the server retains Steve's private context.
-  resetCoachSessionView();
+  if(document.visibilityState!=="visible"){
+    _coachHiddenAt=Date.now(); saveCoachSessionView(); return;
+  }
+  // iOS often suspends the PWA for a moment. Preserve the visible conversation
+  // for five minutes so a lock-screen or quick app switch does not erase it. If
+  // the page stayed alive, leave its DOM (including an in-flight reply) alone.
+  if(_coachHiddenAt && Date.now()-_coachHiddenAt>_COACH_SESSION_TTL) resetCoachSessionView();
+  else if(!$("chatlog").children.length) restoreCoachSessionView();
+  _coachHiddenAt=null;
   loadDashboard().then(()=>maybeCoachEventBrief());
 });
+window.addEventListener("pagehide",saveCoachSessionView);
 setInterval(()=>{ if(document.visibilityState==="visible") softRefresh(); }, 240000);
 
 // ---- Proactive nudges ("big brick tomorrow — carb up tonight") ----
@@ -2584,11 +2597,38 @@ function setCoachText(el,text){
     details.append(summary,body); el.appendChild(details);
   }
 }
-function addMsg(role,text){
+const _COACH_SESSION_KEY="triCoachVisibleSessionV2", _COACH_SESSION_TTL=5*60*1000;
+function coachSessionMessages(){
+  return [...$("chatlog").querySelectorAll(".msg.user,.msg.assistant")]
+    .filter(el=>!el.classList.contains("thinking")&&!el.classList.contains("streaming"))
+    .map(el=>({role:el.classList.contains("user")?"user":"assistant",text:el.dataset.rawText||el.textContent||""}));
+}
+function saveCoachSessionView(){
+  const messages=coachSessionMessages();
+  if(!messages.length){ localStorage.removeItem(_COACH_SESSION_KEY); return; }
+  localStorage.setItem(_COACH_SESSION_KEY,JSON.stringify({savedAt:Date.now(),messages}));
+}
+function restoreCoachSessionView(){
+  let saved=null;
+  try{ saved=JSON.parse(localStorage.getItem(_COACH_SESSION_KEY)||"null"); }catch(_e){}
+  if(!saved||!Array.isArray(saved.messages)||Date.now()-Number(saved.savedAt||0)>_COACH_SESSION_TTL){
+    localStorage.removeItem(_COACH_SESSION_KEY); resetCoachSessionView(false); return false;
+  }
+  _coachSessionEpoch++; _coachInteractionEpoch++;
+  $("chatlog").innerHTML="";
+  saved.messages.forEach(m=>addMsg(m.role,m.text,{persist:false}));
+  $("chatlog").scrollTop=$("chatlog").scrollHeight;
+  saveCoachSessionView(); // five minutes from this open, not the previous one
+  return true;
+}
+function addMsg(role,text,options={}){
   const empty=$("chatlog").querySelector(".coach-empty"); if(empty) empty.remove();
   const d=document.createElement("div"); d.className="msg "+role;
+  d.dataset.rawText=String(text||"");
   if(role==="assistant") setCoachText(d,text); else d.textContent=text;
-  $("chatlog").appendChild(d); $("chatlog").scrollTop=$("chatlog").scrollHeight; return d;
+  $("chatlog").appendChild(d); $("chatlog").scrollTop=$("chatlog").scrollHeight;
+  if(options.persist!==false) saveCoachSessionView();
+  return d;
 }
 function adjWhen(adj){
   // adj.date present + not today → a future day; else today
@@ -2735,8 +2775,9 @@ async function streamCoachMessage(text,onEvent){
   if(!result) throw new Error("Coach stream ended before the final response");
   return result;
 }
-let _coachSessionEpoch=0, _coachInteractionEpoch=0, _coachBriefChecking=false;
-function resetCoachSessionView(){
+let _coachSessionEpoch=0, _coachInteractionEpoch=0, _coachBriefChecking=false, _coachHiddenAt=null;
+let _coachInbox=null, _currentView="dash";
+function resetCoachSessionView(clearSaved=true){
   _coachSessionEpoch++;
   _coachInteractionEpoch++;
   $("chatlog").innerHTML=`<div class="coach-empty">
@@ -2747,27 +2788,48 @@ function resetCoachSessionView(){
   $("chatlog").scrollTop=0;
   $("chatinput").value="";
   resizeChatInput();
+  if(clearSaved) localStorage.removeItem(_COACH_SESSION_KEY);
+}
+function setCoachUnread(on){
+  document.querySelectorAll('[data-view="coach"]').forEach(el=>{
+    el.classList.toggle("has-coach-unread",!!on);
+    if(on) el.setAttribute("aria-label","Coach — 1 unread message"); else el.removeAttribute("aria-label");
+  });
+}
+async function markCoachInboxRead(item){
+  if(!item?.id) return;
+  try{
+    const result=await j("/api/coach/inbox/read",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:item.id})});
+    if(result.ok){ _coachInbox=null; setCoachUnread(false); }
+  }catch(e){ console.warn("Could not mark Coach update read",e); }
+}
+function openCoachInbox(){
+  const log=$("chatlog");
+  if(!_coachInbox || log.querySelector(".msg.user") || log.getAttribute("aria-busy")==="true") return false;
+  if(!log.querySelector(`[data-coach-event-id="${_coachInbox.id}"]`)){
+    const message=addMsg("assistant",_coachInbox.reply);
+    message.dataset.coachEventId=_coachInbox.id;
+    if(_coachInbox.celebrate) celebrateRaceFinish();
+  }
+  markCoachInboxRead(_coachInbox);
+  return true;
 }
 async function maybeCoachEventBrief(){
-  const log=$("chatlog");
-  // Event briefs belong at the start of a clean session. Never drop one into an
-  // active conversation (or race an answer the athlete is already waiting for).
-  if(_coachBriefChecking || log.querySelector(".msg.user") || log.getAttribute("aria-busy")==="true") return;
+  if(_coachBriefChecking) return;
   _coachBriefChecking=true;
-  const epoch=_coachSessionEpoch, interaction=_coachInteractionEpoch;
   try{
     const b=await j("/api/coach/brief",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
-    if(b.reply && epoch===_coachSessionEpoch && interaction===_coachInteractionEpoch
-      && !log.querySelector(".msg.user") && log.getAttribute("aria-busy")!=="true"){
-      addMsg("assistant",b.reply);
-      if(b.celebrate) celebrateRaceFinish();
-    }
-    // A skip or transient error stays silent: opening the app is not an update.
+    _coachInbox=b.inbox||null;
+    setCoachUnread(!!b.unread);
+    // Keep it waiting behind the badge. Only reveal it when Coach is open and
+    // there is no active athlete conversation to interrupt.
+    if(_currentView==="coach") openCoachInbox();
   }catch(e){ console.warn("Coach event check failed",e); }
   finally{ _coachBriefChecking=false; }
 }
 function newCoachChat(){
   resetCoachSessionView();
+  openCoachInbox();
   setTimeout(()=>$("chatinput").focus(),80);
 }
 $("clearchat").onclick=newCoachChat;
@@ -2795,6 +2857,8 @@ async function send(){
     thinking.className="msg assistant";
     thinking.removeAttribute("role"); thinking.removeAttribute("aria-live");
     setCoachText(thinking,r.reply||"(no reply)");
+    thinking.dataset.rawText=r.reply||"(no reply)";
+    saveCoachSessionView();
     if(r.proposed_adjustment) addAdjustment(r.proposed_adjustment);
     if(r.proposed_week) addWeekPlan(r.proposed_week);
     if(r.proposed_activities) addActivityLog(r.proposed_activities);
@@ -3131,6 +3195,7 @@ const CAL_START_H=5, CAL_END_H=22, CAL_HOURPX=46;  // must match CSS --hourpx
 document.querySelectorAll("#tabs .tab").forEach(b=>b.onclick=()=>switchView(b.dataset.view));
 let _fuelLoaded=false, _statsLoaded=false;
 function switchView(v){
+  _currentView=v;
   document.querySelectorAll("#tabs .tab").forEach(b=>b.classList.toggle("active",b.dataset.view===v));
   document.querySelectorAll("#botnav button").forEach(b=>b.classList.toggle("on",b.dataset.view===v));
   syncFloatingNav(v);
@@ -3147,7 +3212,10 @@ function switchView(v){
   window.scrollTo({top:0,behavior:"instant"});
   updateScrollChrome();
   setTimeout(refreshRevealTargets,40);
-  if(v==="coach"){ const i=document.getElementById("chatinput"); if(i) setTimeout(()=>i.focus(),120); }
+  if(v==="coach"){
+    openCoachInbox();
+    const i=document.getElementById("chatinput"); if(i) setTimeout(()=>i.focus(),120);
+  }
 }
 document.querySelectorAll("#botnav button").forEach(b=>b.onclick=()=>switchView(b.dataset.view));
 if($("modrow")) $("modrow").onclick=()=>switchView("coach");
@@ -3804,7 +3872,7 @@ async function enablePush(){
 }
 initPush();
 
-resetCoachSessionView();
+restoreCoachSessionView();
 loadDashboard().then(()=>maybeCoachEventBrief());
 </script>
 </body>

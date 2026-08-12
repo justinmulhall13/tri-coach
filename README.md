@@ -87,7 +87,15 @@ Steve keeps a private server-side window of previous turns plus dated, durable
 memories such as availability, injuries, travel and equipment constraints. The
 result is a fresh screen without an amnesiac coach. Automatic briefs are
 event-driven rather than launch-driven — a new sleep/recovery day, synced workout
-or completion log can trigger one; simply reopening the app cannot.
+or completion log can trigger one; simply reopening the app cannot. Those event
+briefs now wait in a durable Coach inbox: a red unread badge appears on both the
+desktop and mobile Coach tabs, and the message is acknowledged only after that tab
+is opened. It therefore survives a reload or switching between phone and desktop.
+
+The visible conversation is also cached on the device for five minutes. A quick
+lock-screen, app switch, PWA suspension or computer sleep restores the same chat
+and scrollable answer; after the window expires, the UI returns to a clean chat
+while Steve's longer private coaching context remains intact.
 
 The configured A-race finish is its own one-time event. Once Garmin syncs the
 race-day swim, bike and run, Steve celebrates the result before attempting any
