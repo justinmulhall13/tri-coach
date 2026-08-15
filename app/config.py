@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
+from . import coaching_contract
+
 BASE_DIR = Path(__file__).resolve().parent.parent  # the coach/ project dir
 load_dotenv(BASE_DIR / ".env")
 
@@ -17,26 +19,77 @@ def _get(key: str, default: str = "") -> str:
 
 
 # --- Race ---------------------------------------------------------------------
-RACE_NAME = _get("RACE_NAME", "T100 Vancouver")
-RACE_DATE = _get("RACE_DATE", "2026-08-16")  # ISO YYYY-MM-DD
-SWIM_KM = float(_get("SWIM_KM", "2.0"))
-BIKE_KM = float(_get("BIKE_KM", "80"))
-RUN_KM = float(_get("RUN_KM", "18"))
+# Event identity is deliberately not environment-driven. This keeps the app,
+# Coach prompt, fueling logic, and race detector on one installed event profile.
+_EVENT = coaching_contract.EVENT_PROFILE
+RACE_NAME = str(_EVENT.get("event") or "Unknown event")
+RACE_DATE = str(_EVENT.get("date") or "")
+_DISTANCES = _EVENT.get("disciplines_and_distances") or {}
+
+
+def _distance_value(raw: object) -> float:
+    """Normalize an optional profile distance without inventing one."""
+    if isinstance(raw, bool):
+        return 0.0
+    try:
+        value = float(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0.0
+    return value if value > 0 else 0.0
+
+
+SWIM_KM = _distance_value(_DISTANCES.get("swim_km"))
+BIKE_KM = _distance_value(_DISTANCES.get("bike_km"))
+RUN_KM = _distance_value(_DISTANCES.get("run_km"))
+
+
+def event_distance_km(discipline: str) -> float | None:
+    """Return a stated distance for one active-profile leg, otherwise unknown."""
+    distances = coaching_contract.EVENT_PROFILE.get("disciplines_and_distances") or {}
+    if not isinstance(distances, dict):
+        return None
+    value = _distance_value(distances.get(f"{(discipline or '').lower()}_km"))
+    return value or None
+
+
+def event_has_leg(discipline: str) -> bool:
+    return event_distance_km(discipline) is not None
+
+
+def supports_t100_features() -> bool:
+    """True only for the one profile the bundled readiness model/plan fits.
+
+    A TRIATHLON mode label alone is insufficient: another triathlon can have
+    different distances and volume targets, so reusing the Vancouver model
+    would silently carry event assumptions across a profile switch.
+    """
+    event = coaching_contract.EVENT_PROFILE
+    return (
+        coaching_contract.current_mode() == "TRIATHLON"
+        and str(event.get("id") or "") == "t100-vancouver-2026"
+        and all(event_has_leg(sport) for sport in ("swim", "bike", "run"))
+    )
 
 # --- Athlete profile (user-supplied, NOT ground truth) ------------------------
 ATHLETE_PROFILE = {
-    "ftp_w": _get("ATHLETE_FTP_W", "288"),
+    "age": coaching_contract.ATHLETE_CONSTANTS["age"],
+    "sex": coaching_contract.ATHLETE_CONSTANTS["sex"],
+    "body_mass_fallback_kg": coaching_contract.ATHLETE_CONSTANTS["body_mass_fallback"]["value"],
+    "ftp_w": str(coaching_contract.ATHLETE_CONSTANTS["bike_prescription"]["peloton_ftp_w"]),
+    "ftp_scope": coaching_contract.ATHLETE_CONSTANTS["bike_prescription"]["ftp_scope"],
     "swim_background": _get("ATHLETE_SWIM_BACKGROUND", ""),
-    "device": _get("ATHLETE_DEVICE", ""),
+    # Do not accept the legacy environment device string: older deployments
+    # claimed an outdoor cycling power meter and contradicted the HR-only rule.
+    "bike_target_device_constraint": "heart rate only outdoors; Peloton watts indoors only",
     "notes": _get("ATHLETE_NOTES", ""),
-    "_disclaimer": "User-supplied profile. Verify before relying; not measured ground truth.",
+    "_provenance": "self-reported; a dated athlete-maintained Garmin weight entry overrides body mass for weight-dependent math",
 }
 
 # --- Nutrition (Chef Gordo) ---------------------------------------------------
 # Bodyweight is used ONLY for fueling math (carbs/kg, protein/kg, portions) — the
 # athlete's goal is being maximally fuelled, NOT weight loss. Targets are framed
 # as loose ranges, not hard numbers.
-ATHLETE_WEIGHT_KG = float(_get("ATHLETE_WEIGHT_KG", "88.7"))   # 195.6 lb
+ATHLETE_WEIGHT_KG = float(coaching_contract.ATHLETE_CONSTANTS["body_mass_fallback"]["value"])
 NUTRITION_PREFS = _get("NUTRITION_PREFS", "No restrictions — suggest anything balanced; "
                        "athlete eats meat + rice/potato staples readily.")
 
@@ -110,25 +163,4 @@ def race_phase(today: datetime.date | None = None) -> dict:
       - peak:   15–28 days out
       - build:  > 28 days out
     """
-    today = today or local_today()
-    try:
-        race = datetime.date.fromisoformat(RACE_DATE)
-    except ValueError:
-        return {"name": RACE_NAME, "date": RACE_DATE, "error": "RACE_DATE invalid (need YYYY-MM-DD)"}
-    days = (race - today).days
-    if days < 0:
-        phase = "post-race"
-    elif days <= 14:
-        phase = "taper"
-    elif days <= 28:
-        phase = "peak"
-    else:
-        phase = "build"
-    return {
-        "name": RACE_NAME,
-        "date": RACE_DATE,
-        "distances": {"swim_km": SWIM_KM, "bike_km": BIKE_KM, "run_km": RUN_KM},
-        "days_remaining": days,
-        "weeks_remaining": round(days / 7, 1),
-        "phase": phase,
-    }
+    return coaching_contract.race_phase(today or local_today())

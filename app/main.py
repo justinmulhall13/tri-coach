@@ -25,8 +25,8 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import (activity_detail, baselines, calendar_agent, calendar_source,
-               calendar_sync, coach, config, db, fitness_trend, garmin_source,
-               garmin_workout, insights, nudges, nutrition, plan, plan_adapt, zones,
+               calendar_sync, coach, coaching_contract, config, db, fitness_trend, garmin_source,
+               garmin_workout, hevy_connector, insights, nudges, nutrition, plan, plan_adapt, zones,
                push, rings, ring_detail, suggest)
 
 app = FastAPI(title="Tri Coach")
@@ -62,12 +62,20 @@ _bootstrap_garmin_token()
 
 
 def _bootstrap_plan() -> None:
-    """Seed the periodized plan on first boot if the DB is empty (fresh cloud
-    volume). Never clobbers an existing plan."""
+    """Seed the active profile or migrate its remaining generated rows."""
     try:
         if not db.get_plan():
-            plan.seed()
-            print("[bootstrap] seeded fresh plan")
+            result = plan.seed()
+            if result.get("error"):
+                print(f"[bootstrap] active profile has no plan builder: {result['error']}")
+            else:
+                print(f"[bootstrap] seeded plan for {coaching_contract.event_profile_id()}")
+        else:
+            result = plan.reconcile_seeded_plan()
+            if result.get("error"):
+                print(f"[bootstrap] seeded-plan reconcile skipped: {result['error']}")
+            elif result.get("reconciled"):
+                print(f"[bootstrap] refreshed {result['reconciled']} generated plan rows")
     except Exception as e:  # noqa: BLE001
         print(f"[bootstrap] plan seed skipped: {e}")
 
@@ -123,6 +131,7 @@ def health() -> dict[str, Any]:
         "sources": {
             "garmin": {"path": "direct garminconnect"},
             "calendar": {"enabled": True, "note": "Google Calendar (read-only) — needs credentials.json"},
+            "hevy": hevy_connector.status(),
             "anthropic_key_present": bool(config.ANTHROPIC_API_KEY)
                 and not config.ANTHROPIC_API_KEY.strip().endswith("..."),
         },
@@ -132,6 +141,12 @@ def health() -> dict[str, Any]:
 @app.get("/api/race")
 def race() -> dict[str, Any]:
     return config.race_phase()
+
+
+@app.get("/api/integrations/hevy")
+def hevy_status() -> dict[str, Any]:
+    """Truthful runtime capability report; no Hevy read or write is attempted."""
+    return hevy_connector.status()
 
 
 @app.get("/api/readiness")
@@ -493,6 +508,7 @@ def _training_signature() -> str:
         "rpe": latest_completion.get("rpe"),
     }
     return json.dumps({
+        "event_profile_id": coaching_contract.event_profile_id(),
         "sleep_date": latest_sleep,
         "activity_date": latest_activity_date,
         "activity_ids": latest_activities,
@@ -501,14 +517,27 @@ def _training_signature() -> str:
 
 
 def _coach_unread() -> dict[str, Any] | None:
-    raw = db.get_meta("coach_unread")
+    key = coaching_contract.scoped_meta_key("coach_unread")
+    raw = db.get_meta(key)
+    # One-time compatibility for data written before event scoping. That data
+    # was created under the only profile installed at the time: Vancouver T100.
+    if raw is None and coaching_contract.event_profile_id() == "t100-vancouver-2026":
+        raw = db.get_meta("coach_unread")
     if not raw:
         return None
     try:
         item = json.loads(raw)
     except json.JSONDecodeError:
         return None
-    return item if isinstance(item, dict) and item.get("id") and item.get("reply") else None
+    if not isinstance(item, dict) or not item.get("id") or not item.get("reply"):
+        return None
+    item_profile = item.get("event_profile_id")
+    if item_profile and item_profile != coaching_contract.event_profile_id():
+        return None
+    item["event_profile_id"] = coaching_contract.event_profile_id()
+    if db.get_meta(key) is None:
+        db.set_meta(key, json.dumps(item, separators=(",", ":")))
+    return item
 
 
 def _brief_response(payload: dict[str, Any]) -> JSONResponse:
@@ -524,23 +553,41 @@ def coach_brief(force: bool = False) -> JSONResponse:
     # First call establishes a quiet baseline. Thereafter Steve speaks only when
     # sleep/recovery or completed-training state actually changes (or when forced).
     sig = _training_signature()
-    previous = db.get_meta("coach_event_sig")
+    sig_key = coaching_contract.scoped_meta_key("coach_event_sig")
+    previous = db.get_meta(sig_key)
+    if previous is None and coaching_contract.event_profile_id() == "t100-vancouver-2026":
+        legacy = db.get_meta("coach_event_sig")
+        if legacy is not None:
+            try:
+                legacy_payload = json.loads(legacy)
+                if not isinstance(legacy_payload, dict):
+                    raise ValueError("legacy signature is not an object")
+                legacy_payload["event_profile_id"] = coaching_contract.event_profile_id()
+                previous = json.dumps(legacy_payload, sort_keys=True, separators=(",", ":"))
+            except (json.JSONDecodeError, ValueError, TypeError):
+                # An unreadable legacy marker must not manufacture a launch
+                # update. Establish the scoped baseline quietly.
+                previous = sig
+            db.set_meta(sig_key, previous)
     if not force and previous is None:
-        db.set_meta("coach_event_sig", sig)
+        db.set_meta(sig_key, sig)
         return _brief_response({"skipped": True, "reason": "event baseline established"})
     if not force and previous == sig:
         return _brief_response({"skipped": True, "reason": "no new sleep or workout event"})
     coach.invalidate_context_cache()
     result = coach.morning_brief()
     if not result.get("error"):
-        db.set_meta("coach_event_sig", sig)
+        db.set_meta(sig_key, sig)
         import datetime
         import hashlib
-        event_id = hashlib.sha256(sig.encode()).hexdigest()[:16]
-        db.set_meta("coach_unread", json.dumps({
+        event_id = hashlib.sha256(
+            f"{coaching_contract.event_profile_id()}|{sig}".encode()
+        ).hexdigest()[:16]
+        db.set_meta(coaching_contract.scoped_meta_key("coach_unread"), json.dumps({
             "id": event_id,
             "reply": result.get("reply"),
             "celebrate": bool(result.get("celebrate")),
+            "event_profile_id": coaching_contract.event_profile_id(),
             "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         }, separators=(",", ":")))
     return _brief_response(result)
@@ -567,7 +614,7 @@ def coach_inbox_read(body: dict = Body(default={})) -> JSONResponse:
     if inbox and event_id and inbox.get("id") != event_id:
         return JSONResponse({"ok": False, "reason": "newer unread message exists", "unread": True})
     if inbox:
-        db.set_meta("coach_unread", "")
+        db.set_meta(coaching_contract.scoped_meta_key("coach_unread"), "")
     return JSONResponse({"ok": True, "unread": False})
 
 
@@ -776,7 +823,7 @@ def nutrition_goal(body: dict = Body(default={})) -> JSONResponse:
 
 @app.post("/api/nutrition/photo")
 def nutrition_photo(body: dict = Body(...)) -> JSONResponse:
-    """Log a meal from a photo — the model reads the plate and estimates macros."""
+    """Reject uncheckable photo macro estimates and request exact inputs."""
     img = body.get("image_b64")
     if not img:
         return JSONResponse({"error": "image_b64 is required"}, status_code=400)
@@ -803,6 +850,10 @@ def calendar_event(body: dict = Body(default={})) -> JSONResponse:
     date = body.get("date")
     if not title or not date:
         return JSONResponse({"error": "title and date are required"}, status_code=400)
+    if not body.get("all_day") and (not body.get("start") or body.get("duration_min") is None):
+        return JSONResponse(
+            {"error": "timed events require an explicit start and duration_min"}, status_code=400
+        )
     result = calendar_source.create_personal_event(
         title=title, date=date, start=body.get("start"),
         duration_min=body.get("duration_min"), all_day=bool(body.get("all_day")))

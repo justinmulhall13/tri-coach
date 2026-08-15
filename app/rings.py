@@ -1,8 +1,8 @@
-"""The four rings: Sleep, Training Readiness, Day Strain, T100 Readiness.
+"""Sleep, Training Readiness, Day Strain, and profile-gated race readiness.
 
 Sleep and Readiness come straight from Garmin (never fabricated; null when
-missing). Strain and T100 are computed here — transparently, with their
-sub-components returned so the UI can show how the number was built.
+missing). Strain is computed for every mode. The legacy T100 model is exposed
+only for the exact event profile it was built for.
 """
 from __future__ import annotations
 
@@ -58,9 +58,16 @@ def t100_readiness(load14: dict[str, Any], training_load: dict[str, Any],
                    readiness_score: float | None, days_left: int) -> dict[str, Any]:
     """0–100 race preparedness vs T100 demands (2k swim / 80k bike / 18k run).
 
-    Volume ratios use 14-day targets consistent with the plan's weekly shape;
-    swim is weighted heaviest because it's the athlete's weakest leg.
+    Volume ratios use 14-day targets consistent with the bundled plan. Run is
+    weighted most because the athlete identifies it as the weakest discipline,
+    but this score never authorizes an Achilles-risking run-volume jump.
     """
+    if not config.supports_t100_features():
+        return {
+            "available": False,
+            "reason": "T100 readiness is not valid for the active event profile",
+        }
+
     by = (load14 or {}).get("by_sport") or {}
     swim_km = (by.get("swim") or {}).get("km") or 0
     bike_km = (by.get("bike") or {}).get("km") or 0
@@ -77,11 +84,14 @@ def t100_readiness(load14: dict[str, Any], training_load: dict[str, Any],
 
     ready_c = min(1.0, (readiness_score or 50) / 100)
 
-    score = round(100 * (0.34 * swim_c + 0.22 * bike_c + 0.18 * run_c +
+    score = round(100 * (0.18 * swim_c + 0.22 * bike_c + 0.34 * run_c +
                          0.16 * acwr_c + 0.10 * ready_c))
     label = ("Race ready" if score >= 85 else "On track" if score >= 65 else
              "Behind" if score >= 40 else "Way behind")
-    weakest = min((("swim", swim_c), ("bike", bike_c), ("run", run_c)), key=lambda x: x[1])
+    lowest_volume = min(
+        (("swim", swim_c), ("bike", bike_c), ("run", run_c)),
+        key=lambda x: x[1],
+    )
     return {
         "score": score, "label": label, "days_left": days_left,
         "components": {
@@ -90,7 +100,11 @@ def t100_readiness(load14: dict[str, Any], training_load: dict[str, Any],
             "run": {"pct": round(run_c * 100), "km_14d": run_km, "target": targets["run"]},
             "load_balance": {"pct": round(acwr_c * 100), "acwr": acwr},
         },
-        "weakest_leg": weakest[0],
+        # This is a rolling-volume comparison, not a claim about ability. The
+        # athlete constant remains: running is the weakest discipline.
+        "lowest_volume_bucket": lowest_volume[0],
+        "constraint": ("Run is the athlete's weakest discipline and Achilles-limited. "
+                       "A short run bucket never authorizes a run-volume jump; add load on the bike."),
     }
 
 
@@ -100,7 +114,6 @@ def get_rings() -> dict[str, Any]:
 
     readiness = _safe(garmin_source.get_readiness) or {}
     tl = _safe(garmin_source.get_training_load) or {}
-    load14 = _safe(lambda: garmin_source.get_recent_load(14)) or {}
     race = config.race_phase()
 
     sleep_score = ((readiness.get("sleep") or {}).get("score"))
@@ -108,9 +121,7 @@ def get_rings() -> dict[str, Any]:
     cur = readiness.get("current_readiness") or {}        # live value (post-exercise)
     tr_score = tr.get("score")
     strain = day_strain(c, today, tl.get("chronic_load"))
-    t100 = t100_readiness(load14, tl, tr_score, race.get("days_remaining", 0))
-
-    return {
+    payload = {
         "date": today,
         "sleep": {"score": sleep_score, "label": ((readiness.get("sleep") or {}).get("hours") and
                   f"{readiness['sleep']['hours']} h") or "—"},
@@ -120,5 +131,8 @@ def get_rings() -> dict[str, Any]:
                       "current_label": (cur.get("level") or "").title(),
                       "current_post_exercise": bool(cur.get("is_post_exercise"))},
         "strain": strain,
-        "t100": t100,
     }
+    if config.supports_t100_features():
+        load14 = _safe(lambda: garmin_source.get_recent_load(14)) or {}
+        payload["t100"] = t100_readiness(load14, tl, tr_score, race.get("days_remaining", 0))
+    return payload

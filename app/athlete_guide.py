@@ -14,6 +14,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from . import coaching_contract
+
 
 _SECTIONS: dict[str, dict[str, Any]] = {
     "race_day": {
@@ -145,6 +147,8 @@ def context_for(query: str, *, max_sections: int = 4) -> dict[str, Any] | None:
     normal turns are keyword-routed. Page references let the model distinguish
     guide facts from coaching inference.
     """
+    if coaching_contract.EVENT_PROFILE.get("athlete_guide_key") != "vancouver-2026":
+        return None
     q = (query or "").lower()
     if not _RACE_TRIGGER.search(q):
         return None
@@ -180,12 +184,25 @@ def context_for(query: str, *, max_sections: int = 4) -> dict[str, Any] | None:
     if not preferred and not re.search(r"\b(t100|vancouver|athlete guide)\b", q):
         return None
     selected = preferred[:max_sections] or ["race_day", "course"]
-    return {
+    result = {
         "source": "2026 Vancouver Athlete Guide (66 pages; supplied by athlete)",
-        "authority": ("Use these as event facts. Separate them from coaching inference; "
-                      "race-day signage, the race director briefing, and official updates supersede the PDF."),
+        "authority": ("Separate guide facts from coaching inference. The newer self-reported "
+                      "EVENT PROFILE governs the coaching plan where it conflicts; name any material "
+                      "conflict. Race-day signage and race-director updates supersede the PDF."),
         "sections": {
             name: {"pages": _SECTIONS[name]["pages"], "facts": _SECTIONS[name]["facts"]}
             for name in selected
         },
     }
+    if {"course", "bike_aid"} & set(selected):
+        bike = (((coaching_contract.EVENT_PROFILE.get("course_aid") or {}).get("bike")) or {})
+        if bike:
+            result["known_conflicts"] = [{
+                "topic": "bike course topology",
+                "guide_fact": "The supplied guide digest describes four bike laps and one aid pass per lap.",
+                "newer_event_profile": (f"{bike.get('topology', 'unknown')}; "
+                                        f"stations at {bike.get('stations_km', 'unknown')} km; "
+                                        f"final {bike.get('final_dry_km', 'unknown')} km dry."),
+                "handling": "Use the newer event profile for the plan and explicitly flag the discrepancy.",
+            }]
+    return result

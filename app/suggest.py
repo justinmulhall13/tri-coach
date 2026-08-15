@@ -124,6 +124,7 @@ def todays_suggestion(readiness_data: dict[str, Any] | None = None,
         "structure": plan_day["structure"],
         "duration_min": plan_day["duration_min"],
         "intensity": plan_day["intensity"],
+        "tsb_target": plan_day.get("tsb_target"),
         "why": plan_day["why"],
         "is_rest": plan_day["is_rest"],
     }
@@ -150,7 +151,12 @@ def todays_suggestion(readiness_data: dict[str, Any] | None = None,
                           "main": "30–40 min very easy Z1, or full rest if you feel flat",
                           "cooldown": "—"},
             "why": f"Readiness is poor ({signal['reason']}). Pushing the planned "
-                   f"'{base['title']}' today risks digging a hole — back off, train tomorrow.",
+                   f"'{base['title']}' today risks digging a hole. Cost: lose that planned "
+                   "quality stimulus. Buy: recovery margin for the next executable hard day.",
+            "tradeoff": {
+                "cost": f"lose the planned {base['title']} stimulus",
+                "benefit": "recovery margin for the next executable hard day",
+            },
         })
         notes.append(f"Readiness is poor ({signal['reason']}) — consider easing to recovery. "
                      "Your call; the plan stands unless you change it.")
@@ -159,7 +165,13 @@ def todays_suggestion(readiness_data: dict[str, Any] | None = None,
         adjusted = dict(base)
         adjusted["duration_min"] = cut
         adjusted["why"] = (f"{base['why']} Readiness is moderate ({signal['reason']}), "
-                           f"so an option is to trim volume to ~{cut} min and hold intensity honest.")
+                           f"so an option is to trim volume to ~{cut} min. Cost: "
+                           f"{(base['duration_min'] or 60) - cut} min less stimulus. Buy: lower "
+                           "fatigue while preserving the session's intensity.")
+        adjusted["tradeoff"] = {
+            "cost": f"{(base['duration_min'] or 60) - cut} min less training stimulus",
+            "benefit": "lower fatigue while preserving the session's intensity",
+        }
         notes.append(f"Readiness is moderate ({signal['reason']}) — trimming ~30% volume is an "
                      "option, but the planned session stands unless you change it.")
     else:

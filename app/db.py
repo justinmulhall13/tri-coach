@@ -12,14 +12,16 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from . import config
+from . import coaching_contract, config
 
 _DB_PATH = (config.BASE_DIR / config.DB_PATH).resolve() if not Path(config.DB_PATH).is_absolute() else Path(config.DB_PATH)
 _local = threading.local()
 
-SCHEMA = """
+
+_PLAN_DAYS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS plan_days (
-    date        TEXT PRIMARY KEY,         -- ISO YYYY-MM-DD
+    event_profile_id TEXT NOT NULL,       -- isolates plans when EVENT_PROFILE changes
+    date        TEXT NOT NULL,             -- ISO YYYY-MM-DD
     week_index  INTEGER NOT NULL,         -- 0 = current week, counting forward
     phase       TEXT NOT NULL,            -- build | peak | taper | post-race
     discipline  TEXT NOT NULL,            -- swim|bike|run|brick|strength|rest|recovery
@@ -27,12 +29,20 @@ CREATE TABLE IF NOT EXISTS plan_days (
     structure   TEXT NOT NULL,            -- JSON: {warmup, main, cooldown}
     duration_min INTEGER,
     intensity   TEXT,                     -- e.g. "threshold", "Z2", "race pace"
+    tsb_target  REAL,                     -- explicit projected race-day form target
     why         TEXT,
     is_rest     INTEGER NOT NULL DEFAULT 0,
     source      TEXT NOT NULL DEFAULT 'seed',  -- seed | edited | coach
-    updated_at  TEXT NOT NULL
+    updated_at  TEXT NOT NULL,
+    start_time  TEXT,
+    gcal_event_id TEXT,
+    pos_updated_at TEXT,
+    PRIMARY KEY (event_profile_id, date)
 );
+"""
 
+
+SCHEMA = _PLAN_DAYS_SCHEMA + """
 CREATE TABLE IF NOT EXISTS completions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     date        TEXT NOT NULL,
@@ -44,6 +54,7 @@ CREATE TABLE IF NOT EXISTS completions (
 
 CREATE TABLE IF NOT EXISTS constraints_log (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_profile_id TEXT NOT NULL,
     date        TEXT NOT NULL,
     text        TEXT NOT NULL,
     created_at  TEXT NOT NULL
@@ -51,6 +62,7 @@ CREATE TABLE IF NOT EXISTS constraints_log (
 
 CREATE TABLE IF NOT EXISTS chat_history (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_profile_id TEXT NOT NULL,
     role        TEXT NOT NULL,            -- user | assistant
     content     TEXT NOT NULL,
     created_at  TEXT NOT NULL
@@ -82,6 +94,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 
 CREATE TABLE IF NOT EXISTS plan_history (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_profile_id TEXT NOT NULL,
     date        TEXT NOT NULL,            -- plan day that changed
     prev        TEXT NOT NULL,            -- JSON snapshot of the day BEFORE the change
     source      TEXT,                     -- what made the change (coach|edited|adapt|...)
@@ -122,8 +135,55 @@ _MIGRATIONS = {
     # when the app last changed this day's *position* (time/day) — used for
     # most-recent-wins against Google's event.updated. Stored as UTC ISO.
     "plan_days": [("start_time", "TEXT"), ("gcal_event_id", "TEXT"),
-                  ("pos_updated_at", "TEXT")],
+                  ("pos_updated_at", "TEXT"), ("tsb_target", "REAL"),
+                  ("event_profile_id", "TEXT")],
+    "plan_history": [("event_profile_id", "TEXT")],
+    "constraints_log": [("event_profile_id", "TEXT")],
+    "chat_history": [("event_profile_id", "TEXT")],
 }
+
+
+def _active_profile_id() -> str:
+    return coaching_contract.event_profile_id()
+
+
+_PLAN_DAY_COLUMNS = (
+    "event_profile_id", "date", "week_index", "phase", "discipline", "title",
+    "structure", "duration_min", "intensity", "tsb_target", "why", "is_rest",
+    "source", "updated_at", "start_time", "gcal_event_id", "pos_updated_at",
+)
+
+
+def _plan_days_has_profile_date_key(c: sqlite3.Connection) -> bool:
+    info = c.execute("PRAGMA table_info(plan_days)").fetchall()
+    primary_key = [row["name"] for row in sorted(
+        (row for row in info if row["pk"]), key=lambda row: row["pk"]
+    )]
+    return primary_key == ["event_profile_id", "date"]
+
+
+def _migrate_plan_days_profile_key(c: sqlite3.Connection) -> None:
+    """Replace the legacy date-only primary key without losing plan rows."""
+    if _plan_days_has_profile_date_key(c):
+        return
+
+    legacy = "plan_days_legacy_date_key"
+    before = c.execute("SELECT COUNT(*) AS n FROM plan_days").fetchone()["n"]
+    c.execute("SAVEPOINT migrate_plan_days_profile_key")
+    try:
+        c.execute(f"ALTER TABLE plan_days RENAME TO {legacy}")
+        c.execute(_PLAN_DAYS_SCHEMA)
+        columns = ", ".join(_PLAN_DAY_COLUMNS)
+        c.execute(f"INSERT INTO plan_days ({columns}) SELECT {columns} FROM {legacy}")
+        after = c.execute("SELECT COUNT(*) AS n FROM plan_days").fetchone()["n"]
+        if after != before:
+            raise RuntimeError("plan_days profile-key migration did not preserve every row")
+        c.execute(f"DROP TABLE {legacy}")
+        c.execute("RELEASE SAVEPOINT migrate_plan_days_profile_key")
+    except Exception:
+        c.execute("ROLLBACK TO SAVEPOINT migrate_plan_days_profile_key")
+        c.execute("RELEASE SAVEPOINT migrate_plan_days_profile_key")
+        raise
 
 
 def _migrate(c: sqlite3.Connection) -> None:
@@ -132,6 +192,19 @@ def _migrate(c: sqlite3.Connection) -> None:
         for name, decl in cols:
             if name not in have:
                 c.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+    c.execute("UPDATE plan_days SET tsb_target=? WHERE tsb_target IS NULL",
+              (coaching_contract.DEFAULT_RACE_DAY_TSB_TARGET,))
+    profile_id = _active_profile_id()
+    # Existing production data predates profile scoping and belongs to the
+    # profile installed when this migration first runs. Once populated, these
+    # values are never rewritten by a later event switch.
+    for table in ("plan_days", "plan_history", "constraints_log", "chat_history"):
+        c.execute(
+            f"UPDATE {table} SET event_profile_id=? "
+            "WHERE event_profile_id IS NULL OR event_profile_id=''",
+            (profile_id,),
+        )
+    _migrate_plan_days_profile_key(c)
     c.commit()
 
 
@@ -174,31 +247,37 @@ def upsert_plan_day(day: dict[str, Any], *, only_if_absent_or_seed: bool = False
     """
     import datetime
     c = _conn()
+    profile_id = _active_profile_id()
     if only_if_absent_or_seed:
-        existing = c.execute("SELECT source FROM plan_days WHERE date=?", (day["date"],)).fetchone()
+        existing = c.execute(
+            "SELECT source FROM plan_days WHERE event_profile_id=? AND date=?",
+            (profile_id, day["date"]),
+        ).fetchone()
         if existing and existing["source"] != "seed":
             return
     c.execute(
-        """INSERT INTO plan_days (date, week_index, phase, discipline, title, structure,
-                duration_min, intensity, why, is_rest, source, updated_at,
+        """INSERT INTO plan_days (date, event_profile_id, week_index, phase, discipline, title, structure,
+                duration_min, intensity, tsb_target, why, is_rest, source, updated_at,
                 start_time, gcal_event_id, pos_updated_at)
-           VALUES (:date,:week_index,:phase,:discipline,:title,:structure,
-                :duration_min,:intensity,:why,:is_rest,:source,:updated_at,
+           VALUES (:date,:event_profile_id,:week_index,:phase,:discipline,:title,:structure,
+                :duration_min,:intensity,:tsb_target,:why,:is_rest,:source,:updated_at,
                 :start_time,:gcal_event_id,:pos_updated_at)
-           ON CONFLICT(date) DO UPDATE SET
+           ON CONFLICT(event_profile_id,date) DO UPDATE SET
                 week_index=excluded.week_index, phase=excluded.phase,
                 discipline=excluded.discipline, title=excluded.title,
                 structure=excluded.structure, duration_min=excluded.duration_min,
-                intensity=excluded.intensity, why=excluded.why,
+                intensity=excluded.intensity, tsb_target=excluded.tsb_target, why=excluded.why,
                 is_rest=excluded.is_rest, source=excluded.source,
                 updated_at=excluded.updated_at,
                 start_time=excluded.start_time, gcal_event_id=excluded.gcal_event_id,
                 pos_updated_at=excluded.pos_updated_at""",
         {
             **day,
+            "event_profile_id": profile_id,
             "structure": json.dumps(day.get("structure", {})),
             "is_rest": int(day.get("is_rest", 0)),
             "source": day.get("source", "seed"),
+            "tsb_target": day.get("tsb_target"),
             "updated_at": datetime.datetime.now().isoformat(timespec="seconds"),
             "start_time": day.get("start_time"),
             "gcal_event_id": day.get("gcal_event_id"),
@@ -210,16 +289,19 @@ def upsert_plan_day(day: dict[str, Any], *, only_if_absent_or_seed: bool = False
 
 def get_plan(start: str | None = None, end: str | None = None) -> list[dict[str, Any]]:
     c = _conn()
-    q = "SELECT * FROM plan_days"
-    args: list[Any] = []
+    q = "SELECT * FROM plan_days WHERE event_profile_id=?"
+    args: list[Any] = [_active_profile_id()]
     if start and end:
-        q += " WHERE date BETWEEN ? AND ?"; args = [start, end]
+        q += " AND date BETWEEN ? AND ?"; args.extend([start, end])
     q += " ORDER BY date"
     return [_row_to_day(r) for r in c.execute(q, args).fetchall()]
 
 
 def get_plan_day(date: str) -> dict[str, Any] | None:
-    r = _conn().execute("SELECT * FROM plan_days WHERE date=?", (date,)).fetchone()
+    r = _conn().execute(
+        "SELECT * FROM plan_days WHERE date=? AND event_profile_id=?",
+        (date, _active_profile_id()),
+    ).fetchone()
     return _row_to_day(r) if r else None
 
 
@@ -234,7 +316,7 @@ def edit_plan_day(date: str, fields: dict[str, Any], source: str = "edited",
     if record_history:
         _record_plan_history(date, day, source, reason)
     day.update({k: v for k, v in fields.items() if k in
-                {"discipline", "title", "structure", "duration_min", "intensity", "why", "is_rest", "phase",
+                {"discipline", "title", "structure", "duration_min", "intensity", "tsb_target", "why", "is_rest", "phase",
                  "start_time", "gcal_event_id", "pos_updated_at"}})
     day["source"] = source
     day["updated_at"] = datetime.datetime.now().isoformat(timespec="seconds")
@@ -245,14 +327,17 @@ def edit_plan_day(date: str, fields: dict[str, Any], source: str = "edited",
 def _record_plan_history(date: str, prev_day: dict[str, Any], source: str, reason: str) -> None:
     import datetime
     c = _conn()
-    c.execute("INSERT INTO plan_history (date, prev, source, reason, created_at) VALUES (?,?,?,?,?)",
-              (date, json.dumps(prev_day, default=str), source, reason,
+    c.execute("INSERT INTO plan_history (event_profile_id,date,prev,source,reason,created_at) VALUES (?,?,?,?,?,?)",
+              (_active_profile_id(), date, json.dumps(prev_day, default=str), source, reason,
                datetime.datetime.now().isoformat(timespec="seconds")))
     c.commit()
 
 
 def get_plan_history(limit: int = 40) -> list[dict[str, Any]]:
-    rows = _conn().execute("SELECT * FROM plan_history ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    rows = _conn().execute(
+        "SELECT * FROM plan_history WHERE event_profile_id=? ORDER BY id DESC LIMIT ?",
+        (_active_profile_id(), limit),
+    ).fetchall()
     out = []
     for r in rows:
         d = dict(r)
@@ -266,7 +351,10 @@ def get_plan_history(limit: int = 40) -> list[dict[str, Any]]:
 
 def revert_plan_history(history_id: int) -> dict[str, Any] | None:
     """Restore a plan day to its snapshot at that history entry."""
-    r = _conn().execute("SELECT * FROM plan_history WHERE id=?", (history_id,)).fetchone()
+    r = _conn().execute(
+        "SELECT * FROM plan_history WHERE id=? AND event_profile_id=?",
+        (history_id, _active_profile_id()),
+    ).fetchone()
     if not r:
         return None
     try:
@@ -274,7 +362,7 @@ def revert_plan_history(history_id: int) -> dict[str, Any] | None:
     except (json.JSONDecodeError, TypeError):
         return None
     fields = {k: prev.get(k) for k in
-              ("discipline", "title", "structure", "duration_min", "intensity", "why", "is_rest", "phase")}
+              ("discipline", "title", "structure", "duration_min", "intensity", "tsb_target", "why", "is_rest", "phase")}
     # record the revert itself so it too can be undone, restore original source tag
     return edit_plan_day(r["date"], fields, source=prev.get("source", "edited"),
                          reason="reverted to earlier version")
@@ -282,8 +370,15 @@ def revert_plan_history(history_id: int) -> dict[str, Any] | None:
 
 def plan_summary() -> dict[str, Any]:
     c = _conn()
-    rows = c.execute("SELECT phase, COUNT(*) n FROM plan_days GROUP BY phase").fetchall()
-    span = c.execute("SELECT MIN(date) a, MAX(date) b, COUNT(*) n FROM plan_days").fetchone()
+    profile_id = _active_profile_id()
+    rows = c.execute(
+        "SELECT phase, COUNT(*) n FROM plan_days WHERE event_profile_id=? GROUP BY phase",
+        (profile_id,),
+    ).fetchall()
+    span = c.execute(
+        "SELECT MIN(date) a, MAX(date) b, COUNT(*) n FROM plan_days WHERE event_profile_id=?",
+        (profile_id,),
+    ).fetchone()
     return {
         "days": span["n"], "start": span["a"], "end": span["b"],
         "by_phase": {r["phase"]: r["n"] for r in rows},
@@ -340,14 +435,16 @@ def get_completions(start: str | None = None, end: str | None = None) -> list[di
 def add_constraint(date: str, text: str) -> None:
     import datetime
     c = _conn()
-    c.execute("INSERT INTO constraints_log (date,text,created_at) VALUES (?,?,?)",
-              (date, text, datetime.datetime.now().isoformat(timespec="seconds")))
+    c.execute("INSERT INTO constraints_log (event_profile_id,date,text,created_at) VALUES (?,?,?,?)",
+              (_active_profile_id(), date, text,
+               datetime.datetime.now().isoformat(timespec="seconds")))
     c.commit()
 
 
 def get_constraints(date: str) -> list[dict[str, Any]]:
     return [dict(r) for r in _conn().execute(
-        "SELECT * FROM constraints_log WHERE date=? ORDER BY created_at", (date,)).fetchall()]
+        "SELECT * FROM constraints_log WHERE date=? AND event_profile_id=? ORDER BY created_at",
+        (date, _active_profile_id())).fetchall()]
 
 
 def get_constraint_history(limit: int = 200) -> list[dict[str, Any]]:
@@ -357,7 +454,8 @@ def get_constraint_history(limit: int = 200) -> list[dict[str, Any]]:
     availability, injuries, equipment constraints, or preferences.
     """
     rows = _conn().execute(
-        "SELECT * FROM constraints_log ORDER BY id DESC LIMIT ?", (limit,)
+        "SELECT * FROM constraints_log WHERE event_profile_id=? ORDER BY id DESC LIMIT ?",
+        (_active_profile_id(), limit),
     ).fetchall()
     return [dict(r) for r in reversed(rows)]
 
@@ -415,8 +513,8 @@ def delete_manual_activity(entry_id: int) -> bool:
 
 # --- Nutrition log (Chef Gordo) ----------------------------------------------
 def add_nutrition(date: str, description: str, *, eaten_at: str = "", meal: str = "",
-                  kcal: int | None = None, protein_g: int | None = None,
-                  carb_g: int | None = None, fat_g: int | None = None) -> int:
+                  kcal: float | int | None = None, protein_g: float | int | None = None,
+                  carb_g: float | int | None = None, fat_g: float | int | None = None) -> int:
     import datetime
     c = _conn()
     cur = c.execute(
@@ -452,8 +550,9 @@ def delete_nutrition(entry_id: int) -> bool:
 def add_chat(role: str, content: str) -> None:
     import datetime
     c = _conn()
-    c.execute("INSERT INTO chat_history (role,content,created_at) VALUES (?,?,?)",
-              (role, content, datetime.datetime.now().isoformat(timespec="seconds")))
+    c.execute("INSERT INTO chat_history (event_profile_id,role,content,created_at) VALUES (?,?,?,?)",
+              (_active_profile_id(), role, content,
+               datetime.datetime.now().isoformat(timespec="seconds")))
     c.commit()
 
 
@@ -463,10 +562,16 @@ def get_chat(limit: int = 50, since: str | None = None) -> list[dict[str, Any]]:
     lexicographic >= comparison works."""
     c = _conn()
     if since:
-        rows = c.execute("SELECT * FROM chat_history WHERE created_at >= ? ORDER BY id DESC LIMIT ?",
-                         (since, limit)).fetchall()
+        rows = c.execute(
+            "SELECT * FROM chat_history WHERE event_profile_id=? AND created_at >= ? "
+            "ORDER BY id DESC LIMIT ?",
+            (_active_profile_id(), since, limit),
+        ).fetchall()
     else:
-        rows = c.execute("SELECT * FROM chat_history ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        rows = c.execute(
+            "SELECT * FROM chat_history WHERE event_profile_id=? ORDER BY id DESC LIMIT ?",
+            (_active_profile_id(), limit),
+        ).fetchall()
     return [dict(r) for r in reversed(rows)]
 
 
@@ -474,9 +579,13 @@ def clear_chat(since: str | None = None) -> int:
     """Delete chat history. `since` limits the delete to today (or any date
     prefix); None wipes everything. Returns rows deleted."""
     c = _conn()
+    profile_id = _active_profile_id()
     if since:
-        cur = c.execute("DELETE FROM chat_history WHERE created_at >= ?", (since,))
+        cur = c.execute(
+            "DELETE FROM chat_history WHERE event_profile_id=? AND created_at >= ?",
+            (profile_id, since),
+        )
     else:
-        cur = c.execute("DELETE FROM chat_history")
+        cur = c.execute("DELETE FROM chat_history WHERE event_profile_id=?", (profile_id,))
     c.commit()
     return cur.rowcount

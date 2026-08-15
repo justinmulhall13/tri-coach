@@ -17,7 +17,7 @@ from . import calendar_source, calendar_sync, config, db
 
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 
-_SYSTEM = """You are the calendar assistant inside a triathlete's training app. The athlete \
+_SYSTEM = """You are the calendar assistant inside an endurance athlete's training app. The athlete \
 types what they want done to their calendar; you return a SMALL JSON object of concrete actions.
 
 Output ONLY a JSON object, no prose around it:
@@ -27,8 +27,10 @@ Action types (use the exact date strings from CONTEXT; resolve "tomorrow/Friday/
 - {"type":"move","date":"YYYY-MM-DD","new_date":"YYYY-MM-DD"(optional),"new_start":"HH:MM"(optional,24h)}
     Reschedule a WORKOUT that currently sits on "date". Omit fields you aren't changing.
     Moving onto a day that already has a workout SWAPS them.
-- {"type":"add_event","title":"...","date":"YYYY-MM-DD","start":"HH:MM"(optional),"duration_min":<int>(optional),"all_day":<bool>(optional)}
-    Add a personal (non-training) event. Use all_day:true and omit start for all-day things.
+- {"type":"add_event","title":"...","date":"YYYY-MM-DD","start":"HH:MM","duration_min":<int>,"all_day":false}
+    Add a timed personal event only when start and duration were explicitly provided. For an explicitly
+    all-day event use all_day:true and omit start/duration. If either timed value is unknown, return no
+    action and ask one focused question; never estimate it.
 - {"type":"delete_event","match":"<words from the event title>","date":"YYYY-MM-DD"(optional)}
     Remove a personal event the athlete added.
 - {"type":"rest","date":"YYYY-MM-DD"}  Turn a day into a rest day (removes its workout).
@@ -92,6 +94,20 @@ def command(text: str) -> dict[str, Any]:
     if any(a.get("type") == "move" and a.get("new_duration") is not None for a in actions if isinstance(a, dict)):
         return {"reply": "Workout length stays fixed in Calendar — ask Coach Steve to change the session.",
                 "actions": [], "applied": 0}
+    for action in actions:
+        if not isinstance(action, dict) or action.get("type") != "add_event":
+            continue
+        if action.get("all_day"):
+            continue
+        try:
+            duration = int(action.get("duration_min"))
+        except (TypeError, ValueError):
+            duration = 0
+        if not action.get("start") or duration <= 0:
+            return {
+                "reply": "That event's start time or duration is unknown. Tell me both before I add it.",
+                "actions": [], "applied": 0,
+            }
     done: list[str] = []
     touched: list[str] = []   # workout dates that need pushing to Google
     for a in actions:

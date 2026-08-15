@@ -209,16 +209,22 @@ def create_personal_event(title: str, date: str, start: str | None = None,
         "summary": title,
         "extendedProperties": {"private": {"triCoachPersonal": "1"}},
     }
-    if all_day or not start:
+    if all_day:
         nxt = (datetime.date.fromisoformat(date) + datetime.timedelta(days=1)).isoformat()
         body["start"] = {"date": date}
         body["end"] = {"date": nxt}
     else:
-        dur = int(duration_min or 60)
+        if not start or duration_min is None:
+            return {"error": "timed events require an explicit start and duration_min"}
         try:
+            dur = int(duration_min)
+            if dur <= 0:
+                raise ValueError("duration must be positive")
             h, m = (int(x) for x in start.split(":"))
+            if not (0 <= h <= 23 and 0 <= m <= 59):
+                raise ValueError("invalid time")
         except Exception:
-            h, m = 18, 0
+            return {"error": "invalid explicit start or duration_min"}
         start_dt = datetime.datetime.fromisoformat(date) + datetime.timedelta(hours=h, minutes=m)
         end_dt = start_dt + datetime.timedelta(minutes=dur)
         body["start"] = {"dateTime": start_dt.isoformat(), "timeZone": config.TIMEZONE}

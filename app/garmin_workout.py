@@ -3,11 +3,10 @@
 Per-discipline, tuned to this athlete's kit (Fenix 8 + HRM 200, Peloton, no bike
 power meter):
 
-- Bike  → HR-zone targets (measurable on the road bike or the Peloton via the
-          HRM). Each work step names the Peloton watt equivalent AND the HR, so
-          it's clear which metric to focus on per device.
-- Run   → pace-range targets derived from the athlete's race-predictor threshold
-          pace, on lappable interval/tempo steps.
+- Bike  → HR targets. Watts appear only when the session explicitly says Peloton
+          or indoor; outdoor work never falls back to watts.
+- Run   → pace targets for training, with the installed event's HR and pace guard
+          taking precedence on race-specific steps.
 - Swim  → distance steps (metres) you can lap, with rests, so the watch counts
           them off.
 - else  → structured time steps + full detail in the description.
@@ -20,7 +19,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from . import config, garmin_source, interval_analysis, zones
+from . import coaching_contract, config, garmin_source, interval_analysis, zones
 
 FTP = int(config.ATHLETE_PROFILE.get("ftp_w") or 288)
 
@@ -79,8 +78,24 @@ def _hr_bpm_target(lo: int, hi: int) -> dict[str, Any]:
             "zoneNumber": None, "targetValueOne": float(lo), "targetValueTwo": float(hi)}
 
 
+def _event_hr(discipline: str) -> tuple[int, int] | None:
+    key = "bike_hr_bpm" if discipline in {"bike", "brick"} else "run_hr_bpm" if discipline == "run" else None
+    raw = ((coaching_contract.EVENT_PROFILE.get("pacing_targets") or {}).get(key) or []) if key else []
+    if len(raw) != 2:
+        return None
+    try:
+        return int(raw[0]), int(raw[1])
+    except (TypeError, ValueError):
+        return None
+
+
 def _hr_for(intensity: str, discipline: str, title: str = "") -> dict[str, Any]:
     """Best available HR target: real bpm band, else the zone number."""
+    race_specific = "race" in (intensity or "").lower()
+    disc = (discipline or "").lower()
+    if race_specific:
+        event_target = _event_hr(disc)
+        return _hr_bpm_target(*event_target) if event_target else _no_target()
     try:
         r = zones.hr_range(intensity, discipline, title)
     except Exception:  # noqa: BLE001
@@ -92,6 +107,13 @@ def _hr_for(intensity: str, discipline: str, title: str = "") -> dict[str, Any]:
 
 def _hr_note(intensity: str, discipline: str, title: str = "") -> str:
     """'HR 154-173' for step descriptions, or '' when zones are unavailable."""
+    race_specific = "race" in (intensity or "").lower()
+    disc = (discipline or "").lower()
+    if race_specific:
+        r = _event_hr(disc)
+        if not r:
+            return "HR unknown: event target required"
+        return f"HR {r[0]}-{r[1]}"
     try:
         r = zones.hr_range(intensity, discipline, title)
     except Exception:  # noqa: BLE001
@@ -102,10 +124,24 @@ def _hr_note(intensity: str, discipline: str, title: str = "") -> str:
 # Indoor sessions are the only place watts are meaningful for this athlete (the
 # FTP is trainer-specific and doesn't transfer to the road).
 _INDOOR_RE = re.compile(r"\b(peloton|trainer|indoor|zwift|erg|smart bike|turbo)\b", re.I)
+_WATT_RANGE_RE = re.compile(
+    r"\d{2,4}(?:\s*[–\-—]\s*\d{2,4})?\s*(?:W|watts?)\b", re.I,
+)
+_WATT_CUE_RE = re.compile(
+    r"(?:(?:@|at)\s*)?\d{2,4}(?:\s*[–\-—]\s*\d{2,4})?\s*(?:W|watts?)\b", re.I,
+)
 
 
 def _is_indoor(*texts: str | None) -> bool:
     return any(_INDOOR_RE.search(t or "") for t in texts)
+
+
+def _strip_watt_cue(text: str | None) -> str | None:
+    """Remove an outdoor watt cue without inventing a warmup/cooldown HR."""
+    if not text:
+        return text
+    cleaned = _WATT_CUE_RE.sub("", text)
+    return re.sub(r"\s{2,}", " ", cleaned).strip(" ,;")
 
 
 def _pace_target(mps_slow: float, mps_fast: float) -> dict[str, Any]:
@@ -113,9 +149,49 @@ def _pace_target(mps_slow: float, mps_fast: float) -> dict[str, Any]:
             "zoneNumber": None, "targetValueOne": round(mps_slow, 3), "targetValueTwo": round(mps_fast, 3)}
 
 
+def _pace_ceiling(max_mps: float) -> dict[str, Any]:
+    """Encode a maximum running speed without imposing a minimum speed.
+
+    Garmin models pace targets as speed bounds. A zero lower bound can never
+    trigger a too-slow alert, leaving only the upper-speed alert that enforces
+    the athlete's easy-run ceiling.
+    """
+    return {"targetType": {"workoutTargetTypeId": 6, "workoutTargetTypeKey": "pace.zone", "displayOrder": 6},
+            "zoneNumber": None, "targetValueOne": 0.0, "targetValueTwo": round(max_mps, 3)}
+
+
+def _hr_bpm_ceiling(max_bpm: int) -> dict[str, Any]:
+    """One-sided heart-rate ceiling used only when pace data is unavailable."""
+    return {
+        "targetType": {"workoutTargetTypeId": 4, "workoutTargetTypeKey": "heart.rate.zone",
+                       "displayOrder": 4},
+        "zoneNumber": None,
+        "targetValueOne": 0.0,
+        "targetValueTwo": float(max_bpm),
+    }
+
+
 def _no_target() -> dict[str, Any]:
     return {"targetType": {"workoutTargetTypeId": 1, "workoutTargetTypeKey": "no.target", "displayOrder": 1},
             "zoneNumber": None, "targetValueOne": None, "targetValueTwo": None}
+
+
+def _easy_run_target_and_note(title: str = "") -> tuple[dict[str, Any], str]:
+    """Return the same one-sided easy ceiling for encoding and description."""
+    try:
+        pace = zones.pace_range("easy", title)
+    except Exception:  # noqa: BLE001
+        pace = None
+    if pace:
+        fast = zones.fmt_pace(pace[1])
+        return _pace_ceiling(1000.0 / pace[1]), f"CEILING {fast}/km; do not go faster"
+    try:
+        hr = zones.hr_range("easy", "run", title)
+    except Exception:  # noqa: BLE001
+        hr = None
+    if hr:
+        return _hr_bpm_ceiling(hr[1]), f"HR CEILING {hr[1]} bpm; do not exceed"
+    return _no_target(), "Easy ceiling unknown; Garmin running zones required"
 
 
 def _exec(order: int, kind: str, end: str, value: float, target: dict[str, Any],
@@ -180,13 +256,14 @@ def _fmt_pace(sec: float) -> str:
 
 
 # --- per-discipline builders --------------------------------------------------
-def _bike_steps(main: str, intensity: str, order: int, title: str = "") -> tuple[list[dict[str, Any]], int]:
+def _bike_steps(main: str, intensity: str, order: int, title: str = "",
+                indoor: bool | None = None) -> tuple[list[dict[str, Any]], int]:
     """Bike is prescribed by HEART RATE (the athlete's FTP is trainer-specific and
     doesn't transfer to hilly outdoor riding). Watts appear only as a secondary
     note when the session is explicitly indoor."""
     steps: list[dict[str, Any]] = []
     o = order
-    indoor = _is_indoor(main, title)
+    indoor = _is_indoor(main, title) if indoor is None else indoor
     explicit_hr = interval_analysis.explicit_hr_range(main)
 
     def note(inten: str) -> str:
@@ -231,27 +308,43 @@ def _run_steps(main: str, intensity: str, thr: float | None, order: int,
     o = order
 
     def target(inten: str):
+        if "race" in (inten or "").lower():
+            return _hr_for(inten, "run", title)
+        easy = inten in ("easy", "recovery") or zones.zone_for(inten, title) <= 2
         r = None
         try:
             r = zones.pace_range(inten, title)
         except Exception:  # noqa: BLE001
             r = None
         if r:
+            if easy:
+                return _easy_run_target_and_note(title)[0]
             return _pace_target(1000.0 / r[0], 1000.0 / r[1])
-        return _pace_for(inten, thr) if thr else _hr_for(inten, "run", title)
+        if thr:
+            pace = _pace_for(inten, thr)
+            return _pace_ceiling(pace["targetValueTwo"]) if easy else pace
+        if easy:
+            return _easy_run_target_and_note(title)[0]
+        return _hr_for(inten, "run", title)
 
     def note(inten: str) -> str:
+        if "race" in (inten or "").lower():
+            pace = (coaching_contract.EVENT_PROFILE.get("pacing_targets") or {}).get("run_lap_1_min_per_km")
+            suffix = f"; lap 1 ceiling {pace}/km" if pace else "; lap 1 pace unknown"
+            return f"{_hr_note(inten, 'run', title)}{suffix}"
         try:
             r = zones.pace_range(inten, title)
         except Exception:  # noqa: BLE001
             r = None
         hr = _hr_note(inten, "run", title)
         if not r:
-            return hr
+            return _easy_run_target_and_note(title)[1] if (
+                inten in ("easy", "recovery") or zones.zone_for(inten, title) <= 2
+            ) else hr
         slow, fast = zones.fmt_pace(r[0]), zones.fmt_pace(r[1])
         if inten in ("easy", "recovery") or zones.zone_for(inten, title) <= 2:
             # A ceiling, not a range — do not run faster than this.
-            return f"CEILING {fast}/km — do not go faster" + (f" · {hr}" if hr else "")
+            return f"CEILING {fast}/km; do not go faster"
         return f"{fast}-{slow}/km" + (f" · {hr}" if hr else "")
 
     m = re.search(r"(\d+)\s*[x×]\s*(\d+)\s*(s|sec|min)", main)
@@ -399,7 +492,8 @@ def _zone_from_watts(lo: int, hi: int) -> int:
     return 5
 
 
-def _brick_bike_steps(main: str, intensity: str, order: int) -> tuple[list[dict[str, Any]], int]:
+def _brick_bike_steps(main: str, intensity: str, order: int,
+                      title: str = "", indoor: bool | None = None) -> tuple[list[dict[str, Any]], int]:
     """Bike leg of a brick, honoring the FULL stated ride duration.
 
     A brick ride is written as a total block with surges inside, e.g.
@@ -411,13 +505,28 @@ def _brick_bike_steps(main: str, intensity: str, order: int) -> tuple[list[dict[
     o = order
     steps: list[dict[str, Any]] = []
     total = _mins(main)                       # leading total ride minutes
-    watts = re.findall(r"(\d{2,4})\s*[–\-—]\s*(\d{2,4})\s*W", main or "")
+    indoor = _is_indoor(main, title) if indoor is None else indoor
+    # A stale watt prescription does not make a ride indoor. Only an explicit
+    # Peloton/trainer marker authorizes watt parsing for this athlete.
+    watts = (re.findall(
+        r"(\d{2,4})\s*[–\-—]\s*(\d{2,4})\s*(?:W|watts?)\b", main or "", re.I,
+    )
+             if indoor else [])
     base = (int(watts[0][0]), int(watts[0][1])) if watts else None
     surge = (int(watts[1][0]), int(watts[1][1])) if len(watts) > 1 else None
     base_z = _zone_from_watts(*base) if base else _hr_zone(intensity)
+    explicit_hr = interval_analysis.explicit_hr_range(main)
+    race_hr = _event_hr("bike") if "race" in f"{intensity} {main}".lower() else None
+    # The installed event profile is authoritative for race-specific work. This
+    # also prevents a stale explicit range in an older seeded row from winning.
+    base_hr = race_hr or explicit_hr
+
+    def base_target() -> dict[str, Any]:
+        return _hr_bpm_target(*base_hr) if base_hr else _hr_target(base_z)
 
     def base_desc():
-        return (f"Peloton {base[0]}-{base[1]} W · " if base else "") + f"HR zone {base_z} (race-sim base)"
+        hr = f"HR {base_hr[0]}-{base_hr[1]}" if base_hr else f"HR zone {base_z}"
+        return (f"Peloton {base[0]}-{base[1]} W · " if base else "") + f"{hr} (race-sim base)"
 
     iv = re.search(r"(\d+)\s*[x×]\s*(\d+)\s*min", main or "")
     if total and iv:
@@ -428,25 +537,29 @@ def _brick_bike_steps(main: str, intensity: str, order: int) -> tuple[list[dict[
         surge_block = reps * (dur + rec_min)
         remaining = max(0, total - surge_block)
         lead, tail = remaining // 2, remaining - remaining // 2
-        surge_desc = (f"Peloton {surge[0]}-{surge[1]} W · " if surge else "") + f"HR zone {surge_z} ({dur}-min surge)"
+        surge_hr = race_hr
+        surge_target = (_hr_bpm_target(*surge_hr) if surge_hr else _hr_target(surge_z))
+        surge_note = f"HR {surge_hr[0]}-{surge_hr[1]}" if surge_hr else f"HR zone {surge_z}"
+        surge_desc = ((f"Peloton {surge[0]}-{surge[1]} W · " if surge else "")
+                      + f"{surge_note} ({dur}-min surge)")
         if lead:
-            steps.append(_exec(o, "interval", "time", lead * 60, _hr_target(base_z), desc=base_desc())); o += 1
-        work = _exec(o + 1, "interval", "time", dur * 60, _hr_target(surge_z), desc=surge_desc)
-        recov = _exec(o + 2, "recovery", "time", rec_min * 60, _hr_target(base_z), desc="back to race-sim base")
+            steps.append(_exec(o, "interval", "time", lead * 60, base_target(), desc=base_desc())); o += 1
+        work = _exec(o + 1, "interval", "time", dur * 60, surge_target, desc=surge_desc)
+        recov = _exec(o + 2, "recovery", "time", rec_min * 60, base_target(), desc="back to race-sim base")
         steps.append(_repeat(o, reps, [work, recov])); o += 3
         if tail:
-            steps.append(_exec(o, "interval", "time", tail * 60, _hr_target(base_z), desc=base_desc())); o += 1
+            steps.append(_exec(o, "interval", "time", tail * 60, base_target(), desc=base_desc())); o += 1
         return steps, o
 
     if total:
-        steps.append(_exec(o, "interval", "time", total * 60, _hr_target(base_z), desc=base_desc())); o += 1
+        steps.append(_exec(o, "interval", "time", total * 60, base_target(), desc=base_desc())); o += 1
         return steps, o
 
-    return _bike_steps(main or "", intensity, o)   # fallback (no leading total)
+    return _bike_steps(main or "", intensity, o, title, indoor)   # fallback (no leading total)
 
 
 def _build_brick(sess: dict[str, Any], warm, main, cool, run_txt, intensity: str,
-                 name: str, desc: str, thr: float | None) -> dict[str, Any]:
+                 name: str, desc: str, thr: float | None, indoor: bool = False) -> dict[str, Any]:
     """A true brick: cycling segment (warmup + full ride + easy-spin cooldown)
     then a running segment (run off the bike), as one multisport workout so the
     watch records ONE activity with a bike leg + run leg and only transitions
@@ -455,7 +568,7 @@ def _build_brick(sess: dict[str, Any], warm, main, cool, run_txt, intensity: str
     bike_steps: list[dict[str, Any]] = []
     if warm and _mins(warm):
         bike_steps.append(_exec(o, "warmup", "time", _mins(warm) * 60, _no_target(), desc=warm[:120])); o += 1
-    body, o = _brick_bike_steps(main or "", intensity, o)
+    body, o = _brick_bike_steps(main or "", intensity, o, name, indoor)
     bike_steps.extend(body)
     if cool and _mins(cool):
         bike_steps.append(_exec(o, "cooldown", "time", _mins(cool) * 60, _no_target(), desc=cool[:120])); o += 1
@@ -466,12 +579,45 @@ def _build_brick(sess: dict[str, Any], warm, main, cool, run_txt, intensity: str
         parts = re.split(r";?\s*then\b", main or "", maxsplit=1)
         run_txt = parts[1] if len(parts) > 1 else ""
     rmin = _mins(run_txt) or 20
-    tg = _pace_for("race", thr) if thr else _hr_target(4)
-    if thr and tg["targetType"]["workoutTargetTypeKey"] == "pace.zone":
-        band = {1: (75, 95), 2: (55, 75), 3: (12, 28), 4: (-6, 8), 5: (-28, -10)}[4]
-        run_desc = f"brick run off the bike · target ~{_fmt_pace(thr+band[1])}–{_fmt_pace(thr+band[0])} /km"
+    leg_text = (run_txt or "").lower()
+    leg_easy = bool(re.search(r"\b(?:easy|recovery|aerobic|endurance|z1|z2)\b", leg_text))
+    leg_race = bool(re.search(r"\brace(?:[\s-]*(?:pace|specific|effort))?\b", leg_text))
+    leg_other = bool(re.search(r"\b(?:steady|tempo|threshold|vo2|anaerobic|sprint|z3|z4|z5)\b", leg_text))
+    leg_specific = leg_easy or leg_race or leg_other
+    day_race = "race" in (intensity or "").lower()
+    event_target_applies = leg_race or (day_race and not leg_specific)
+    run_intensity = (run_txt if leg_specific else intensity) or "easy"
+    explicit_run_hr = interval_analysis.explicit_hr_range(run_txt)
+    event_run_hr = _event_hr("run")
+    # The run leg is authoritative over the day's bike label. An explicit run
+    # prescription wins first, including when the bike work is race pace.
+    if explicit_run_hr:
+        tg = _hr_bpm_target(*explicit_run_hr)
+        run_desc = f"brick run off the bike · HR {explicit_run_hr[0]}-{explicit_run_hr[1]}"
+    elif leg_easy:
+        tg, easy_note = _easy_run_target_and_note(name)
+        if tg["targetType"]["workoutTargetTypeKey"] == "no.target" and thr:
+            pace = _pace_for("easy", thr)
+            tg = _pace_ceiling(pace["targetValueTwo"])
+            easy_note = f"CEILING {_fmt_pace(1000.0 / pace['targetValueTwo'])}/km; do not go faster"
+        run_desc = f"brick run off the bike · {easy_note}"
+    elif event_target_applies and event_run_hr:
+        tg = _hr_bpm_target(*event_run_hr)
+        run_desc = f"brick run off the bike · HR {event_run_hr[0]}-{event_run_hr[1]}"
+    elif zones.zone_for(run_intensity, name) <= 2:
+        tg, easy_note = _easy_run_target_and_note(name)
+        if tg["targetType"]["workoutTargetTypeKey"] == "no.target" and thr:
+            pace = _pace_for("easy", thr)
+            tg = _pace_ceiling(pace["targetValueTwo"])
+            easy_note = f"CEILING {_fmt_pace(1000.0 / pace['targetValueTwo'])}/km; do not go faster"
+        run_desc = f"brick run off the bike · {easy_note}"
+    elif thr:
+        target_intensity = "race" if event_target_applies else run_intensity
+        tg = _pace_for(target_intensity, thr)
+        run_desc = "brick run off the bike · training pace target"
     else:
-        run_desc = "brick run off the bike @ race effort"
+        tg = _hr_for(run_intensity, "run", name)
+        run_desc = "brick run off the bike · training target"
     run_steps = [_exec(o, "interval", "time", rmin * 60, tg, desc=run_desc)]
 
     return {
@@ -487,20 +633,37 @@ def _build_brick(sess: dict[str, Any], warm, main, cool, run_txt, intensity: str
 # --- top-level ----------------------------------------------------------------
 def build_workout(sess: dict[str, Any], date_str: str, thr_pace: float | None = None) -> dict[str, Any] | None:
     disc = (sess.get("discipline") or "").lower()
-    if disc == "rest" or sess.get("is_rest"):
+    if disc in {"rest", "race"} or sess.get("is_rest"):
         return None
     st = sess.get("structure") or {}
     warm, main, cool = st.get("warmup"), st.get("main"), st.get("cooldown")
     intensity = sess.get("intensity") or ""
     name = (sess.get("title") or "Workout").strip()[:40]
     run_leg = (st.get("run") if disc == "brick" else None)
+    bike_session = disc in {"bike", "recovery", "brick"}
+    session_indoor = _is_indoor(name, warm, main, cool) if bike_session else False
+    if bike_session and not session_indoor:
+        race_hr = _event_hr("bike") if "race" in f"{intensity} {main or ''}".lower() else None
+        # Only the work block can supply the work target. A warmup HR cue must
+        # never leak into a legacy watt-based main set.
+        explicit_hr = interval_analysis.explicit_hr_range(main)
+        fallback_note = _hr_note(intensity, "bike", name)
+        hr = race_hr or explicit_hr
+        replacement = (f"HR {hr[0]}-{hr[1]}" if hr else fallback_note or "HR target unknown")
+        # Warmups and cooldowns carry no encoded target, so do not manufacture
+        # the main-set HR in their descriptions when removing stale watts.
+        warm = _strip_watt_cue(warm)
+        main = _WATT_RANGE_RE.sub(replacement, main) if main else main
+        cool = _strip_watt_cue(cool)
     desc = f"Tri Coach · {intensity} · {sess.get('duration_min','')} min\n" + "\n".join(
         p for p in [f"Warmup: {warm}" if warm else None,
                     f"{'Bike' if disc == 'brick' else 'Main'}: {main}" if main else None,
                     f"Cooldown: {cool}" if cool else None,
                     f"Run off bike: {run_leg}" if run_leg else None] if p)
     if disc == "brick":
-        return _build_brick(sess, warm, main, cool, st.get("run"), intensity, name, desc, thr_pace)
+        return _build_brick(
+            sess, warm, main, cool, st.get("run"), intensity, name, desc, thr_pace, session_indoor,
+        )
     swim = disc == "swim"
     steps: list[dict[str, Any]] = []
     o = 1
@@ -513,11 +676,14 @@ def build_workout(sess: dict[str, Any], date_str: str, thr_pace: float | None = 
                 body = _swim_fallback(o, "warmup", warm, 300); o += len(body)
             steps.extend(body)
         elif _mins(warm):
-            steps.append(_exec(o, "warmup", "time", _mins(warm) * 60, _no_target(), desc=warm[:120])); o += 1
+            target, easy_note = (_easy_run_target_and_note(name) if disc == "run"
+                                 else (_no_target(), warm[:120]))
+            steps.append(_exec(o, "warmup", "time", _mins(warm) * 60, target,
+                               desc=easy_note if disc == "run" else warm[:120])); o += 1
 
     # Main
     if disc in ("bike", "recovery", "brick"):
-        body, o = _bike_steps(main or "", intensity, o, name); steps.extend(body)
+        body, o = _bike_steps(main or "", intensity, o, name, session_indoor); steps.extend(body)
         if disc == "brick":
             mrun = re.search(r"(\d+)\s*min[^.]*run", main or "")
             rmin = int(mrun.group(1)) if mrun else 20
@@ -542,7 +708,10 @@ def build_workout(sess: dict[str, Any], date_str: str, thr_pace: float | None = 
                 body = _swim_fallback(o, "cooldown", cool, 200); o += len(body)
             steps.extend(body)
         elif _mins(cool):
-            steps.append(_exec(o, "cooldown", "time", _mins(cool) * 60, _no_target(), desc=cool[:120])); o += 1
+            target, easy_note = (_easy_run_target_and_note(name) if disc == "run"
+                                 else (_no_target(), cool[:120]))
+            steps.append(_exec(o, "cooldown", "time", _mins(cool) * 60, target,
+                               desc=easy_note if disc == "run" else cool[:120])); o += 1
 
     sport = _sport(disc)
     segment: dict[str, Any] = {"segmentOrder": 1, "sportType": sport, "workoutSteps": steps}
@@ -557,7 +726,15 @@ def build_workout(sess: dict[str, Any], date_str: str, thr_pace: float | None = 
 
 
 def push(sess: dict[str, Any], date_str: str) -> dict[str, Any]:
-    thr = _threshold_pace_sec() if (sess.get("discipline") in ("run", "brick")) else None
+    discipline = (sess.get("discipline") or "").lower()
+    if discipline == "race":
+        return {
+            "error": (
+                "race-day multisport cannot be pushed as one cycling workout; "
+                "use the watch's triathlon activity profile"
+            )
+        }
+    thr = _threshold_pace_sec() if discipline in ("run", "brick") else None
     wo = build_workout(sess, date_str, thr_pace=thr)
     if wo is None:
         return {"error": "rest day — nothing to push"}

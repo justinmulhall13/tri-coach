@@ -18,26 +18,33 @@ from __future__ import annotations
 
 import datetime
 import json
+import math
 import re
 from typing import Any
 
-from . import athlete_guide, config, db, fueling_reference, garmin_source, suggest
+from . import (athlete_guide, coaching_contract, config, db, fueling_reference,
+               garmin_source, suggest)
 
 def weight_info() -> dict[str, Any]:
-    """Live weight from Garmin (auto-updates on each weigh-in), else the .env default."""
+    """Use the latest dated self-reported Garmin entry, else the 86 kg fallback."""
     w = garmin_source.get_weight_kg()
     if w and w.get("kg"):
         return w
     return {"kg": config.ATHLETE_WEIGHT_KG, "lb": round(config.ATHLETE_WEIGHT_KG * 2.2046, 1),
-            "as_of": None, "source": "default"}
+            "as_of": None, "source": "self-reported", "provider": None,
+            "fallback_reason": "Latest dated Garmin weight entry is unknown",
+            "conversion": f"{config.ATHLETE_WEIGHT_KG:g} kg x 2.2046 lb/kg = "
+                          f"{round(config.ATHLETE_WEIGHT_KG * 2.2046, 1):g} lb"}
 
 
 def weight_kg() -> float:
     return float(weight_info()["kg"])
 
 
-_SYSTEM = """You are Chef Gordo, a high-performance sports chef and fueling coach for ONE \
-endurance triathlete (bodyweight is in the context block) training for a T100 triathlon. You work hand-in-hand \
+_SYSTEM = coaching_contract.system_prompt() + """
+
+You are Chef Gordo, a high-performance sports chef and fueling coach for ONE \
+endurance athlete (bodyweight is in the context block) training for the installed event. You work hand-in-hand \
 with their training coach ("Coach Steve") — the context block carries Steve's training picture \
 (today's and the week's sessions, when they train, readiness, completed work) plus what they've \
 eaten today and their loose macro targets.
@@ -49,9 +56,10 @@ fat and non-training carbs, protect protein and the carbs around sessions, and s
 when a deficit would compromise a key session.
 
 Hard rules:
-- Be specific and practical. Give real foods with PORTIONS and rough macros (e.g. "220 g cooked \
-rice + 200 g ground beef ≈ 70 g carb / 45 g protein"). The athlete eats meat + rice/potato \
-staples readily and has no restrictions — suggest freely but keep it simple to cook.
+- Be specific and practical, but never estimate a food's portion, calories, or macros. Use a numeric \
+food value only when the context includes the athlete's measured recipe or exact serving label. \
+Otherwise name a simple food option, label its amount/macros unknown, and ask for the label or \
+measured recipe when the number affects the decision. The athlete eats meat + rice/potato staples.
 - TIME food around training. If they train early AM, pre-session should be small, carb-based and \
 easily digestible (banana, toast+honey, small oats); the big carb refuel comes AFTER. If they \
 train after work, keep lunch moderate and load carbs around the session. Two-a-days need fuel \
@@ -59,7 +67,8 @@ between sessions. Use the actual session times/notes in the context.
 - Respect the day's load: long/hard days = more carbs; rest/easy days = fewer carbs, hold protein.
 - Targets are LOOSE ranges — guide toward them, don't nag about exact numbers. If they're under \
 on carbs before a big session, say so plainly.
-- When they ask "can I eat X", answer YES/NO + how much fits the day, and what to pair it with.
+- When they ask "can I eat X", answer YES/NO and what to pair it with. State how much only from an \
+exact supplied label/recipe; otherwise say the fitting portion is unknown and ask.
 INTRA-SESSION FUELLING — HARD CONSTRAINTS (this athlete had GI failure from
 overfuelling glucose on 2026-08-03; treat gut tolerance as a limit, not a preference):
 - Glucose absorbs via SGLT1 and caps near 60 g/h. Fructose uses GLUT5, worth ~30 g/h more.
@@ -67,40 +76,44 @@ Usable total = min(glucose,60) + min(fructose,30). Never prescribe more than 60 
 regardless of the carb target. Above 60 g/h total the mix must be roughly 2:1 glucose:fructose.
 - Maltodextrin, rice maltodextrin, waxy maize, cyclic dextrin, dextrose and glucose syrup are
 ALL pure glucose — a product listing only these has ZERO fructose. Sucrose and maple syrup are
-50/50; honey is ~40% fructose. Their carb powder is 100% glucose: assume zero fructose from it.
+50/50. Honey composition is unknown without the exact product label. Their carb powder is 100%
+glucose: assume zero fructose from it.
 - Rate by duration: under 60 min none (water only); 60-150 min 30-60 g/h; over 150 min 70-90 g/h
 with the 2:1 split mandatory. ALWAYS state the glucose rate separately from the total.
-- The 1 L/h fluid and 800-900 mg sodium/L values in the deterministic day card are working
-estimates, not measured facts. For custom advice, use practiced thirst/intake, weather, body-mass
-change or sweat testing when available. Do not diagnose cramps as sodium deficiency, prescribe a
-universal sodium target, or encourage drinking beyond sweat losses. Without individualized data,
-report the sodium rate and uncertainty but do not label it low, adequate or high.
-- TABLE SALT and SODIUM are different units: 1000 mg table salt is about 393 mg sodium; 1/2 tsp
-table salt is about 1134 mg sodium. If the athlete's wording or label is ambiguous, ask before
-calculating. A concentrate flask chased with separate water must be evaluated with that water,
-not condemned from flask concentration alone.
-- Caffeine is label- and tolerance-dependent. Count every source in mg and mg/kg. Maurten Gel 100
-Caf 100 has 100 mg, not ~20 mg; a practiced pre-swim gel is not automatically prohibited.
-- Never introduce a new product, mix or rate on race day. Front-load carbohydrate on the bike when
-practical, but the 18 km run after an 80 km bike still needs a deliberate practiced fueling plan.
+- The self-reported sweat rate is roughly 1 L/h. Use 800-900 mg sodium per litre, label both inputs
+self-reported, and do not add magnesium. Do not diagnose cramps as sodium deficiency.
+- TABLE SALT and SODIUM are different units. Use the supplied factors exactly: table salt x 0.39
+= sodium by mass; 1 tsp table salt = about 6 g salt = about 2,360 mg sodium. If wording is
+ambiguous, ask before calculating. Evaluate a concentrate with the water taken alongside it.
+- The athlete's gels are 23 g carbohydrate and 20 mg caffeine each. Count every source in mg and
+mg/kg using the latest dated self-reported Garmin weight entry, or the explicitly labelled 86 kg fallback.
+- Never introduce a new product, mix, exercise, or rate on race day. For an event with a bike leg,
+put carbohydrate fuel on the bike rather than the run.
 - For every fueling audit, resolve training versus race and the exact leg/duration first. Inventory
 each bottle, flask, gel and aid-station serving separately; preserve user-supplied label values;
 then SHOW totals and rates (carb g/h, sodium mg/h, fluid mL/h, caffeine mg and mg/kg). If a missing
 serving size or "salt versus sodium" ambiguity can flip the verdict, ask one focused question.
-- Use `vancouver_athlete_guide` for aid locations/products and `fueling_reference` for arithmetic.
-Never invent the cup/bottle volume or exact product variant when the guide does not state it.
+- Use the active profile's injected athlete-guide context, when present, for aid locations/products;
+use `fueling_reference` for arithmetic. Never import Vancouver details into another profile or invent
+the cup/bottle volume or exact product variant when the active guide does not state it.
 - Aid stations are opportunities, not automatic doses. Calculate the units needed over the leg,
 then place only that many; the station schedule must reconcile with the displayed totals/rates.
 - The athlete's newest correction replaces the prior assumption. Recalculate from the original
 quantities and scope; do not repeat or defend the discarded answer.
-- OUTPUT FORMAT — never a wall of text. Lead with a one-line "TL;DR:" then 2–5 short \
-"• Label — one line" bullets (labels like Now, Pre, Post, Portion, Macros, Timing, Verdict). \
+- OUTPUT FORMAT: never a wall of text. Lead with a one-line "TL;DR:" then 2–5 short \
+"• Label: one line" bullets (labels like Now, Pre, Post, Portion, Macros, Timing, Verdict). \
 Fueling audits may use up to 8 concise bullets so every equation remains checkable. \
-Plain text only: no markdown bold/asterisks, no emoji, no filler."""
+Plain text only: no markdown bold/asterisks, no emoji, no filler, no em dashes."""
+
+_SYSTEM = _SYSTEM.replace(" — ", ": ").replace("—", "-")
 
 
 _TRANSIENT = ("RemoteProtocolError", "APIConnectionError", "ConnectionError",
               "ReadTimeout", "APITimeoutError", "InternalServerError", "OverloadedError")
+
+
+def _sanitize_visible_reply(text: str) -> str:
+    return (text or "").replace(" — ", ": ").replace("—", "-")
 
 
 def _reply(messages: list[dict[str, Any]], max_tokens: int = 1200, system: str = _SYSTEM) -> Any:
@@ -122,19 +135,45 @@ def _reply(messages: list[dict[str, Any]], max_tokens: int = 1200, system: str =
 
 # --- Fueling math -------------------------------------------------------------
 def _today_session() -> dict[str, Any]:
-    """Today's session as {discipline, duration_min, intensity, title, is_rest}."""
+    """Today's session, including a derived bike duration for stored bricks."""
+    def normalized(row: dict[str, Any]) -> dict[str, Any]:
+        structure = row.get("structure") or {}
+        out = {
+            "discipline": row.get("discipline"), "duration_min": row.get("duration_min"),
+            "intensity": row.get("intensity"), "title": row.get("title"),
+            "is_rest": bool(row.get("is_rest") or (row.get("discipline") == "rest")),
+            "structure": structure,
+            # A stored plan is a coaching prescription, not an observation or
+            # an athlete-entered measurement. An API caller can override this
+            # only by supplying an explicit provenance label with its duration.
+            "duration_source": row.get("duration_source") or "assumed coaching prescription",
+        }
+        if (row.get("discipline") or "").lower() == "brick":
+            run_text = str(structure.get("run") or "")
+            match = re.search(r"(\d+(?:\.\d+)?)\s*(?:min|minute)", run_text, re.I)
+            total = row.get("duration_min")
+            if match and isinstance(total, (int, float)):
+                run_min = float(match.group(1))
+                if 0 < run_min < float(total):
+                    bike_min = round(float(total) - run_min, 2)
+                    out["bike_duration_min"] = int(bike_min) if bike_min.is_integer() else bike_min
+                    out["bike_duration_source"] = (
+                        f"derived from {out['duration_source']}"
+                    )
+                    out["bike_duration_arithmetic"] = (
+                        f"{float(total):g} min total - {run_min:g} min run = {bike_min:g} min bike"
+                    )
+        return out
+
     try:
         s = suggest.todays_suggestion()
         w = (s.get("suggestion") or {}) if isinstance(s, dict) else {}
         if w:
-            return {"discipline": w.get("discipline"), "duration_min": w.get("duration_min"),
-                    "intensity": w.get("intensity"), "title": w.get("title"),
-                    "is_rest": bool(w.get("is_rest") or (w.get("discipline") == "rest"))}
+            return normalized(w)
     except Exception:
         pass
     d = db.get_plan_day(config.local_today().isoformat()) or {}
-    return {"discipline": d.get("discipline"), "duration_min": d.get("duration_min"),
-            "intensity": d.get("intensity"), "title": d.get("title"), "is_rest": bool(d.get("is_rest"))}
+    return normalized(d)
 
 
 def _is_hard(intensity: str, title: str = "") -> bool:
@@ -202,6 +241,8 @@ def daily_targets(session: dict[str, Any], completed_min: float = 0.0) -> dict[s
         "carb_per_kg": cpk, "protein_per_kg": 1.8,
         "goal": goal,
         "basis": basis + ("" if goal == "maintain" else f" · {goal}"),
+        "provenance": ("assumed coaching targets derived from self-reported body mass and "
+                       "training classification; not measured intake requirements"),
     }
 
 
@@ -210,13 +251,13 @@ def daily_targets(session: dict[str, Any], completed_min: float = 0.0) -> dict[s
 # roughly another 30 g/h. Anything beyond those caps stays in the gut, pulls water
 # in osmotically and causes urgency and cramping. This athlete has a documented GI
 # failure from overfuelling glucose (2026-08-03), so these are hard limits.
-GLUCOSE_CEILING_G_H = 60
-FRUCTOSE_CEILING_G_H = 30
+GLUCOSE_CEILING_G_H = int(fueling_reference.GLUCOSE_CEILING_G_PER_H)
+FRUCTOSE_CEILING_G_H = int(fueling_reference.FRUCTOSE_CEILING_G_PER_H)
 MAX_CARB_G_H = GLUCOSE_CEILING_G_H + FRUCTOSE_CEILING_G_H     # 90
-DRINK_CONC_MIN, DRINK_CONC_MAX = 0.06, 0.08   # 6-8% carb by mass
-SWEAT_L_H = 1.0                                # working default; not a measured sweat rate
-SODIUM_MG_PER_L = (800, 900)                   # working band; personalize when measured
-TSP_SALT_MG_SODIUM = 2267.0    # 1 tsp table salt ~ 2267 mg sodium (3/8 tsp ~ 850)
+DRINK_CONC_MIN, DRINK_CONC_MAX = fueling_reference.DRINK_CARB_MASS_FRACTION
+SWEAT_L_H = float(coaching_contract.ATHLETE_CONSTANTS["sweat_profile"]["sweat_rate_l_per_h"])
+SODIUM_MG_PER_L = fueling_reference.SODIUM_MG_PER_L
+TSP_SALT_MG_SODIUM = float(fueling_reference.TABLE_SALT_SODIUM_MG_PER_TSP)
 
 
 def _salt_tsp(mg: float) -> str:
@@ -232,14 +273,94 @@ def _salt_tsp(mg: float) -> str:
 def fueling_plan(session: dict[str, Any]) -> dict[str, Any]:
     """Intra-session fuelling built from the transport ceilings, with the
     arithmetic exposed so it can be checked."""
-    dur = session.get("duration_min") or 0
+    raw_duration = session.get("duration_min")
+    try:
+        dur = float(raw_duration) if not isinstance(raw_duration, bool) else None
+    except (TypeError, ValueError):
+        dur = None
+    if dur is not None and (not math.isfinite(dur) or dur <= 0):
+        dur = None
     disc = (session.get("discipline") or "").lower()
-    hours = dur / 60.0
 
     if session.get("is_rest") or disc == "rest":
         return {"needed": False, "note": "Rest day. No intra-session fuelling."}
+    if disc in {"race", "triathlon"} and config.event_has_leg("bike"):
+        return {
+            "needed": True,
+            "requires_input": True,
+            "note": ("Race bike-leg duration is unknown. Ask Coach with the expected bike duration "
+                     "and confirmed carried bottle volumes before calculating totals; do not apply "
+                     "the whole-race duration to a bike-only carbohydrate plan."),
+            "known_inputs": {
+                "event_duration_min": ((coaching_contract.EVENT_PROFILE.get("goal") or {})
+                                       .get("modelled_duration_min")),
+                "event_duration_source": "self-reported",
+                "bike_duration_min": None,
+                "bike_duration_source": "unknown",
+            },
+        }
+    if disc == "brick":
+        if session.get("duration_scope") == "bike_leg":
+            bike_dur = dur
+            bike_source = session.get("duration_source") or "assumed coaching prescription"
+            bike_arithmetic = None
+        else:
+            bike_dur = session.get("bike_duration_min")
+            bike_source = session.get("bike_duration_source") or "unknown"
+            bike_arithmetic = session.get("bike_duration_arithmetic")
+            if not isinstance(bike_dur, (int, float)):
+                run_text = str((session.get("structure") or {}).get("run") or "")
+                match = re.search(r"(\d+(?:\.\d+)?)\s*(?:min|minute)", run_text, re.I)
+                if match and isinstance(dur, (int, float)):
+                    run_min = float(match.group(1))
+                    if 0 < run_min < float(dur):
+                        bike_dur = round(float(dur) - run_min, 2)
+                        total_source = (
+                            session.get("duration_source") or "assumed coaching prescription"
+                        )
+                        bike_source = f"derived from {total_source}"
+                        bike_arithmetic = (
+                            f"{float(dur):g} min total - {run_min:g} min run = "
+                            f"{float(bike_dur):g} min bike"
+                        )
+        if (not isinstance(bike_dur, (int, float))
+                or not math.isfinite(float(bike_dur)) or bike_dur <= 0):
+            return {
+                "needed": True,
+                "requires_input": True,
+                "note": ("Brick bike-leg duration is unknown. Give the bike duration separately; "
+                         "the total brick duration cannot be used because carbohydrate belongs on "
+                         "the bike, not the run."),
+                "known_inputs": {
+                    "total_brick_duration_min": dur or None,
+                    "total_brick_duration_source": (
+                        session.get("duration_source") or "assumed coaching prescription"
+                    ) if dur else "unknown",
+                    "bike_duration_min": None,
+                    "bike_duration_source": "unknown",
+                },
+            }
+        dur = bike_dur
+    else:
+        bike_source = None
+        bike_arithmetic = None
+
+    if not isinstance(dur, (int, float)) or not math.isfinite(float(dur)) or dur <= 0:
+        return {
+            "needed": True,
+            "requires_input": True,
+            "note": "Session duration is unknown. Give the duration in minutes before calculating fuel.",
+            "known_inputs": {"duration_min": None, "duration_source": "unknown"},
+        }
+
+    hours = dur / 60.0
     if dur < 60:
-        return {"needed": False,
+        duration_source = (
+            bike_source if disc == "brick"
+            else session.get("duration_source") or "assumed coaching prescription"
+        )
+        return {"needed": False, "duration_min": dur,
+                "duration_source": duration_source,
                 "note": "Under 60 min: water only, no carbohydrate needed. "
                         "Start topped up rather than fuelling during."}
 
@@ -253,7 +374,10 @@ def fueling_plan(session: dict[str, Any]) -> dict[str, Any]:
         band = "Over 150 min: 70-90 g/h, and the 2:1 glucose:fructose split is mandatory."
         ratio_required = True
 
-    target = min(hi, MAX_CARB_G_H)
+    # A practical 75 g/h lands exactly at 2:1 using 25 g glucose powder plus
+    # 50 g granulated sugar (25 g glucose + 25 g fructose). It stays inside the
+    # requested 70-90 g/h band.
+    target = 75 if ratio_required else min(hi, MAX_CARB_G_H)
 
     # Split. Above 60 g/h total, glucose alone cannot carry it — 2:1 keeps both
     # transporters under their ceiling (at 90 g/h that is exactly 60 + 30).
@@ -266,17 +390,46 @@ def fueling_plan(session: dict[str, Any]) -> dict[str, Any]:
     fructose = min(fructose, FRUCTOSE_CEILING_G_H)
     total = glucose + fructose
 
-    # Drink concentration. Carb in the bottle is limited to 6-8% by mass; the rest
-    # has to come from gels/solids taken with plain water.
+    # Mass and volume remain separate. The carbohydrate drink is deliberately
+    # prescribed to a scale-verified finished mass of 1,000 g, which makes the
+    # 60 or 75 g carbohydrate concentration exactly checkable by mass. Its volume
+    # is unknown until measured. Plain water then brings total measured fluid to
+    # the self-reported 1 L/h target; no 1 g/mL density assumption is allowed.
     fluid_ml = int(SWEAT_L_H * 1000)
-    max_in_drink = int(fluid_ml * DRINK_CONC_MAX)      # 80 g in 1 L at 8%
-    in_drink = min(total, max_in_drink)
-    out_of_drink = total - in_drink
-    conc_pct = round(in_drink / fluid_ml * 100, 1)
+    finished_drink_mass_g = 1000
+    in_drink = total
+    out_of_drink = 0
+    conc_pct = round(in_drink / finished_drink_mass_g * 100, 1)
+
+    raw_drink_volume = session.get("finished_drink_volume_ml")
+    try:
+        carb_drink_volume_ml = (round(float(raw_drink_volume))
+                                if raw_drink_volume is not None else None)
+    except (TypeError, ValueError):
+        carb_drink_volume_ml = None
+    volume_valid = bool(carb_drink_volume_ml and 0 < carb_drink_volume_ml <= fluid_ml)
+    plain_water_ml = fluid_ml - carb_drink_volume_ml if volume_valid else None
+    requires_volume = not volume_valid
+    if carb_drink_volume_ml and carb_drink_volume_ml > fluid_ml:
+        volume_note = (
+            f"Measured carbohydrate-drink volume {carb_drink_volume_ml} ml exceeds the "
+            f"{fluid_ml} ml/h fluid target. The exact fluid plan is unresolved; ask Coach "
+            "before using it."
+        )
+    else:
+        volume_note = (
+            "Finished carbohydrate-drink volume is unknown. Weigh the finished drink to "
+            f"exactly {finished_drink_mass_g} g, then measure its volume in ml and tell Coach. "
+            f"The separate plain-water amount needed to reach {fluid_ml} ml/h cannot be "
+            "calculated until then."
+        )
 
     na_lo, na_hi = SODIUM_MG_PER_L
     na_lo, na_hi = int(na_lo * SWEAT_L_H), int(na_hi * SWEAT_L_H)
-    na_mid = (na_lo + na_hi) // 2
+    # 3/8 tsp is a real kitchen measure inside the target band:
+    # 0.375 tsp x 2,360 mg sodium/tsp = 885 mg sodium.
+    salt_tsp = 3 / 8
+    sodium_from_recipe = fueling_reference.sodium_from_salt_tsp(salt_tsp)
 
     # Sucrose is the practical fructose source (50/50 glucose/fructose): each gram
     # of sucrose supplies 0.5 g fructose, so cover the fructose need with 2x sucrose,
@@ -284,17 +437,23 @@ def fueling_plan(session: dict[str, Any]) -> dict[str, Any]:
     sucrose_g = round(fructose * 2)
     glucose_from_sucrose = sucrose_g / 2
     powder_g = max(0, round(glucose - glucose_from_sucrose))
-    # Only the in-bottle share goes in the drink; the rest is gels with plain water.
-    share = (in_drink / total) if total else 0
-    drink_powder = round(powder_g * share)
-    drink_sucrose = round(sucrose_g * share)
+    drink_powder = powder_g
+    drink_sucrose = sucrose_g
 
-    caff_lo, caff_hi = round(3 * weight_kg()), round(6 * weight_kg())
     is_swim = disc in ("swim", "pool_swim", "open_water_swim")
+    sugar_tbsp = round(sucrose_g / fueling_reference.SUGAR_CARB_G_PER_TBSP, 2)
 
     plan = {
         "needed": True,
+        "requires_input": requires_volume,
+        "note": volume_note if requires_volume else None,
         "duration_min": dur, "hours": round(hours, 2), "discipline": disc,
+        "duration_scope": "bike_leg" if disc == "brick" else "session",
+        "duration_source": (
+            bike_source if disc == "brick"
+            else session.get("duration_source") or "assumed coaching prescription"
+        ),
+        "duration_arithmetic": bike_arithmetic,
         "band": band,
         "carb_g_per_hr": total,
         "glucose_g_per_hr": glucose,
@@ -304,42 +463,61 @@ def fueling_plan(session: dict[str, Any]) -> dict[str, Any]:
         "ratio": f"{round(glucose / fructose, 1)}:1" if fructose else "glucose only",
         "fluid_ml_per_hr": [fluid_ml, fluid_ml],
         "sodium_mg_per_hr": [na_lo, na_hi],
-        "salt_per_hr": _salt_tsp(na_mid),
+        "salt_per_hr": _salt_tsp(sodium_from_recipe),
+        "recipe_sodium_mg_per_hr": sodium_from_recipe,
         "drink_carb_g": in_drink, "drink_conc_pct": conc_pct,
+        "finished_drink_mass_g": finished_drink_mass_g,
+        "finished_drink_mass_source": "assumed coaching prescription; requires scale verification",
+        "finished_drink_volume_ml": carb_drink_volume_ml,
+        "finished_drink_volume_source": (
+            session.get("finished_drink_volume_source") or "self-reported"
+            if carb_drink_volume_ml is not None else "unknown"
+        ),
+        "plain_water_ml_per_hr": plain_water_ml,
         "carb_outside_drink_g": out_of_drink,
-        "total_carb_g": [round(total * hours * 0.9), round(total * hours)],
+        "total_carb_g": [round(total * hours), round(total * hours)],
         "total_fluid_ml": [int(fluid_ml * hours), int(fluid_ml * hours)],
         "total_sodium_mg": [int(na_lo * hours), int(na_hi * hours)],
         "recipe": (
-            (f"Poolside per hour: {powder_g} g glucose powder + {sucrose_g} g table sugar "
-             f"({_salt_tsp(na_mid)} salt) in ~600 ml, sipped between sets. "
-             "Swimming does not allow a bottle on the move, and sweat loss is lower in water.")
-            if is_swim else
-            (f"Bottle per hour: {drink_powder} g glucose powder + {drink_sucrose} g table sugar "
-             f"+ {_salt_tsp(na_mid)} salt in {fluid_ml} ml water ({conc_pct}%)"
-             + (f". Remaining {out_of_drink} g as gels, each with plain water."
-                if out_of_drink else "."))),
+            f"{'Poolside per hour' if is_swim else 'Per hour'}: {drink_powder} g glucose "
+            f"powder + {drink_sucrose} g table sugar "
+            f"({round(drink_sucrose / fueling_reference.SUGAR_CARB_G_PER_TBSP, 2):g} tbsp) + "
+            f"{_salt_tsp(sodium_from_recipe)} table salt. Add water until the finished "
+            f"carbohydrate drink weighs exactly {finished_drink_mass_g} g on a scale "
+            f"({conc_pct}% carbohydrate by mass). "
+            + (f"Its measured volume is {carb_drink_volume_ml} ml; take {plain_water_ml} ml "
+               f"separate plain water so combined measured fluid is {fluid_ml} ml/h."
+               if volume_valid else volume_note)
+        ),
         "arithmetic": [
-            f"Total carb: {total} g/h",
-            f"Glucose: {glucose} g/h (ceiling {GLUCOSE_CEILING_G_H})",
-            f"Fructose: {fructose} g/h (ceiling {FRUCTOSE_CEILING_G_H})",
-            f"Sodium: {na_lo}-{na_hi} mg/h = {_salt_tsp(na_mid)} table salt",
-            f"Fluid: {fluid_ml} ml/h",
-            f"Drink concentration: {in_drink} g in {fluid_ml} ml = {conc_pct}% "
-            f"(limit {int(DRINK_CONC_MAX*100)}%)",
+            f"Usable total: min({glucose}, 60) + min({fructose}, 30) = {total} g/h",
+            f"Glucose: {glucose} g/h; ceiling factor = {GLUCOSE_CEILING_G_H} g/h",
+            f"Fructose: {fructose} g/h; ceiling factor = {FRUCTOSE_CEILING_G_H} g/h",
+            f"Sugar: {sucrose_g} g / {fueling_reference.SUGAR_CARB_G_PER_TBSP:g} g/tbsp = {sugar_tbsp:g} tbsp/h",
+            f"Sodium: {salt_tsp:g} tsp x {int(TSP_SALT_MG_SODIUM):,} mg/tsp = {sodium_from_recipe} mg; {sodium_from_recipe} mg / 1 L combined fluid = {sodium_from_recipe} mg/L",
+            f"Fluid target: {SWEAT_L_H:g} L/h x 1,000 ml/L = {fluid_ml} ml/h",
+            f"Drink concentration: {in_drink} g / {finished_drink_mass_g} g x 100 = {conc_pct}% by mass",
+            (f"Plain water: {fluid_ml} ml/h - {carb_drink_volume_ml} ml/h = {plain_water_ml} ml/h"
+             if volume_valid else
+             f"Plain water: {fluid_ml} ml/h - unknown carbohydrate-drink volume = unknown"),
         ],
-        "caffeine": ("No caffeine before swimming."
-                     if is_swim else
-                     f"{caff_lo}-{caff_hi} mg (3-6 mg/kg) from coffee, not gels "
-                     f"(gels are ~20 mg). ~5 h half-life, so time it off the session start."),
-        "abort": ("If GI distress hits: stop carb intake immediately, keep sipping plain water "
-                  "with salt only, drop intensity until symptoms settle, then restart at half "
-                  "the carb rate with sugar-based fuel rather than powder. Do not push through it."),
-        "assumptions": [
-            "Carb powder is 100% glucose (maltodextrin/dextrose/cyclic dextrin are all glucose) — zero fructose assumed.",
-            "Table sugar is 50/50 glucose/fructose; it is the fructose source here.",
-            "Sweat rate is provisionally 1 L/h with 800-900 mg sodium/L; neither value is measured.",
-            "No magnesium added: the carb powder already contains it and magnesium at dose is a laxative.",
+        "caffeine": ("No caffeine amount prescribed without the athlete's requested dose and tolerance. "
+                     f"Fixed gel factor: {fueling_reference.GEL_CAFFEINE_MG:g} mg per gel."),
+        "abort": ("If GI distress hits: stop carbohydrate intake, reduce intensity, and use only "
+                  "a previously tested hydration source as tolerated. Restart at half the prior "
+                  "carbohydrate rate only with a previously tested source; otherwise remain stopped. "
+                  "Do not introduce a different substrate during the session."),
+        "input_provenance": [
+            "Carb powder composition: self-reported as 100% glucose and zero fructose.",
+            "Table sugar composition: self-reported as 50/50 glucose/fructose.",
+            "Sweat rate: self-reported at roughly 1 L/h; it is not a measured sweat test.",
+            "Sodium target: self-reported at 800-900 mg/L.",
+            f"Finished carbohydrate-drink mass: prescribed at {finished_drink_mass_g} g and must be scale-verified.",
+            (f"Finished carbohydrate-drink volume: {session.get('finished_drink_volume_source') or 'self-reported'} at {carb_drink_volume_ml} ml."
+             if carb_drink_volume_ml is not None else
+             "Finished carbohydrate-drink volume: unknown; measure before calculating plain water."),
+            "No density is assumed and no mass-to-volume conversion is made.",
+            "No magnesium added; stacking it is a live GI risk.",
         ],
         "verify_labels": [
             "Check the carb powder label for any added fructose or sucrose before assuming zero.",
@@ -347,17 +525,22 @@ def fueling_plan(session: dict[str, Any]) -> dict[str, Any]:
             "Nothing new on race day — only use mixes already tested in training.",
         ],
     }
-    if disc in ("bike", "brick"):
-        plan["placement"] = ("Front-load carbohydrate on the bike, then continue a practiced run plan. "
-                             "The run rate may be lower for tolerance, but it is not zero by default.")
+    if config.event_has_leg("bike") and disc in ("bike", "brick", "race", "triathlon"):
+        plan["placement"] = "Put carbohydrate fuel on the bike, not the run."
+    elif disc in ("race", "triathlon"):
+        plan["placement"] = (
+            "The active event has no bike leg. Front-load carbohydrate early and expect "
+            "the final third to be tolerance-limited."
+        )
     elif disc == "run" and hours > 2.5:
         plan["placement"] = "Long run: carry the rate at the low end. The run is where GI failure shows up."
     return plan
 
 
-def _logged_totals(rows: list[dict[str, Any]]) -> dict[str, int]:
+def _logged_totals(rows: list[dict[str, Any]]) -> dict[str, float | int]:
     def s(k):
-        return int(sum(r.get(k) or 0 for r in rows))
+        total = round(sum(float(r.get(k) or 0) for r in rows), 2)
+        return int(total) if total.is_integer() else total
     return {"kcal": s("kcal"), "protein_g": s("protein_g"), "carb_g": s("carb_g"), "fat_g": s("fat_g")}
 
 
@@ -400,7 +583,11 @@ def log_completed_fueling() -> dict[str, Any]:
     today = config.local_today().isoformat()
     session = _today_session()
     plan = fueling_plan(session)
-    if not plan.get("needed"):
+    # The volume measurement blocks only the fluid split. Carbohydrate rate and
+    # duration are still exact and may be logged after the athlete confirms
+    # taking them. Race plans with an unknown leg duration have no total and
+    # remain blocked.
+    if not plan.get("needed") or not plan.get("total_carb_g"):
         return {"ok": True, "added": False, "note": plan.get("note", "No fuel was prescribed."),
                 "day": get_day()}
 
@@ -438,7 +625,20 @@ def _context_block(user_request: str = "") -> str:
     payload = {
         "now_local": today.strftime("%A %H:%M %Z"),
         "race": config.race_phase(),
+        "coaching_contract": {
+            "current_mode": coaching_contract.current_mode(),
+            "athlete_constants": coaching_contract.athlete_context(),
+            "event_profile": coaching_contract.event_context(),
+        },
         "athlete_weight_kg": day["weight"]["kg"],
+        "athlete_weight": day["weight"],
+        "input_provenance": {
+            "Garmin weight": "self-reported via Garmin when a dated entry is present",
+            "Garmin recovery": "measured when dated and present",
+            "athlete constants and event profile": "self-reported",
+            "finished drink mass and volume": "unknown until separately measured",
+            "daily macro targets": "assumed coaching prescription, explicitly labelled in targets.provenance",
+        },
         "prefs": config.NUTRITION_PREFS,
         "today_session": day["session"],
         "intra_workout_fueling": day["fueling"],
@@ -451,7 +651,9 @@ def _context_block(user_request: str = "") -> str:
         "plan_this_week": [{"date": d["date"], "discipline": d["discipline"], "title": d["title"],
                             "duration_min": d["duration_min"]} for d in plan_week],
     }
-    guide = athlete_guide.context_for(user_request)
+    guide = (athlete_guide.context_for(user_request)
+             if coaching_contract.EVENT_PROFILE.get("athlete_guide_key") == "vancouver-2026"
+             else None)
     if guide:
         payload["vancouver_athlete_guide"] = guide
     if fueling_reference.is_fueling_query(user_request):
@@ -474,18 +676,19 @@ def suggest_meal(user_request: str = "") -> dict[str, Any]:
     ctx = _context_block(user_request)
     if user_request.strip():
         ask = (f"The athlete asks: \"{user_request.strip()}\"\n\nAnswer it using the context — if it's "
-               "a 'can I eat X' question, give a verdict + how much fits today and what to pair it with. "
+               "a 'can I eat X' question, give a verdict and what to pair it with. Give an amount only "
+               "from an exact supplied label or recipe; otherwise ask for it. "
                "If they're asking what to eat, suggest the right next meal for where they are in the day "
                "and their training.")
     else:
         ask = ("Suggest what to eat NEXT given the time of day, what's left to hit targets, and today's "
-               "training (before/after). Give 1–2 concrete meal options with portions and rough macros, "
-               "and say when to eat relative to the session.")
+               "training (before/after). Give 1–2 concrete meal options and timing. Do not estimate "
+               "portions or macros; request an exact label or measured recipe where needed.")
     try:
         msg = _reply([{"role": "user", "content": f"<context>\n{ctx}\n</context>\n\n{ask}"}])
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
-    reply = "".join(b.text for b in msg.content if b.type == "text").strip()
+    reply = _sanitize_visible_reply("".join(b.text for b in msg.content if b.type == "text").strip())
     return {"reply": reply, "model": msg.model}
 
 
@@ -493,88 +696,95 @@ _JSON_RE = re.compile(r"\[.*\]", re.DOTALL)
 
 
 def log_food(text: str) -> dict[str, Any]:
-    """Parse a free-text food log into structured entries, store them, return the day."""
+    """Log one meal only when every macro was explicitly self-reported.
+
+    Typical-food and photo estimates look precise but are not checkable inputs.
+    Missing values therefore stay unknown and the athlete gets one concrete
+    question instead of a fabricated entry that would corrupt the day's totals.
+    """
     if not text.strip():
         return {"error": "nothing to log"}
-    if not _ok_key():
-        return {"error": "ANTHROPIC_API_KEY is not set"}
-    parse_system = ("You convert a free-text food log into JSON. Output ONLY a JSON array, no prose. "
-                    "Each item: {\"description\": str, \"eaten_at\": str (e.g. \"07:30\" or \"post-ride\" "
-                    "or \"\"), \"meal\": one of breakfast|lunch|dinner|snack|pre|during|post, "
-                    "\"kcal\": int, \"protein_g\": int, \"carb_g\": int, \"fat_g\": int}. "
-                    "Estimate macros from typical portions when amounts are vague. If multiple foods, "
-                    f"split into separate items. Be realistic for a ~{weight_kg():.0f} kg athlete.")
-    try:
-        msg = _reply([{"role": "user", "content": f"Log this: {text.strip()}"}],
-                     max_tokens=900, system=parse_system)
-    except Exception as e:
-        return {"error": f"{type(e).__name__}: {e}"}
-    raw = "".join(b.text for b in msg.content if b.type == "text")
-    m = _JSON_RE.search(raw)
-    if not m:
-        return {"error": "could not parse the food", "raw": raw[:300]}
-    try:
-        items = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return {"error": "could not parse the food", "raw": raw[:300]}
+    raw = text.strip()
+    values = {
+        "kcal": _explicit_nutrition_value(raw, ("kcal", "calorie", "calories"), unit=""),
+        "protein_g": _explicit_nutrition_value(raw, ("protein", "p")),
+        "carb_g": _explicit_nutrition_value(raw, ("carb", "carbs", "carbohydrate", "c")),
+        "fat_g": _explicit_nutrition_value(raw, ("fat", "f")),
+    }
+    missing = [name for name, value in values.items() if value is None]
+    if missing:
+        labels = {"kcal": "calories", "protein_g": "protein grams",
+                  "carb_g": "carbohydrate grams", "fat_g": "fat grams"}
+        return {
+            "ok": False,
+            "requires_input": True,
+            "added": 0,
+            "unknown_fields": missing,
+            "question": ("Macros are unknown and nothing was logged. Give the exact "
+                         + ", ".join(labels[field] for field in missing)
+                         + " from the serving label or your measured recipe."),
+            "input_provenance": {"description": "self-reported", "macros": "unknown"},
+        }
 
-    today = config.local_today().isoformat()
-    stored = []
-    for it in items if isinstance(items, list) else []:
-        if not isinstance(it, dict) or not it.get("description"):
-            continue
-        eid = db.add_nutrition(
-            today, str(it["description"])[:200], eaten_at=str(it.get("eaten_at") or "")[:40],
-            meal=str(it.get("meal") or "")[:20],
-            kcal=_int(it.get("kcal")), protein_g=_int(it.get("protein_g")),
-            carb_g=_int(it.get("carb_g")), fat_g=_int(it.get("fat_g")))
-        stored.append(eid)
-    if not stored:
-        return {"error": "nothing recognized to log", "raw": raw[:300]}
-    return {"ok": True, "added": len(stored), "day": get_day()}
+    lowered = raw.lower()
+    meal = next((name for name in ("breakfast", "lunch", "dinner", "snack", "pre", "during", "post")
+                 if re.search(rf"\b{re.escape(name)}\b", lowered)), "")
+    time_match = re.search(r"\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:1[0-2]|[1-9])(?::[0-5]\d)?\s*(?:am|pm)\b",
+                           lowered)
+    eid = db.add_nutrition(
+        config.local_today().isoformat(), raw[:200],
+        eaten_at=(time_match.group(0) if time_match else ""), meal=meal,
+        kcal=values["kcal"], protein_g=values["protein_g"],
+        carb_g=values["carb_g"], fat_g=values["fat_g"],
+    )
+    return {
+        "ok": True,
+        "added": 1,
+        "entry_id": eid,
+        "input_provenance": {"description": "self-reported",
+                             "macros": "self-reported exact values"},
+        "day": get_day(),
+    }
 
 
 def log_photo(image_b64: str, media_type: str = "image/jpeg") -> dict[str, Any]:
-    """Log a meal from a photo — the model reads the plate and estimates macros."""
+    """Refuse uncheckable macro estimation from a meal photo."""
     if not image_b64:
         return {"error": "no image"}
-    if not _ok_key():
-        return {"error": "ANTHROPIC_API_KEY is not set"}
-    system = ("You read a photo of a meal and convert it to JSON. Output ONLY a JSON array, no prose. "
-              "Each item: {\"description\": str, \"eaten_at\": \"\", \"meal\": "
-              "breakfast|lunch|dinner|snack|pre|during|post, \"kcal\": int, \"protein_g\": int, "
-              "\"carb_g\": int, \"fat_g\": int}. Identify each distinct food you can see and estimate "
-              "its portion from visual cues (plate size, utensils). Be realistic for a "
-              f"~{weight_kg():.0f} kg endurance athlete. If you cannot identify any food, return [].")
-    try:
-        msg = _reply([{"role": "user", "content": [
-            {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
-            {"type": "text", "text": "Log this meal."},
-        ]}], max_tokens=900, system=system)
-    except Exception as e:  # noqa: BLE001
-        return {"error": f"{type(e).__name__}: {e}"}
-    raw = "".join(b.text for b in msg.content if b.type == "text")
-    m = _JSON_RE.search(raw)
-    if not m:
-        return {"error": "couldn't read that photo", "raw": raw[:300]}
-    try:
-        items = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return {"error": "couldn't read that photo", "raw": raw[:300]}
+    del media_type
+    return {
+        "ok": False,
+        "requires_input": True,
+        "added": 0,
+        "unknown_fields": ["portion_mass", "kcal", "protein_g", "carb_g", "fat_g"],
+        "question": ("A photo cannot provide checkable portions or macros, so nothing was logged. "
+                     "Enter the measured portion and exact calories, protein, carbohydrate, and fat "
+                     "from the label or recipe."),
+        "input_provenance": {"photo": "measured image", "portion_and_macros": "unknown"},
+    }
 
-    today = config.local_today().isoformat()
-    stored = []
-    for it in items if isinstance(items, list) else []:
-        if not isinstance(it, dict) or not it.get("description"):
+
+def _explicit_nutrition_value(text: str, labels: tuple[str, ...], *, unit: str = "g") -> float | int | None:
+    """Extract only a number explicitly paired with its nutrition label."""
+    label = "|".join(re.escape(item) for item in labels)
+    number = r"(\d+(?:\.\d+)?)"
+    unit_re = rf"\s*{re.escape(unit)}?" if unit else r"\s*"
+    # Label-first is accepted only with explicit punctuation. This prevents a
+    # label between two values from stealing the following macro's number.
+    strict = re.search(rf"\b(?:{label})\b\s*[:=]\s*{number}{unit_re}\b", text, re.I)
+    if strict:
+        value = float(strict.group(1))
+        return int(value) if value.is_integer() else value
+
+    all_labels = (r"kcal|calorie|calories|protein|carb|carbs|carbohydrate|fat|p|c|f")
+    for match in re.finditer(rf"\b{number}{unit_re}\s*(?:{label})\b", text, re.I):
+        # `protein: 2.5g carbs` belongs to protein, not carbs. Reject the
+        # overlapping number-before-label interpretation.
+        if re.search(rf"\b(?:{all_labels})\b\s*[:=]\s*$", text[:match.start(1)], re.I):
             continue
-        stored.append(db.add_nutrition(
-            today, str(it["description"])[:200], eaten_at=str(it.get("eaten_at") or "")[:40],
-            meal=str(it.get("meal") or "")[:20],
-            kcal=_int(it.get("kcal")), protein_g=_int(it.get("protein_g")),
-            carb_g=_int(it.get("carb_g")), fat_g=_int(it.get("fat_g"))))
-    if not stored:
-        return {"error": "no food recognized in that photo"}
-    return {"ok": True, "added": len(stored), "day": get_day()}
+        value = float(match.group(1))
+        return int(value) if value.is_integer() else value
+    return None
 
 
 def _int(v: Any) -> int | None:

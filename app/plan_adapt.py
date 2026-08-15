@@ -49,25 +49,34 @@ def _scale_day(day: dict[str, Any], factor: float, tag: str) -> dict[str, Any] |
     after = _round5(before * factor)
     if after == before:
         return None
+    if after < before:
+        cost = f"{before - after} min less {day.get('discipline') or 'training'} stimulus"
+        benefit = f"{before - after} min less fatigue and more recovery margin"
+    else:
+        cost = f"{after - before} min more fatigue to absorb"
+        benefit = f"{after - before} min more {day.get('discipline') or 'training'} stimulus"
     why = day.get("why") or ""
-    why = f"[Adapted · {tag}] " + re.sub(r"^\[Adapted[^\]]*\]\s*", "", why)
+    why = (f"[Adapted: {tag}] " + re.sub(r"^\[Adapted[^\]]*\]\s*", "", why)
+           + f" Cost: {cost}. Buy: {benefit}.")
     db.edit_plan_day(day["date"], {"duration_min": after, "why": why}, source="adapt")
     return {"date": day["date"], "title": day.get("title"), "field": "duration_min",
-            "before": before, "after": after}
+            "before": before, "after": after, "cost": cost, "benefit": benefit}
 
 
 def _make_recovery(day: dict[str, Any], tag: str) -> dict[str, Any] | None:
     if day.get("source") not in _EDITABLE:
         return None
     before = f"{day.get('discipline')} · {day.get('duration_min')}m"
+    cost = f"loses the planned {day.get('title') or day.get('discipline') or 'training'} stimulus"
+    benefit = "buys recovery margin and protects the next executable quality session"
     db.edit_plan_day(day["date"], {
         "discipline": "recovery", "title": "Recovery (adapted)", "intensity": "Z1",
         "duration_min": min(30, day.get("duration_min") or 30), "is_rest": 0,
         "structure": {"warmup": "—", "main": "20–30 min very easy or full rest", "cooldown": "—"},
-        "why": f"[Adapted · {tag}] Downgraded to recovery to protect the block.",
+        "why": f"[Adapted: {tag}] Cost: {cost}. Buy: {benefit}.",
     }, source="adapt")
     return {"date": day["date"], "title": "→ Recovery", "field": "discipline",
-            "before": before, "after": "recovery"}
+            "before": before, "after": "recovery", "cost": cost, "benefit": benefit}
 
 
 # --- Post-session feedback ----------------------------------------------------
@@ -108,7 +117,8 @@ def apply_session_feedback(date: str, status: str = "done", rpe: int | None = No
                         changes.append(ch)
                     break
         direction = "downregulated"
-        summary = "Backed off the next few days to absorb a hard/incomplete session."
+        summary = ("Backed off the next few days. Cost: less planned stimulus. "
+                   "Buy: lower fatigue and a safer return to quality.")
     elif easy:
         # Nudge the next quality day up ~12%.
         for day in upcoming:
@@ -118,7 +128,8 @@ def apply_session_feedback(date: str, status: str = "done", rpe: int | None = No
                     changes.append(ch)
                 break
         direction = "upregulated"
-        summary = "That session had room to spare — nudged the next quality day up."
+        summary = ("Nudged the next quality day up. Cost: more fatigue to absorb. "
+                   "Buy: additional quality stimulus.")
     else:
         direction = "held"
         summary = "Logged. Session was on target — plan held as written."
@@ -148,7 +159,8 @@ def reflow(kind: str = "illness", days: int = 3, note: str = "") -> dict[str, An
             ch = _scale_day(day, 0.6, "return-to-train")
             if ch:
                 changes.append(ch)
-        summary = f"Illness: next {days} day(s) set to recovery, then a gradual ramp back."
+        summary = (f"Illness: next {days} day(s) set to recovery, then a gradual ramp. "
+                   "Cost: lost planned stimulus. Buy: recovery and reduced relapse risk.")
 
     elif kind == "travel":
         # Keep training but make it travel-friendly: shorter, easy.
@@ -156,7 +168,8 @@ def reflow(kind: str = "illness", days: int = 3, note: str = "") -> dict[str, An
             ch = _scale_day(day, 0.55, "travel")
             if ch:
                 changes.append(ch)
-        summary = f"Travel: next {days} day(s) trimmed to short, flexible sessions."
+        summary = (f"Travel: next {days} day(s) trimmed. Cost: less volume stimulus. "
+                   "Buy: sessions remain executable with lower fatigue.")
 
     else:  # missed / catch-all
         # Don't cram — just lighten the next couple of quality days a touch.
@@ -168,7 +181,8 @@ def reflow(kind: str = "illness", days: int = 3, note: str = "") -> dict[str, An
                 ch = _scale_day(day, 0.85, "post-miss")
                 if ch:
                     changes.append(ch); touched += 1
-        summary = "Missed session logged — eased the next quality days slightly rather than cramming."
+        summary = ("Missed session logged. Cost: slightly less quality stimulus. "
+                   "Buy: avoids cramming fatigue into the remaining week.")
 
     db.add_constraint(today, f"Reflow ({kind}, {days}d)" + (f": {note}" if note else "") + f" — {summary}")
     return {"kind": kind, "applied": bool(changes), "summary": summary, "changes": changes}

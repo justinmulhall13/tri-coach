@@ -14,7 +14,9 @@ OpenAI Codex doing most of the typing — see
 [Built with AI, deliberately](#built-with-ai-deliberately).
 
 Built for training toward **T100 Vancouver** (2.0 km swim / 80 km bike /
-18 km run), but the engine is general to any endurance build.
+18 km run). Athlete constants, universal coaching rules, and the active event are
+kept in three separate code blocks; changing events means replacing only the
+event profile after an explicit `switch to [event]` request.
 
 > Status: actively used daily by one athlete (me). It's a real tool, not a demo —
 > which is why the hosted instance is access-gated rather than a public link.
@@ -81,11 +83,28 @@ A conversational coach (Claude) with the full picture: Garmin data, the plan, th
 week's load, prior coaching turns, and your own stated constraints. It is direct
 by design and cannot invent numbers — a missing metric is reported as missing.
 
+Steve now runs against one shared coaching contract instead of scattered prompt
+fragments. It fixes the athlete constraints, source-labelled fueling conversions,
+TSB rules and lifting behavior separately from the active event profile. Ordinary
+questions cannot silently change sports or carry course assumptions into another
+event: only an exact `switch to [event]` command reaches the mode gate, and an
+unknown event leaves TRIATHLON active until a complete replacement profile exists.
+Every stored and Coach-proposed plan now carries an explicit projected race-day
+TSB target, defaulting to +10 inside the required +5 to +15 window.
+
+Body mass is live rather than frozen. Coach and Fuel read the newest dated Garmin
+weight entry, including its date and the grams-to-kilograms arithmetic, and label
+it self-reported via Garmin because the athlete maintains it there. If Garmin has
+no dated reading, they explicitly fall back to the
+self-reported 86 kg constant instead of treating an aggregate average as current.
+
 The visible chat opens as a clean conversation every time the app launches or
 resumes, so there is no transcript to scroll through. That is presentation only:
 Steve keeps a private server-side window of previous turns plus dated, durable
-memories such as availability, injuries, travel and equipment constraints. The
-result is a fresh screen without an amnesiac coach. Automatic briefs are
+memories such as availability, injuries, travel and equipment constraints. Chat,
+durable memory, plan rows and unread Coach updates are namespaced to the active
+event profile, so a future switch cannot reintroduce old course or fueling
+assumptions. The result is a fresh screen without an amnesiac coach. Automatic briefs are
 event-driven rather than launch-driven — a new sleep/recovery day, synced workout
 or completion log can trigger one; simply reopening the app cannot. Those event
 briefs now wait in a durable Coach inbox: a red unread badge appears on both the
@@ -127,6 +146,9 @@ versus what is just chatter. It also follows an explicit set of load rules: stat
 the TSB target, hold the race-day taper between +5 and +15, name the tradeoff
 when cutting volume, give easy sessions a hard ceiling rather than a range, and
 never raise run volume to hit a load target when the Achilles is the limiter.
+Lifting is never inserted on its own. When asked, Steve gives exercise order,
+sets, reps or duration, rest and effort while leaving unknown working weights
+unknown.
 
 ### Calendar
 ![Calendar tab](docs/screenshots/calendar.png)
@@ -142,24 +164,31 @@ open, resolved most-recent-edit-wins. Calendar owns placement, not prescription:
 workout duration and contents can only be changed through Coach Steve, so a drag
 cannot accidentally rewrite the training plan. The command bar at the top takes
 plain English: "move my bike to Thursday 6am", "swap Tuesday and Friday", "add
-dentist Fri 2pm".
+dentist Fri 2pm for 45 minutes". Timed personal events require an explicit start
+and duration; the app asks instead of inventing a missing duration.
 
 ### Fuel
 ![Fuel tab](docs/screenshots/fuel.png)
 
 Daily targets scale to the day's training and shift with a calorie goal
 (deficit / maintain / surplus) that takes its cut from fat and non-training
-carbohydrate while protecting protein. Meals log from free text or from a photo
-of the plate.
+carbohydrate while protecting protein. They are labelled assumed coaching
+targets, not measured requirements. Food logs accept exact self-reported serving
+macros; vague text or a plate photo leaves portions and macros unknown and asks
+for the measured recipe or label instead of saving an estimate.
 
 The part that matters is intra-session fuelling, which is built against
 intestinal transport limits rather than a flat carb number. Glucose is capped at
 60 g/h (SGLT1) and fructose at 30 g/h (GLUT5); above 60 g/h total the mix is held
-at 2:1, so 90 g/h lands exactly on both ceilings and nothing is prescribed that
-cannot be absorbed. Drink concentration is held to 6–8% by mass and any carb
-beyond what the bottle can carry is assigned to gels with plain water. Every plan
-shows its arithmetic, states what it assumed about product composition, lists the
-labels to verify, and carries an abort protocol for GI distress.
+at 2:1. The fixed kitchen factors are 12.5 g carbohydrate per tablespoon of
+granulated sugar, 13 g per tablespoon of maple syrup, and 2,360 mg sodium per
+teaspoon of table salt. Drinks use an exact scale-verified finished mass so the
+6–8% concentration is checkable. Mass is never converted to volume by assuming
+1 g/mL: the finished drink volume must be measured, and the separate plain-water
+amount stays unknown until then. Brick and race totals use the bike duration
+only, never the run or whole-event duration. Every plan shows its arithmetic,
+labels each input source, and carries an abort protocol that introduces nothing
+untested.
 
 Custom fueling questions use a shared audit contract in both Fuel and Coach:
 resolve the exact race/training leg, distinguish table-salt mass from sodium,
@@ -167,6 +196,13 @@ inventory every bottle/flask/gel, reconcile totals with hourly rates, then place
 only those doses at the Athlete Guide's actual aid stations. Concentrate flasks are
 evaluated with the water taken alongside them, and uncertain labels trigger a
 focused question instead of a confident guess.
+
+The deterministic recipe uses the athlete's own factors: 1 tsp salt = 2,360 mg
+sodium, sugar = 12.5 g carbohydrate/tbsp, maple syrup = 13 g/tbsp split 50/50,
+and each gel = 23 g carbohydrate plus 20 mg caffeine. Long-session mix arithmetic
+shows glucose and fructose separately, finished-drink concentration by mass, and
+the abort protocol. A race calculation will not misuse the 5:45 whole-event model
+as a bike-leg duration; that missing input stays unknown until supplied.
 
 ### Analytics
 ![Analytics tab](docs/screenshots/analytics.png)
@@ -238,6 +274,8 @@ app/
   garmin_workout.py  push structured workouts to the watch
 
   coach.py           "Coach Steve" agent (chat, event briefs, private memory)
+  coaching_contract.py fixed athlete/rules blocks + the one swappable event profile
+  hevy_connector.py  fail-closed boundary for future Hevy reads and confirmed writes
   calendar_agent.py  natural-language calendar assistant
   nutrition.py       daily targets + transport-ceiling intra-session fuelling
 
@@ -289,6 +327,18 @@ A few problems here were more interesting than they first look:
   on the server and are still supplied to Steve, so there is no chat-history
   trawl and no loss of coaching continuity.
 
+- **Garmin weight, explicit fallback.** The latest dated athlete-maintained Garmin
+  weight entry feeds weight-dependent math as self-reported via Garmin. Its date
+  and source travel with the number; missing data
+  falls back to the labelled 86 kg self-report rather than a plausible estimate.
+
+- **Hevy without fake connectivity.** Lifting questions are first-class and keep
+  missing loads unknown. A typed integration boundary matches Hevy's recent-workout,
+  exercise-template, routine and completed-workout operations, while the deployed
+  runtime remains truthfully disconnected until a bridge is configured. Planned
+  work maps to a routine; a completed workout can only be written from exact
+  performed sets/times after confirmation, with no blind retry of additive writes.
+
 - **Glass where it earns its keep.** Translucent, responsive glass is reserved
   for navigation and controls; dense training data keeps quieter, more opaque
   surfaces for contrast. The compact-on-scroll header, floating bottom bar and
@@ -320,7 +370,7 @@ gracefully — the dashboard works without them.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-cp .env.example .env      # then fill in your keys / race details
+cp .env.example .env      # then fill in keys and optional athlete details
 python -m app.main        # serves http://127.0.0.1:8770
 ```
 

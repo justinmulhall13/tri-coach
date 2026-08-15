@@ -1334,7 +1334,7 @@
       <div class="bigring r-sleep" id="br-sleep"></div>
       <div class="bigring r-ready" id="br-ready"></div>
       <div class="bigring r-strain" id="br-strain"></div>
-      <div class="bigring r-t100" id="br-t100"></div>
+      <div class="bigring r-t100" id="br-t100" style="display:none"></div>
     </div>
   </div>
 
@@ -1644,7 +1644,7 @@ const j=async(u,o)=>{
 
 function banner(html){ $("banner-slot").innerHTML = html?`<div class="banner">${html}</div>`:""; }
 
-let _lastLoad=null, _lastReadiness=null, _lastTSB=null, _lastRings=null;
+let _lastLoad=null, _lastReadiness=null, _lastTSB=null, _lastRings=null, _activeRaceName="goal race";
 function toast(msg){
   let t=document.getElementById("toast");
   if(!t){ t=document.createElement("div"); t.id="toast"; document.body.appendChild(t); }
@@ -1652,7 +1652,7 @@ function toast(msg){
   clearTimeout(t._h); t._h=setTimeout(()=>t.className="",4200);
 }
 function celebrateRaceFinish(){
-  toast("🏁 T100 complete — you did it.");
+  toast(`🏁 ${_activeRaceName} complete: you did it.`);
   if(window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   document.querySelector(".race-confetti")?.remove();
   const layer=document.createElement("div"); layer.className="race-confetti"; layer.setAttribute("aria-hidden","true");
@@ -1743,6 +1743,7 @@ async function loadDashboard(){
 
 function renderRace(r){
   if(r.error){ $("cd-n").textContent="!"; return; }
+  _activeRaceName=r.name||"goal race";
   $("cd-n").textContent = r.is_past?"🏁":r.days_remaining;
   $("cd-u").textContent = r.is_past?"":`days to ${r.name} · ${r.weeks_remaining} wk`;
   const p=$("phase"); p.textContent=r.phase; p.className="phasepill phase-"+r.phase;
@@ -1774,12 +1775,17 @@ function renderRaceCard(r, planResp){
     const raceMs=nowMs+days*DAY;
     pct=Math.max(0,Math.min(100,(nowMs-startMs)/Math.max(1,(raceMs-startMs))*100));
   }
+  const distanceLabel=Object.entries(r.distances||{})
+    .filter(([,value])=>value!=null && value!=="")
+    .map(([key,value])=>`${fmt(value)} km ${key.replace(/_km$/,'').replaceAll('_',' ')}`)
+    .join(" · ");
+  const modeLabel=String(r.mode||"event").toLowerCase();
   el.innerHTML=`
     <div class="rc-top">
       <div>
-        <div class="rc-kicker">A-race · triathlon</div>
+        <div class="rc-kicker">A-race · ${fmt(modeLabel)}</div>
         <div class="rc-name">${fmt(r.name)}</div>
-        <div class="rc-goal">${r.distances?`${r.distances.swim_km} km swim · ${r.distances.bike_km} km bike · ${r.distances.run_km} km run`:""}</div>
+        <div class="rc-goal">${distanceLabel}</div>
       </div>
       <div class="rc-count"><b>${r.is_past?"🏁":days}</b><span>${r.is_past?"done":"days out"}</span></div>
     </div>
@@ -1894,11 +1900,20 @@ function renderRings(rg){
   bigRing($("br-ready"),"Recovery",rr.score,"/100",rsub);
   bigRing($("br-strain"),"Day Strain",rg.strain.score,"/100",
     `${rg.strain.label} · ${rg.strain.inputs.intensity_min} int-min · ${rg.strain.inputs.active_kcal} kcal`);
-  const t=rg.t100||{}, comp=t.components||{};
-  bigRing($("br-t100"),"T100 Ready",t.score,"/100",
-    `${t.label} · weakest: ${t.weakest_leg} (${(comp[t.weakest_leg]||{}).pct??"—"}%)`);
+  const t=rg.t100||null, tEl=$("br-t100");
+  if(t){
+    const comp=t.components||{};
+    tEl.style.display="";
+    bigRing(tEl,"T100 Ready",t.score,"/100",
+      `${t.label} · lowest volume: ${t.lowest_volume_bucket} (${(comp[t.lowest_volume_bucket]||{}).pct??"—"}%)`);
+  }else{
+    tEl.style.display="none";
+    tEl.classList.remove("ring-click");
+    tEl.onclick=null;
+  }
   // clickable → WHOOP-style breakdown
-  const map={"br-sleep":"sleep","br-ready":"recovery","br-strain":"strain","br-t100":"t100"};
+  const map={"br-sleep":"sleep","br-ready":"recovery","br-strain":"strain"};
+  if(t) map["br-t100"]="t100";
   Object.entries(map).forEach(([id,name])=>{
     const el=$(id); el.classList.add("ring-click"); el.onclick=()=>openRingDetail(name);
   });
@@ -2245,7 +2260,8 @@ function openWorkoutDetail(i){
   const s=_woDay, st=x.structure||{};
   $("wo-overlay").classList.add("open");
   $("pushstatus").textContent=""; $("pushstatus").className="note";
-  $("pushwatch").style.display = x.is_rest ? "none" : "";
+  const pushDisabled=x.is_rest||["rest","race"].includes((x.disc||"").toLowerCase());
+  $("pushwatch").style.display = pushDisabled ? "none" : "";
   $("wo-title").textContent=x.title||x.disc;
   $("wo-title").className="t sport-"+(x.disc||"other");
   $("wo-meta").textContent=`${x.disc} · ${fmt(x.dur)} min · ${fmt(x.intensity)}`;
@@ -2281,9 +2297,12 @@ async function renderFuel(x){
   try{
     const f=await j("/api/fuel",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({session:{discipline:x.disc, duration_min:x.dur, intensity:x.intensity,
-                                    title:x.title, is_rest:x.is_rest?1:0}})});
+                                    title:x.title, is_rest:x.is_rest?1:0,
+                                    structure:x.structure,
+                                    duration_scope:(x.disc==="brick"&&x.kind==="main")?"bike_leg":undefined}})});
     if(req!==_fuelReq) return;
     if(!f || f.needed===false){ body.innerHTML=`<div class="pv-why">${(f&&f.note)||"Water is enough for this one."}</div>`; return; }
+    if(f.requires_input && !f.carb_g_per_hr){ body.innerHTML=`<div class="pv-why">${f.note||"More information is required."}</div>`; return; }
     const gPct=Math.round(f.glucose_g_per_hr/f.glucose_ceiling*100);
     const fPct=f.fructose_ceiling?Math.round(f.fructose_g_per_hr/f.fructose_ceiling*100):0;
     body.innerHTML=`
@@ -2297,6 +2316,7 @@ async function renderFuel(x){
       </div>
       <div class="pv-step"><div class="pv-k">Mix</div><div class="pv-v">${f.recipe}</div></div>
       <div class="pv-step"><div class="pv-k">Fluid + salt</div><div class="pv-v">${f.fluid_ml_per_hr[0]} ml/h · ${f.sodium_mg_per_hr[0]}–${f.sodium_mg_per_hr[1]} mg sodium/h (${f.salt_per_hr})</div></div>
+      ${f.requires_input?`<div class="pv-why">Measurement needed: ${f.note||"Confirm the missing input before using this plan."}</div>`:""}
       ${f.placement?`<div class="pv-step"><div class="pv-k">Placement</div><div class="pv-v">${f.placement}</div></div>`:""}
       <div class="pv-step"><div class="pv-k">Caffeine</div><div class="pv-v">${f.caffeine}</div></div>
       <div class="fuel-abort"><b>If GI distress hits</b><br>${f.abort}</div>
@@ -2532,6 +2552,7 @@ function openPlanPreview(date){
     ["Discipline", d.discipline, ""],
     ["Duration", d.duration_min, "min"],
     ["Intensity", d.intensity, ""],
+    ["Race-day TSB", d.tsb_target!=null?(d.tsb_target>0?`+${d.tsb_target}`:d.tsb_target):null, ""],
     est!=null?["Est. distance", est>=10?Math.round(est):Math.round(est*10)/10, "km"]:null,
     elev?["Suggested elev", elev, ""]:null,
   ].filter(Boolean).filter(c=>c[1]!==null&&c[1]!==undefined&&c[1]!=="");
@@ -2574,7 +2595,7 @@ function coachHTML(text){
     const b=t.match(/^[•\-\*]\s*(.+)$/);
     if(b){
       flush();
-      const m=b[1].match(/^(.{2,24}?)\s+—\s+(.*)$/);   // "Label — rest"
+      const m=b[1].match(/^(.{2,24}?)(?:\s*:\s+|\s+[—-]\s+)(.*)$/); // "Label: rest"; legacy dash replies still render
       html+= m ? `<div class="cb"><span class="cbl">${esc(m[1])}</span><span>${esc(m[2])}</span></div>`
                : `<div class="cb"><span>${esc(b[1])}</span></div>`;
       continue;
@@ -2644,7 +2665,7 @@ function addAdjustment(adj){
   const st=adj.structure||{};
   const w=adjWhen(adj);
   c.innerHTML=`<div class="t">Proposed change · ${w.label}: ${adj.title||adj.discipline}</div>
-    <div class="d">${adj.discipline||""} · ${fmt(adj.duration_min)} min · ${fmt(adj.intensity)}<br>${fmt(st.main)}</div>
+    <div class="d">${adj.discipline||""} · ${fmt(adj.duration_min)} min · ${fmt(adj.intensity)} · race-day TSB ${adj.tsb_target!=null?(adj.tsb_target>0?"+":"")+adj.tsb_target:"+10"}<br>${fmt(st.main)}</div>
     <button class="primary">${w.accept}</button>`;
   c.querySelector("button").onclick=async()=>{
     const r=await j("/api/coach/accept",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({adjustment:adj})});
@@ -2661,7 +2682,8 @@ function addCalendarEvent(ev){
   const dt=new Date(ev.date+"T00:00:00"); const dow=isNaN(dt)?"":DOW[dt.getDay()];
   let when;
   if(ev.all_day || !ev.start){ when="All day"; }
-  else{ const sm=_toMin(ev.start), em=sm+(ev.duration_min||60); when=`${_fmtClock(sm)}–${_fmtClock(em)}`; }
+  else if(ev.start && Number(ev.duration_min)>0){ const sm=_toMin(ev.start), em=sm+Number(ev.duration_min); when=`${_fmtClock(sm)}–${_fmtClock(em)}`; }
+  else{ return; }
   c.innerHTML=`<div class="t">📅 Add to calendar · ${dow} ${(ev.date||"").slice(5)}</div>
     <div class="d"><b>${fmt(ev.title)}</b><br>${when}</div>
     <button class="primary">Add to my calendar</button>`;
@@ -3253,12 +3275,17 @@ function renderFuelTab(day){
   if(f.needed){
     $("intra-card").style.display="";
     const rng=(a,u)=>a?`${a[0]}–${a[1]} ${u}`:"—";
-    $("intra-body").innerHTML=`<div class="intra-grid">
-      <div class="intra-stat"><div class="ik">Carbs / hour</div><div class="iv">${rng(f.carb_per_hr,"g")}</div></div>
-      <div class="intra-stat"><div class="ik">Total carbs (${f.hours} h)</div><div class="iv">${rng(f.total_carb_g,"g")}</div></div>
-      <div class="intra-stat"><div class="ik">Sodium / hour</div><div class="iv">${rng(f.sodium_mg_per_hr,"mg")}</div></div>
-      ${f.fluid_ml_per_hr&&f.fluid_ml_per_hr[1]?`<div class="intra-stat"><div class="ik">Fluid / hour</div><div class="iv">${rng(f.fluid_ml_per_hr,"ml")}</div></div>`:""}
-    </div><div class="note">${f.practical||""}</div>`;
+    if(f.requires_input && !f.carb_g_per_hr){
+      $("intra-body").innerHTML=`<div class="note">${f.note||"More information is required."}</div>`;
+    }else{
+      $("intra-body").innerHTML=`<div class="intra-grid">
+        <div class="intra-stat"><div class="ik">Carbs / hour</div><div class="iv">${f.carb_g_per_hr||"—"} g</div></div>
+        <div class="intra-stat"><div class="ik">Total carbs (${f.hours} h)</div><div class="iv">${rng(f.total_carb_g,"g")}</div></div>
+        <div class="intra-stat"><div class="ik">Sodium / hour</div><div class="iv">${rng(f.sodium_mg_per_hr,"mg")}</div></div>
+        ${f.fluid_ml_per_hr&&f.fluid_ml_per_hr[1]?`<div class="intra-stat"><div class="ik">Fluid / hour</div><div class="iv">${rng(f.fluid_ml_per_hr,"ml")}</div></div>`:""}
+      </div><div class="note">${f.recipe||""}</div>
+      ${f.requires_input?`<div class="note">Measurement needed: ${f.note||"Confirm the missing input before using this plan."}</div>`:""}`;
+    }
   } else { $("intra-card").style.display="none"; }
   renderFoodList(day.logged||[]);
 }
@@ -3292,7 +3319,8 @@ async function logFood(){
   $("log-btn").disabled=true; $("log-status").textContent="Reading that…";
   try{
     const r=await j("/api/nutrition/log",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text})});
-    if(r.error){ $("log-status").innerHTML=`<span class="err">${r.error}</span>`; }
+    if(r.requires_input){ $("log-status").innerHTML=`<span class="err">${r.question||"Exact macro values are required."}</span>`; }
+    else if(r.error){ $("log-status").innerHTML=`<span class="err">${r.error}</span>`; }
     else{ $("log-status").textContent=`Logged ${r.added} item${r.added>1?"s":""}.`; inp.value=""; renderFuelTab(r.day); }
   }catch(e){ $("log-status").innerHTML=`<span class="err">${e.message}</span>`; }
   finally{ $("log-btn").disabled=false; }
@@ -3305,7 +3333,8 @@ async function logPhoto(){
     const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(",")[1]);r.onerror=rej;r.readAsDataURL(f);});
     const r=await j("/api/nutrition/photo",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({image_b64:b64, media_type:f.type||"image/jpeg"})});
-    if(r.error){ $("log-status").innerHTML=`<span class="err">${r.error}</span>`; }
+    if(r.requires_input){ $("log-status").innerHTML=`<span class="err">${r.question||"Exact portion and macro values are required."}</span>`; }
+    else if(r.error){ $("log-status").innerHTML=`<span class="err">${r.error}</span>`; }
     else{ $("log-status").textContent=`Logged ${r.added||0} item${(r.added||0)===1?"":"s"} from the photo.`; $("log-photo").value=""; if(r.day) renderFuelTab(r.day); }
   }catch(e){ $("log-status").innerHTML=`<span class="err">${e.message}</span>`; }
   finally{ $("photo-btn").disabled=false; }

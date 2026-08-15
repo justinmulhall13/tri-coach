@@ -124,12 +124,19 @@ def get_insights(*, baseline_data: dict[str, Any] | None = None,
                 f"ACWR {acwr:.2f} — room to build safely if recovery allows.")
 
     # --- Race weakness stalling ---
-    t100 = rg.get("t100") or {}
-    weak = t100.get("weakest_leg")
-    comp = (t100.get("components") or {}).get(weak) or {}
-    if weak and isinstance(comp.get("pct"), (int, float)) and comp["pct"] < 60:
-        add("info", "🎯", f"{weak.title()} still your weak leg",
-            f"{weak} at {comp['pct']}% of its 14-day target. Bias volume here to move T100 readiness.")
+    # The T100 volume model has Vancouver-specific targets. Ignore even a stale
+    # caller-supplied payload after the active event profile changes.
+    t100 = (rg.get("t100") or {}) if config.supports_t100_features() else {}
+    low_bucket = t100.get("lowest_volume_bucket")
+    comp = (t100.get("components") or {}).get(low_bucket) or {}
+    if low_bucket and isinstance(comp.get("pct"), (int, float)) and comp["pct"] < 60:
+        if low_bucket == "run":
+            detail = (f"Run is at {comp['pct']}% of its 14-day bucket. Do not jump run volume; "
+                      "the Achilles is limiting. Add any needed low-intensity load on the bike.")
+        else:
+            detail = (f"{low_bucket.title()} is at {comp['pct']}% of its 14-day bucket. "
+                      f"Bias safe {low_bucket} work only if recovery and the active plan allow it.")
+        add("info", "🎯", f"{low_bucket.title()} volume bucket below target", detail)
 
     signals.sort(key=lambda s: _RANK.get(s["severity"], 9))
     if not signals:

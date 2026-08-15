@@ -27,26 +27,44 @@ def _days_back(n: int) -> str:
 
 
 _WEIGHT_CACHE: dict[str, Any] = {"val": None, "ts": 0.0}
+_WEIGHT_CACHE_TTL_S = 300
 
 
 def get_weight_kg() -> dict[str, Any] | None:
-    """Latest weigh-in from Garmin Connect (grams → kg). Cached ~1h so logging a
-    new weight in Garmin flows straight into fueling math. None if never logged."""
+    """Latest dated Garmin weight entry, converted from grams to kilograms.
+
+    A short cache avoids repeatedly scanning a year of body-composition data,
+    while allowing a newly logged weight to reach Coach within five minutes.
+    The athlete manually maintains this value in Garmin, so its provenance is
+    self-reported via Garmin rather than a device measurement. ``None`` means no
+    dated entry was available; an aggregate average is intentionally not
+    presented as the latest weight.
+    """
     import time
     now = time.time()
-    if _WEIGHT_CACHE["val"] is not None and (now - _WEIGHT_CACHE["ts"]) < 3600:
+    # A fresh cached miss is meaningful too. Without this timestamp check, a
+    # missing entry or transient Garmin error would trigger another 365-day scan
+    # every time Coach and Fuel ask during the same request.
+    if _WEIGHT_CACHE["ts"] > 0 and (now - _WEIGHT_CACHE["ts"]) < _WEIGHT_CACHE_TTL_S:
         return _WEIGHT_CACHE["val"]
     out = None
     try:
         c = get_client()
         bc = c.get_body_composition(_days_back(365), _today()) or {}
-        entries = [e for e in (bc.get("dateWeightList") or []) if e.get("weight")]
+        entries = [e for e in (bc.get("dateWeightList") or [])
+                   if e.get("weight") and e.get("calendarDate")]
         entries.sort(key=lambda e: e.get("calendarDate") or "")
-        latest = entries[-1] if entries else (bc.get("totalAverage") or None)
+        latest = entries[-1] if entries else None
         w = (latest or {}).get("weight")
         if isinstance(w, (int, float)) and w > 0:
-            out = {"kg": round(w / 1000.0, 1), "lb": round(w / 1000.0 * 2.2046, 1),
-                   "as_of": (latest or {}).get("calendarDate"), "source": "garmin"}
+            kg = round(w / 1000.0, 3)
+            lb = round(kg * 2.2046, 1)
+            out = {"kg": kg, "lb": lb,
+                   "as_of": (latest or {}).get("calendarDate"),
+                   "source": "self-reported", "provider": "Garmin",
+                   "source_detail": "athlete-maintained Garmin weight entry",
+                   "conversion": (f"{w:g} g / 1000 g/kg = {kg:g} kg; "
+                                  f"{kg:g} kg x 2.2046 lb/kg = {lb:g} lb")}
     except Exception:
         out = None
     _WEIGHT_CACHE["val"] = out
@@ -515,6 +533,7 @@ def get_recent_load(days: int = 14) -> dict[str, Any]:
             "hr_max": int(a["maxHR"]) if isinstance(a.get("maxHR"), (int, float)) else None,
             "load": a.get("activityTrainingLoad"),
             "activity_id": a.get("activityId"),
+            "source": "measured", "provider": "Garmin",
         }
         # Sport-specific detail so the coach can grade the session vs its target.
         if sport == "run":
@@ -553,6 +572,7 @@ def get_recent_load(days: int = 14) -> dict[str, Any]:
                         "hr_avg": l["hr_avg"], "hr_max": l["hr_max"],
                         "load": None, "activity_id": l.get("activity_id"),
                         "multisport_parent": entry["activity_id"], "leg": i, "leg_label": label,
+                        "source": "measured", "provider": "Garmin",
                     }
                     if l.get("avg_power_w"):
                         leg_entry["avg_power_w"] = l["avg_power_w"]
@@ -582,6 +602,7 @@ def get_recent_load(days: int = 14) -> dict[str, Any]:
                 "hr_avg": m.get("hr_avg"), "hr_max": None, "load": None,
                 "activity_id": None, "manual": True, "manual_id": m["id"],
                 "notes": m.get("notes"),
+                "source": "self-reported", "provider": None,
             })
     except Exception:
         pass

@@ -28,9 +28,9 @@ class AthleteGuideContextTests(unittest.TestCase):
 
 class FuelingReferenceTests(unittest.TestCase):
     def test_salt_and_sodium_are_not_interchangeable(self) -> None:
-        self.assertEqual(fueling_reference.sodium_from_salt_mg(1000), 393)
-        self.assertEqual(fueling_reference.sodium_from_salt_mg(1100), 433)
-        self.assertEqual(fueling_reference.sodium_from_salt_tsp(0.5), 1134)
+        self.assertEqual(fueling_reference.sodium_from_salt_mg(1000), 390)
+        self.assertEqual(fueling_reference.sodium_from_salt_mg(1100), 429)
+        self.assertEqual(fueling_reference.sodium_from_salt_tsp(0.5), 1180)
 
 
 class SyncedActivityDedupeTests(unittest.TestCase):
@@ -95,6 +95,44 @@ class GoalRaceCelebrationTests(unittest.TestCase):
         ]
         self.assertIsNone(coach._goal_race_completion(activities, self._race()))
 
+    def test_short_native_multisport_shakeout_does_not_trigger_finish(self) -> None:
+        activities = [
+            {"date": "2026-08-16", "sport": "swim", "km": 0.2, "minutes": 6,
+             "multisport_parent": 12, "leg": 1},
+            {"date": "2026-08-16", "sport": "bike", "km": 4, "minutes": 10,
+             "multisport_parent": 12, "leg": 2},
+            {"date": "2026-08-16", "sport": "run", "km": 1, "minutes": 6,
+             "multisport_parent": 12, "leg": 3},
+        ]
+        self.assertIsNone(coach._goal_race_completion(activities, self._race()))
+
+    def test_half_distance_dnf_does_not_trigger_finish(self) -> None:
+        separate = [
+            {"date": "2026-08-16", "sport": "swim", "km": 1.0, "minutes": 20},
+            {"date": "2026-08-16", "sport": "bike", "km": 40, "minutes": 90},
+            {"date": "2026-08-16", "sport": "run", "km": 9, "minutes": 55},
+        ]
+        native = [dict(activity, multisport_parent=91, leg=index + 1)
+                  for index, activity in enumerate(separate)]
+        self.assertIsNone(coach._goal_race_completion(separate, self._race()))
+        self.assertIsNone(coach._goal_race_completion(native, self._race()))
+
+    def test_duplicate_half_distance_dnf_does_not_add_up_to_a_finish(self) -> None:
+        partial = [
+            {"date": "2026-08-16", "sport": "swim", "km": 1.0, "minutes": 20},
+            {"date": "2026-08-16", "sport": "bike", "km": 40, "minutes": 90},
+            {"date": "2026-08-16", "sport": "run", "km": 9, "minutes": 55},
+        ]
+        duplicated_standalone = partial + [dict(activity) for activity in partial]
+        native_copy = [dict(activity, multisport_parent=92, leg=index + 1)
+                       for index, activity in enumerate(partial)]
+        self.assertIsNone(
+            coach._goal_race_completion(duplicated_standalone, self._race())
+        )
+        self.assertIsNone(
+            coach._goal_race_completion(native_copy + partial, self._race())
+        )
+
     def test_finish_brief_is_marked_as_a_one_time_celebration(self) -> None:
         context = json.dumps({"goal_race_completion": {
             "completed": True,
@@ -119,7 +157,10 @@ class GoalRaceCelebrationTests(unittest.TestCase):
 
         self.assertTrue(result["celebrate"])
         set_meta.assert_called_once()
-        self.assertEqual(set_meta.call_args.args[0], "race_finish_celebrated_2026-08-16")
+        self.assertEqual(
+            set_meta.call_args.args[0],
+            "race_finish_celebrated_2026-08-16:t100-vancouver-2026",
+        )
 
 
 if __name__ == "__main__":

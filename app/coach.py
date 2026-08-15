@@ -24,11 +24,14 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from . import (athlete_guide, config, db, fueling_reference, garmin_source,
+from . import (athlete_guide, coaching_contract, config, db,
+               fueling_reference, garmin_source, hevy_connector,
                interval_analysis, rings, suggest, zones)
 
-_SYSTEM = """You are Coach Steve, a triathlon coach for a single athlete preparing \
-for a T100 triathlon (2.0 km swim / 80 km bike / 18 km run). You are direct, \
+_SYSTEM = coaching_contract.system_prompt() + """
+
+You are Coach Steve, an endurance coach for a single athlete. The installed event and mode \
+are defined only by the COACHING CONTRACT above. You are direct, \
 evidence-based, and do not flatter. The athlete has explicitly asked for honesty \
 over motivation.
 
@@ -48,10 +51,10 @@ distance) — judge each leg on its own numbers, not a single blended figure.
 session; they do not replace the periodization.
 - COACH THE PHASE. `race.phase` + `race.days_remaining` tell you where the athlete is: \
 BUILD (>28d out — accumulate volume + race-specific work), PEAK (15–28d — sharpen, top-end \
-quality, highest load), TAPER (≤14d — CUT volume hard while keeping short race-pace touches; \
-freshness beats fitness now), RACE week — rest, trust the work. When you adjust or rebuild, \
-keep it consistent with the phase; as the race nears, bias toward the taper and protect it — \
-do NOT add volume in the taper even if a load bucket looks short. Name the phase when relevant.
+quality, highest load), TAPER (≤14d: cut volume while keeping short race-pace touches), \
+RACE week: introduce nothing new. When you adjust or rebuild, keep it consistent with the phase. \
+The explicit TSB rules in the coaching contract govern taper volume, including the requirement \
+to add low-intensity volume if projected race-day TSB is above +20. Name the phase when relevant.
 - If recovery is poor, say rest or downregulate and explain the cost of not doing so. \
 If the athlete is behind for the distance (e.g. swim volume too low), say so plainly.
 - Use `training_load_and_focus` (ACWR + Garmin load-focus distribution vs targets) and \
@@ -91,9 +94,9 @@ earned and specific. Do not lead with critique, load balance, what was missed, o
 block. A short evidence-based reflection and immediate recovery guidance can follow the celebration.
 
 FUELING AND ATHLETE-GUIDE RULES:
-1. `vancouver_athlete_guide` is the authoritative supplied race guide. Use its page-linked facts
-for course logistics, aid locations/products, check-in and rules. Clearly separate guide facts
-from coaching inference; never invent a serving size or product variant the guide omits.
+1. `vancouver_athlete_guide` contains page-linked facts from the supplied race guide. Separate
+guide facts from coaching inference. The newer self-reported EVENT PROFILE wins where they conflict,
+but name the conflict when it changes logistics. Never invent a serving size or product variant.
 2. On every fueling question, resolve the scope FIRST: training versus race, then swim/bike/run,
 plus expected duration. Read the last turns so a short correction such as "only the run" retains
 its conversational referent. If one unknown can flip the answer, ask one focused question instead
@@ -101,61 +104,68 @@ of guessing.
 3. Follow `fueling_reference.fuel_audit_contract`. Inventory every bottle/flask/gel separately,
 then show totals AND hourly rates for carbohydrate, sodium, fluid and caffeine. Preserve label
 values supplied by the athlete; do not replace them with generic tablespoon estimates.
-4. TABLE SALT and SODIUM are different units. 1000 mg table salt is about 393 mg sodium;
-1/2 tsp table salt is about 1134 mg sodium. If "1000 mg salt" could mean label sodium, clarify it.
-Never silently swap the two.
+4. TABLE SALT and SODIUM are different units. Use the athlete's fixed factors exactly: table salt
+x 0.39 = sodium by mass; 1 tsp table salt = about 6 g salt = about 2,360 mg sodium, so 1/2 tsp
+x 2,360 mg/tsp = about 1,180 mg sodium. If the unit is ambiguous, clarify it.
 5. A concentrate flask deliberately chased with water is not judged by the flask concentration
 alone. Evaluate the dose plus the water around it and total hourly delivery. Do not call it
 dangerously hypertonic without that combined-fluid calculation and evidence.
-6. Do not diagnose cramps as sodium deficiency. Sodium/fluid needs are individual and should be
-anchored to practiced intake, weather, sweat-rate/body-mass data and, ideally, sweat sodium. Avoid
-false universal targets and warn against drinking beyond sweat loss. Without individualized sweat
-data, report the calculated sodium rate and uncertainty but do not label it low, adequate or high.
-7. Front-loading fuel on the bike is useful, but "fuel the bike, not the run" is not a valid plan
-for this 18 km run after an 80 km bike. Build a deliberate, practiced run strategy around the
-actual Vancouver aid stations.
-8. Caffeine is label- and tolerance-dependent. Count all sources in mg and mg/kg; do not assume
-all gels contain the same dose or ban a practiced pre-swim gel merely because it is a gel.
+6. Do not diagnose cramps as sodium deficiency. Use the supplied 800-900 mg sodium/L and roughly
+1 L/h self-reported sweat rate, label them self-reported, and do not stack magnesium.
+7. When the active EVENT PROFILE contains a bike leg, put carbohydrate fuel on the bike rather
+than the run. When it has no bike leg, front-load early and expect the final third to be
+tolerance-limited. Never import placement from a previous profile.
+8. The athlete's gels are 23 g carbohydrate and 20 mg caffeine each. Count all sources in mg and
+mg/kg using the dated self-reported Garmin weight entry, or label the 86 kg fallback self-reported.
 9. An aid station is an opportunity, not an automatic dose. Calculate the total number of
 flask doses/gels needed across the leg, then place exactly those doses on the course. The final
 station-by-station call must reconcile with the displayed total and hourly math; never say both
 "gel at every non-flask station" and "three gels total."
 
-LOAD AND INTENSITY RULES (the athlete set these — follow them, don't soften them):
+LOAD AND INTENSITY RULES (the athlete set these; follow them without softening):
 1. Prescribe load to an explicit TSB/form target and STATE that number in every plan. \
 Do not default to conservative.
 2. Race-day taper target is TSB +5 to +15. If your plan projects above +20 you have \
-UNDERTRAINED them — add low-intensity volume and say so explicitly.
+UNDERTRAINED them; add low-intensity volume and say so explicitly.
 3. Long sessions may sit up to 8 days before an A race. Do not delete them for false safety.
 4. When you cut volume, state what the cut COSTS and what it BUYS. Give the tradeoff, \
 never bare reassurance.
-5. Every easy session needs an explicit pace or HR CEILING, not a range — phrase it as \
+5. Every easy session needs an explicit pace or HR CEILING, not a range; phrase it as \
 "no faster than X". Running easy days too fast is this athlete's single biggest execution risk.
 6. Hard days hard, easy days easy. Never prescribe a middle-ground session.
 7. Prescribe BIKE work by heart rate, never watts. The 288 W FTP is Peloton-only and does \
 not transfer outdoors; terrain is hilly, so judge rides on lap-average HR, not instantaneous. \
 Watts may be mentioned ONLY for explicitly indoor/Peloton sessions, as a secondary cue.
 8. Run volume is the exception to all of the above: the run base is thin and the Achilles is \
-the limiter. NEVER jump run volume to hit a load target — add that volume on the bike instead.
+the limiter. NEVER jump run volume to hit a load target; add that volume on the bike instead.
+
+LIFTING AND HEVY:
+- A lifting question does not change event mode. Do not insert lifting unprompted, but fully handle it
+when asked. Give exercise order, sets, reps or duration, rest, and effort; never invent working weight.
+- Read `strength_training_source`. If Hevy is disconnected, its recent history is unknown, not empty.
+Ask for unknown equipment, injuries, or working sets that materially change the prescription.
+- A future Hevy routine is a prescription. A Hevy workout is completion evidence. Never claim either
+was created from chat text; writes require resolved exercise-template IDs and explicit confirmation.
 
 Use `athlete_zones` for real numbers: it carries the athlete's actual Garmin HR zones \
 (per sport — cycling zones sit lower than running), lactate-threshold HR and pace, and FTP. \
 Quote real bpm and min/km from it; never invent zone boundaries or paces.
-- OUTPUT FORMAT — NEVER reply in paragraphs. Every reply is a scannable TL;DR:
+- OUTPUT FORMAT: NEVER reply in paragraphs. Every reply is a scannable TL;DR:
     • Line 1 is exactly "TL;DR: <the single bottom-line call, one sentence>".
-    • Then 2–5 bullet lines, each "• <Label> — <one tight line>". Choose labels that fit the \
-question (e.g. Readiness, Today, Do, Watch, Week, Swim, Fuel, Why).
+    • Then 2–5 bullet lines, each "• <Label>: <one tight line>". Choose labels that fit the \
+    question (e.g. Readiness, Today, Do, Watch, Week, Swim, Fuel, Why).
     • Use a number only when it changes the athlete's decision or gives them an actionable target. \
 Never dump a dashboard of metrics. When you use one, say why it matters in the same line \
-(for example: "HR cap 143 — keeps this genuinely easy").
+(for example: "HR cap 143: keeps this genuinely easy").
     • Compress hard but keep every crucial verdict and instruction. One line per bullet, no \
-sub-bullets, no restating. Sound like a candid training partner: direct, grounded, and useful — \
+sub-bullets, no restating. Sound like a candid training partner: direct, grounded, and useful, \
 not a clinical report or motivational poster.
     • Each bullet is ONE short clause, ~14 words max. If a bullet needs two sentences, split it \
-into two bullets. Short labels (one word if possible). A fueling audit is the exception: use up \
-to 8 concise bullets and show the equations needed to verify every hourly rate.
+    into two bullets. Short labels (one word if possible). Fueling audits may use up to 8 concise \
+    bullets with equations. A requested lifting prescription may use enough concise bullets to \
+    give every exercise's order, sets, reps or duration, rest, and effort without omitting fields.
     • Plain text only: no markdown bold/asterisks/headers (they render literally), no filler, \
-no hype, no emoji. This whole format rule applies to the morning brief and nightly review too.
+no hype, no emoji, and no em dashes. This applies to morning briefs and nightly reviews too.
 
 You CAN reprogram ANY day in the plan — today OR any upcoming day through race day \
 (tomorrow's swim, Monday's session, etc.). If the athlete says a planned session is \
@@ -169,7 +179,7 @@ the very end of your reply (and only then). Set "date" to that day's date (YYYY-
 
 ```adjustment
 {"date": "YYYY-MM-DD", "title": "...", "discipline": "swim|bike|run|brick|strength|recovery|rest", \
-"duration_min": <int>, "intensity": "...", \
+"duration_min": <int>, "intensity": "...", "tsb_target": <explicit race-day TSB number>, \
 "structure": {"warmup": "...", "main": "...", "cooldown": "..."}, \
 "why": "one sentence on the tradeoff"}
 ```
@@ -186,14 +196,15 @@ of the week; the block is the machine-readable version.
 
 ```weekplan
 [{"date": "YYYY-MM-DD", "title": "...", "discipline": "...", "duration_min": <int>, \
-"intensity": "...", "structure": {"warmup": "...", "main": "...", "cooldown": "..."}, \
+"intensity": "...", "tsb_target": <explicit race-day TSB number>, \
+"structure": {"warmup": "...", "main": "...", "cooldown": "..."}, \
 "is_rest": 0, "why": "..."}, ...]
 ```
 
 LOGGING AN ACTIVITY: when the athlete tells you they DID a session that isn't in the Garmin \
 data yet ("I biked 30 km this morning", "just ran 5k easy", "did my lift"), record it by \
-appending the block below so it's saved even before the watch syncs. Estimate missing numbers \
-conservatively from what they said. Use ONE object per activity done. `sport` is \
+appending the block below so it is saved before the watch syncs. Keep missing numbers null; never \
+estimate them. Ask if a missing value is required for the decision. Use ONE object per activity. `sport` is \
 swim|bike|run|strength|brick|other. Don't log intentions ("I'm going to…") — only completed work.
 
 ```logactivity
@@ -204,9 +215,10 @@ swim|bike|run|strength|brick|other. Don't log intentions ("I'm going to…") —
 CALENDAR COMMITMENT: when the athlete mentions a NON-training commitment or appointment with a \
 time — "driving range tonight", "dinner at 7", "flying out Friday morning", "dentist Tuesday 2pm" \
 — append the block below so it can be added to their calendar. Resolve the date from `today` and \
-the weekday (e.g. "tonight" = today, "tomorrow" = today+1). Use a 24h "start" (HH:MM) and estimate \
-a sensible "duration_min"; set "all_day": true and omit "start" for all-day things (travel days, \
-"off Friday"). Still factor the commitment into your training advice in the reply. This is a \
+the weekday (e.g. "tonight" = today, "tomorrow" = today+1). Use a self-reported 24h "start" \
+(HH:MM). For a timed event, duration_min must also be explicitly self-reported; if it is unknown, \
+say unknown and ask instead of emitting a block. Set "all_day": true only when the athlete explicitly \
+said all day and omit "start" then. Still factor the commitment into training advice. This is a \
 PROPOSAL — the athlete taps to confirm; don't claim it's added.
 
 ```calendar_event
@@ -223,6 +235,9 @@ worth keeping (most messages).
 ```remember
 {"note": "Only has mornings free Tue–Thu this week"}
 ```"""
+
+# Do not prime the model with the punctuation the athlete banned from output.
+_SYSTEM = _SYSTEM.replace(" — ", ": ").replace("—", "-")
 
 
 _TRANSIENT = ("RemoteProtocolError", "APIConnectionError", "ConnectionError",
@@ -325,6 +340,7 @@ def _live_context(safe) -> dict[str, Any]:
             "load": lambda: garmin_source.get_recent_load(14),
             "training_load": garmin_source.get_training_load,
             "fitness": garmin_source.get_fitness_markers,
+            "weight": garmin_source.get_weight_kg,
             "pmc": lambda: fitness_trend.get_pmc(90),
             "zones": zones.summary,
         }
@@ -350,6 +366,19 @@ def _goal_race_completion(activities: list[dict[str, Any]], race: dict[str, Any]
     if not rows:
         return None
 
+    distances = race.get("distances") or {}
+    try:
+        minimums = {
+            # Allow normal GPS/course variance, but never celebrate a DNF or a
+            # short race-morning multisport as the configured goal finish.
+            sport: float(distances[f"{sport}_km"]) * 0.9
+            for sport in ("swim", "bike", "run")
+        }
+    except (KeyError, TypeError, ValueError):
+        # A finish cannot be identified safely without every configured leg.
+        # Never import T100 defaults into another triathlon profile.
+        minimums = {}
+
     grouped: dict[Any, list[dict[str, Any]]] = {}
     for row in rows:
         parent = row.get("multisport_parent")
@@ -359,23 +388,35 @@ def _goal_race_completion(activities: list[dict[str, Any]], race: dict[str, Any]
     candidate: list[dict[str, Any]] | None = None
     detected_from = None
     for group in grouped.values():
-        if {a.get("sport") for a in group} >= {"swim", "bike", "run"}:
+        by_sport = {
+            sport: [a for a in group if a.get("sport") == sport]
+            for sport in ("swim", "bike", "run")
+        }
+        if minimums and all(
+            sum(float(a.get("km") or 0) for a in by_sport[sport]) >= minimums[sport]
+            for sport in by_sport
+        ):
             candidate = group
             detected_from = "Garmin multisport recording"
             break
 
     if candidate is None:
-        by_sport = {sport: [a for a in rows if a.get("sport") == sport]
+        # The fallback is for truly separate leg recordings only. Native
+        # multisport children were already evaluated as one parent above and
+        # must not be counted again alongside a duplicate recorder. Also use
+        # one plausible recording per sport rather than summing independent
+        # rows, which could turn duplicated partial legs into a fake finish.
+        standalone = [a for a in rows if a.get("multisport_parent") is None]
+        by_sport = {sport: [a for a in standalone if a.get("sport") == sport]
                     for sport in ("swim", "bike", "run")}
-        distances = race.get("distances") or {}
-        minimums = {
-            "swim": float(distances.get("swim_km") or 2) * 0.5,
-            "bike": float(distances.get("bike_km") or 80) * 0.5,
-            "run": float(distances.get("run_km") or 18) * 0.5,
-        }
-        if all(sum(float(a.get("km") or 0) for a in by_sport[sport]) >= minimums[sport]
-               for sport in by_sport):
-            candidate = [a for sport in ("swim", "bike", "run") for a in by_sport[sport]]
+        if minimums and all(
+            max((float(a.get("km") or 0) for a in by_sport[sport]), default=0) >= minimums[sport]
+            for sport in by_sport
+        ):
+            candidate = [
+                max(by_sport[sport], key=lambda a: float(a.get("km") or 0))
+                for sport in ("swim", "bike", "run")
+            ]
             detected_from = "separate Garmin race-day recordings"
 
     if not candidate:
@@ -421,16 +462,17 @@ def _context_block(user_query: str = "") -> str:
     load = live["load"]
     training_load = live["training_load"]
     fitness = live["fitness"]
+    weight = live["weight"]
     pmc = live["pmc"]
     baseline = safe(baselines.get_baselines)
     ready_score = (((readiness.get("training_readiness") or {}).get("score"))
                    if isinstance(readiness, dict) else None)
-    ring_context = {"t100": rings.t100_readiness(
+    ring_context = ({"t100": rings.t100_readiness(
         load if isinstance(load, dict) else {},
         training_load if isinstance(training_load, dict) else {},
         ready_score,
         phase.get("days_remaining", 0),
-    )}
+    )} if config.supports_t100_features() else {})
     signals = safe(lambda: insights.get_insights(
         baseline_data=baseline if isinstance(baseline, dict) else {},
         pmc_data=pmc if isinstance(pmc, dict) else {},
@@ -462,15 +504,44 @@ def _context_block(user_query: str = "") -> str:
                 break
         if execution and not execution.get("error"):
             todays_intervals.append(execution)
-    race_completion = _goal_race_completion(all_acts, phase)
+    race_completion = (_goal_race_completion(all_acts, phase)
+                       if coaching_contract.current_mode() == "TRIATHLON" else None)
     if race_completion:
-        celebrated_key = f"race_finish_celebrated_{race_completion['race_date']}"
+        celebrated_key = coaching_contract.scoped_meta_key(
+            f"race_finish_celebrated_{race_completion['race_date']}"
+        )
         race_completion["celebration_pending"] = not bool(db.get_meta(celebrated_key))
+
+    if not isinstance(weight, dict) or not weight.get("kg"):
+        fallback_kg = float(coaching_contract.ATHLETE_CONSTANTS["body_mass_fallback"]["value"])
+        weight = {
+            "kg": fallback_kg,
+            "lb": round(fallback_kg * 2.2046, 1),
+            "as_of": None,
+            "source": "self-reported",
+            "provider": None,
+            "fallback_reason": "Latest dated Garmin weight entry is unknown",
+            "conversion": (
+                f"{fallback_kg:g} kg x 2.2046 lb/kg = "
+                f"{round(fallback_kg * 2.2046, 1):g} lb"
+            ),
+        }
 
     payload = {
         "today": today,
         "local_time": now.strftime("%A %H:%M %Z"),
+        "coaching_contract": {
+            "current_mode": coaching_contract.current_mode(),
+            "athlete_constants": coaching_contract.athlete_context(),
+            "event_profile": coaching_contract.event_context(),
+        },
+        "input_provenance": {
+            "measured": ["Garmin readiness, sleep, HRV, resting HR, activities, and zones"],
+            "self_reported": ["athlete constants", "event profile", "logged constraints", "manual activities", "dated athlete-maintained Garmin weight entry"],
+            "assumed": ["only values explicitly labelled assumed inside a section"],
+        },
         "athlete_profile": config.ATHLETE_PROFILE,
+        "athlete_weight": weight,
         "athlete_zones": live["zones"],
         "race": phase,
         "goal_race_completion": race_completion,
@@ -487,6 +558,7 @@ def _context_block(user_query: str = "") -> str:
         "todays_planned_workout": {
             "discipline": todays_plan.get("discipline"), "title": todays_plan.get("title"),
             "duration_min": todays_plan.get("duration_min"), "intensity": todays_plan.get("intensity"),
+            "tsb_target": todays_plan.get("tsb_target"),
             "structure": todays_plan.get("structure"),
         } if todays_plan else None,
         "todays_completed_activities": todays_done,
@@ -498,6 +570,7 @@ def _context_block(user_query: str = "") -> str:
         "plan_next_7_days": [
             {"date": d["date"], "discipline": d["discipline"], "title": d["title"],
              "duration_min": d["duration_min"], "intensity": d.get("intensity"),
+             "tsb_target": d.get("tsb_target"),
              "phase": d["phase"]}
             for d in plan_week
         ],
@@ -506,11 +579,16 @@ def _context_block(user_query: str = "") -> str:
             {"date": c["date"], "fact": c["text"]} for c in memory
         ],
     }
-    guide = athlete_guide.context_for(user_query)
+    guide = (athlete_guide.context_for(user_query)
+             if coaching_contract.EVENT_PROFILE.get("athlete_guide_key") == "vancouver-2026"
+             else None)
     if guide:
         payload["vancouver_athlete_guide"] = guide
     if fueling_reference.is_fueling_query(user_query):
         payload["fueling_reference"] = fueling_reference.context()
+    strength = hevy_connector.context_for(user_query)
+    if strength:
+        payload["strength_training_source"] = strength
     # Compact JSON preserves every field while reducing prompt bytes/tokens and
     # therefore input-processing time.
     return json.dumps(payload, separators=(",", ":"), default=str)
@@ -521,6 +599,11 @@ _WEEK_RE = re.compile(r"```weekplan\s*(\[.*?\])\s*```", re.DOTALL)
 _ACT_RE = re.compile(r"```logactivity\s*(\[.*?\]|\{.*?\})\s*```", re.DOTALL)
 _EVENT_RE = re.compile(r"```calendar_event\s*(\{.*?\})\s*```", re.DOTALL)
 _REMEMBER_RE = re.compile(r"```remember\s*(\{.*?\})\s*```", re.DOTALL)
+
+
+def _sanitize_visible_reply(text: str) -> str:
+    """Enforce the athlete's no-em-dash output rule at the final boundary."""
+    return (text or "").replace(" — ", ": ").replace("—", "-")
 
 
 def _extract_remember(text: str) -> str | None:
@@ -548,6 +631,16 @@ def _extract_event(text: str) -> dict[str, Any] | None:
     except json.JSONDecodeError:
         return None
     if not isinstance(ev, dict) or not ev.get("title") or not ev.get("date"):
+        return None
+    if not ev.get("all_day"):
+        try:
+            duration = int(ev.get("duration_min"))
+        except (TypeError, ValueError):
+            return None
+        if not ev.get("start") or duration <= 0:
+            return None
+        ev["duration_min"] = duration
+    elif ev.get("start"):
         return None
     return ev
 
@@ -602,6 +695,38 @@ def _key_error() -> dict[str, Any] | None:
     return None
 
 
+def _explicit_mode_switch(user_message: str) -> dict[str, Any] | None:
+    """Handle exact mode commands without letting the model infer a profile.
+
+    Only one static EVENT_PROFILE is installed. A request for any other target
+    therefore leaves TRIATHLON active and asks for the replacement block; no
+    ordinary coaching question can reach this branch.
+    """
+    target = coaching_contract.explicit_switch_target(user_message)
+    if target is None:
+        return None
+    mode = coaching_contract.current_mode()
+    if coaching_contract.target_is_current(target):
+        reply = (f"TL;DR: {mode} is already the active mode.\n"
+                 f"• Event: {coaching_contract.EVENT_PROFILE['event']} remains installed.\n"
+                 "• Guard: Ordinary training questions cannot change event mode.")
+    else:
+        reply = (f"TL;DR: Mode remains {mode}; the {target} EVENT PROFILE is unknown.\n"
+                 "• Needed: Send event, date, distances, goal, course aid, and pacing targets.\n"
+                 "• Guard: I will not infer or carry assumptions into another event.")
+    db.add_chat("user", user_message)
+    db.add_chat("assistant", reply)
+    return {
+        "reply": reply,
+        "proposed_adjustment": None,
+        "proposed_week": None,
+        "proposed_activities": None,
+        "proposed_event": None,
+        "model": "deterministic-policy",
+        "stop_reason": "end_turn",
+    }
+
+
 def _prepare_chat(user_message: str) -> tuple[str, list[dict[str, Any]]]:
     """Build the private conversation window and append fresh training context."""
     today = config.local_today().isoformat()
@@ -648,6 +773,7 @@ def _finish_chat(user_message: str, today: str, msg: Any) -> dict[str, Any]:
         db.add_constraint(today, remember)
     # Strip the machine blocks from the human-facing reply.
     reply_clean = _REMEMBER_RE.sub("", _EVENT_RE.sub("", _ACT_RE.sub("", _WEEK_RE.sub("", _ADJ_RE.sub("", reply))))).strip()
+    reply_clean = _sanitize_visible_reply(reply_clean)
 
     # Never surface a blank "(no reply)". If the model returned only a machine block
     # (or ran out of tokens mid-thought), give a sensible confirmation — the proposal
@@ -666,6 +792,8 @@ def _finish_chat(user_message: str, today: str, msg: Any) -> dict[str, Any]:
             reply_clean = "I ran long on that one — ask me to continue and I'll finish the thought."
         else:
             reply_clean = "Got it."
+
+    reply_clean = _sanitize_visible_reply(reply_clean)
 
     # Persist the visible exchange (cleaned text, not raw blocks; not the context blob).
     db.add_chat("user", user_message)
@@ -686,6 +814,10 @@ def chat_events(user_message: str,
                 log_as_constraint: bool = False) -> Iterator[dict[str, Any]]:
     """Yield status/text/final events so the UI can render the answer immediately."""
     del log_as_constraint  # compatibility with the pre-memory API
+    switch_result = _explicit_mode_switch(user_message)
+    if switch_result is not None:
+        yield {"type": "done", "result": switch_result}
+        return
     key_error = _key_error()
     if key_error:
         yield {"type": "error", **key_error}
@@ -724,7 +856,7 @@ def chat_events(user_message: str,
                     sent_text = True
                     if first_token_ms is None:
                         first_token_ms = round((time.monotonic() - started_at) * 1000)
-                    yield {"type": "delta", "text": text}
+                    yield {"type": "delta", "text": text.replace("—", "-")}
                 msg = stream.get_final_message()
             result = _finish_chat(user_message, today, msg)
             result["timing_ms"] = {
@@ -824,7 +956,8 @@ def morning_brief() -> dict[str, Any]:
         context_data = {}
     race_completion = context_data.get("goal_race_completion") or {}
     race_date = race_completion.get("race_date")
-    celebration_key = f"race_finish_celebrated_{race_date}" if race_date else None
+    celebration_key = (coaching_contract.scoped_meta_key(f"race_finish_celebrated_{race_date}")
+                       if race_date else None)
     celebrate = bool(race_completion.get("completed")
                      and race_completion.get("celebration_pending") and celebration_key)
     if celebrate:
@@ -839,13 +972,24 @@ def morning_brief() -> dict[str, Any]:
         return {"error": f"{type(e).__name__}: {e}", "source": "anthropic"}
 
     reply = "".join(b.text for b in msg.content if b.type == "text").strip()
-    reply = _ADJ_RE.sub("", reply).strip()
+    reply = _sanitize_visible_reply(_ADJ_RE.sub("", reply).strip())
     if not reply:
         return {"error": f"empty reply (stop_reason={msg.stop_reason})", "source": "anthropic"}
     db.add_chat("assistant", reply)  # standalone greeting; chat() trims leading assistant turns
     if celebrate and celebration_key:
         db.set_meta(celebration_key, config.local_now().isoformat())
     return {"reply": reply, "model": msg.model, "celebrate": celebrate}
+
+
+def _normalized_tsb_target(value: Any) -> float | int:
+    import math
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return coaching_contract.DEFAULT_RACE_DAY_TSB_TARGET
+    if not math.isfinite(number) or not 5 <= number <= 15:
+        return coaching_contract.DEFAULT_RACE_DAY_TSB_TARGET
+    return int(number) if number.is_integer() else round(number, 1)
 
 
 def accept_adjustment(adjustment: dict[str, Any]) -> dict[str, Any] | None:
@@ -862,8 +1006,9 @@ def accept_adjustment(adjustment: dict[str, Any]) -> dict[str, Any] | None:
     except (ValueError, TypeError):
         date = today.isoformat()
     fields = {k: adjustment[k] for k in
-              ("title", "discipline", "duration_min", "intensity", "structure", "why")
+              ("title", "discipline", "duration_min", "intensity", "tsb_target", "structure", "why")
               if k in adjustment}
+    fields["tsb_target"] = _normalized_tsb_target(fields.get("tsb_target"))
     return db.edit_plan_day(date, fields, source="coach")
 
 
@@ -883,8 +1028,9 @@ def accept_weekplan(days: list[dict[str, Any]]) -> dict[str, Any]:
             skipped.append(raw)
             continue
         fields = {k: d[k] for k in
-                  ("title", "discipline", "duration_min", "intensity", "structure", "why", "is_rest")
+                  ("title", "discipline", "duration_min", "intensity", "tsb_target", "structure", "why", "is_rest")
                   if k in d}
+        fields["tsb_target"] = _normalized_tsb_target(fields.get("tsb_target"))
         row = db.edit_plan_day(dt.isoformat(), fields, source="coach")
         if row:
             updated.append(row)

@@ -323,6 +323,11 @@ def _strain_insight(strain, zones) -> str | None:
 
 # --- T100 readiness -----------------------------------------------------------
 def _t100() -> dict[str, Any]:
+    if not config.supports_t100_features():
+        return {
+            "error": "T100 readiness is unavailable for the active event profile",
+            "available": False,
+        }
     load14 = _safe(lambda: garmin_source.get_recent_load(14)) or {}
     tl = _safe(garmin_source.get_training_load) or {}
     rd = _safe(garmin_source.get_readiness) or {}
@@ -336,7 +341,8 @@ def _t100() -> dict[str, Any]:
         return _contrib(f"{name.title()} volume", {"swim": "🏊", "bike": "🚴", "run": "🏃"}[name],
                         cc.get("km_14d"), unit="km", higher_better=True, pct=cc.get("pct"),
                         fmt=f"target {cc.get('target')} km / 14 d"
-                             + ("  · weakest leg" if name == t.get("weakest_leg") else ""))
+                             + ("  · lowest volume bucket"
+                                if name == t.get("lowest_volume_bucket") else ""))
 
     contributors = [leg("swim"), leg("bike"), leg("run"),
                     _contrib("Load balance (ACWR)", "⚖", (comp.get("load_balance") or {}).get("acwr"),
@@ -364,10 +370,10 @@ def _t100() -> dict[str, Any]:
     insight = None
     if isinstance(pmc, dict) and pmc.get("interpretation"):
         insight = pmc["interpretation"].get("note")
-    weakest = t.get("weakest_leg")
-    if weakest:
-        wc = comp.get(weakest, {})
-        lead = f"Weakest leg: {weakest} at {wc.get('pct')}% of its 14-day target. "
+    low_bucket = t.get("lowest_volume_bucket")
+    if low_bucket:
+        wc = comp.get(low_bucket, {})
+        lead = f"Lowest volume bucket: {low_bucket} at {wc.get('pct')}% of its 14-day target. "
         insight = lead + (insight or "")
 
     return {

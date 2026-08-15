@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from . import db, garmin_source, interval_analysis
+from . import config, db, garmin_source, interval_analysis
 
 
 def _safe(fn, default=None):
@@ -188,7 +188,7 @@ def _best_efforts(series: dict[str, list], sport: str, total_s: float = 0.0) -> 
     return out or None
 
 
-_ANALYZE_PROMPT = """Here is the full data for one of my completed activities (stats, splits, \
+_T100_ANALYZE_PROMPT = """Here is the full data for one of my completed activities (stats, splits, \
 and series summaries). Give me your read on this session in 4–6 sentences:
 1. What kind of session this actually was (based on the numbers, not the name).
 2. Execution quality — pacing/power/HR discipline, split consistency, decoupling if visible.
@@ -199,11 +199,33 @@ compare whole-session average HR with the work target.
 Direct, evidence-based, reference specific numbers. No adjustment block, no preamble."""
 
 
+_GENERIC_ANALYZE_PROMPT = """Here is the full data for one of my completed activities (stats, splits, \
+and series summaries). Give me your read on this session in 4–6 sentences:
+1. What kind of session this actually was (based on the numbers, not the name).
+2. Execution quality: pacing, heart-rate discipline, split consistency, and decoupling if visible.
+3. Training effect: what this did physiologically and how it fits the active event profile when relevant.
+For a structured interval session, grade each ACTIVE bout from `interval_execution` and never \
+compare whole-session average HR with the work target.
+Do not import distances, targets, or plan assumptions from any other event profile.
+Direct, evidence-based, reference specific numbers. No adjustment block, no preamble."""
+
+
+def _analyze_prompt() -> str:
+    return _T100_ANALYZE_PROMPT if config.supports_t100_features() else _GENERIC_ANALYZE_PROMPT
+
+
+def _analysis_cache_key(activity_id: int) -> str:
+    """Keep analyses from one event profile out of every subsequent profile."""
+    profile_id = str(config.coaching_contract.EVENT_PROFILE.get("id") or "no-event")
+    safe_id = "".join(ch if ch.isalnum() else "_" for ch in profile_id)
+    return f"analysis_v3_{safe_id}_{activity_id}"
+
+
 def analyze(activity_id: int) -> dict[str, Any]:
     """Coach Steve's take on one activity — cached per activity id."""
-    # v2 includes recorded interval boundaries and duration-weighted HR; do not
-    # reuse older analyses that graded interval days from whole-session averages.
-    cache_key = f"analysis_v2_{activity_id}"
+    # v3 includes recorded interval boundaries, duration-weighted HR, and the
+    # active profile id. Never reuse an analysis carrying another event's frame.
+    cache_key = _analysis_cache_key(activity_id)
     cached = db.get_meta(cache_key)
     if cached:
         return {"analysis": cached, "cached": True}
@@ -229,7 +251,7 @@ def analyze(activity_id: int) -> dict[str, Any]:
 
     context = coach._context_block()
     messages = [{"role": "user", "content":
-                 f"<context>\n{context}\n</context>\n\n<activity>\n{json.dumps(slim, default=str)}\n</activity>\n\n{_ANALYZE_PROMPT}"}]
+                 f"<context>\n{context}\n</context>\n\n<activity>\n{json.dumps(slim, default=str)}\n</activity>\n\n{_analyze_prompt()}"}]
     try:
         msg = coach._stream_reply(3000, messages)
     except Exception as e:
