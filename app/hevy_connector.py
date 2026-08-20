@@ -257,7 +257,12 @@ def _connector_from_environment() -> HevyConnector:
     return HevyAPIConnector(key) if key else UnavailableHevyConnector()
 
 
-_connector: HevyConnector = _connector_from_environment()
+# Built on first use, never at import. `app.config` is what loads `.env`, so a
+# connector constructed while this module is imported may read an environment
+# that does not yet contain HEVY_API_KEY — which silently produced a permanently
+# "not connected" Hevy whenever this module happened to be imported first.
+_connector: HevyConnector | None = None
+_explicitly_configured = False
 _CONTEXT_CACHE: dict[str, Any] = {"at": 0.0, "data": None}
 _CONTEXT_LOCK = threading.Lock()
 _WORKOUTS_CACHE: dict[str, Any] = {"at": 0.0, "data": None}
@@ -277,19 +282,29 @@ _WEIGHTS_WORKOUT_RE = re.compile(
 
 
 def configure(connector: HevyConnector) -> None:
-    """Install a real runtime adapter. Application startup owns this decision."""
-    global _connector
+    """Install a connector explicitly. Tests and the host bridge use this."""
+    global _connector, _explicitly_configured
     _connector = connector
+    _explicitly_configured = True
 
 
 def reset() -> None:
-    """Restore the truthful disconnected adapter, primarily for tests."""
-    global _connector
+    """Return to the truthful disconnected adapter."""
+    global _connector, _explicitly_configured
     _connector = UnavailableHevyConnector()
+    _explicitly_configured = True
+
+
+def reload_from_environment() -> HevyConnector:
+    """Rebuild from the current environment, discarding any cached connector."""
+    global _connector, _explicitly_configured
+    _connector = _connector_from_environment()
+    _explicitly_configured = False
+    return _connector
 
 
 def status() -> dict[str, Any]:
-    return _connector.status()
+    return connector().status()
 
 
 def is_lifting_query(text: str) -> bool:
@@ -304,6 +319,7 @@ def context_for(text: str) -> dict[str, Any] | None:
     state = status()
     recent: Any = "unknown"
     if state.get("connected"):
+        client = connector()
         now = time.monotonic()
         with _CONTEXT_LOCK:
             if now - float(_CONTEXT_CACHE.get("at") or 0) < 300 and _CONTEXT_CACHE.get("data") is not None:
@@ -313,7 +329,7 @@ def context_for(text: str) -> dict[str, Any] | None:
                     # The official list endpoint embeds each workout's exercises,
                     # so a full page costs one request and gives the coach enough
                     # history to anchor a working weight rather than guess one.
-                    listing = _connector.get_workouts(page=1, page_size=10)
+                    listing = client.get_workouts(page=1, page_size=10)
                     summaries = listing.get("workouts") or []
                     detailed = []
                     for summary in summaries[:10]:
@@ -323,7 +339,7 @@ def context_for(text: str) -> dict[str, Any] | None:
                         workout_id = summary.get("id") if isinstance(summary, dict) else None
                         if not workout_id:
                             continue
-                        payload = _connector.get_workout(str(workout_id))
+                        payload = client.get_workout(str(workout_id))
                         # Official GET /workouts/{id} returns the Workout directly.
                         # Accept the historical wrapper only for transport adapters.
                         workout = (payload.get("workout") if isinstance(payload, dict)
@@ -412,5 +428,15 @@ def known_exercises() -> tuple[dict[str, str], dict[str, str]]:
 
 
 def connector() -> HevyConnector:
-    """Return the configured adapter to the future integration service layer."""
+    """The active Hevy connector, built from the environment on first use.
+
+    An unconfigured connector is retried rather than cached: the key may have
+    arrived after this module was imported, which is exactly what happens when
+    `.env` is loaded by `app.config`.
+    """
+    global _connector
+    if _explicitly_configured and _connector is not None:
+        return _connector
+    if _connector is None or isinstance(_connector, UnavailableHevyConnector):
+        _connector = _connector_from_environment()
     return _connector

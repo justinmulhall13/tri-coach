@@ -3550,17 +3550,17 @@ async function loadLifting(){
     head.innerHTML=`<div>Hevy is not connected, so there is no lifting history to show.</div>
       <div class="lf-sub">${esc(String(d.reason||""))}</div>`;
     ["lift-gains","lift-sessions","lift-records","lift-stale"].forEach(id=>$(id).innerHTML="");
-    renderLiftRules(null);
+    renderLiftRules();
     return;
   }
   if(!d.has_data){
     head.innerHTML=`<div>No logged lifting sessions yet.</div>
       <div class="lf-sub">Log a session in Hevy and this fills in.</div>`;
     ["lift-gains","lift-sessions","lift-records","lift-stale"].forEach(id=>$(id).innerHTML="");
-    renderLiftRules(null);
+    renderLiftRules();
     return;
   }
-  renderLiftHead(d); renderLiftRules(d); renderLiftGains(d);
+  renderLiftHead(d); renderLiftRules(); renderLiftGains(d);
   renderLiftSessions(d); renderLiftRecords(d); renderLiftStale(d);
 }
 
@@ -3596,17 +3596,15 @@ function renderLiftHead(d){
     }</div>`:""}`;
 }
 
-function renderLiftRules(d){
-  // The shoulder rules are the reason sessions get rebuilt, so they are stated
-  // in the tab rather than only enforced silently.
-  const rules=(d&&d.recent_sessions&&d.recent_sessions[0]&&d.recent_sessions[0].rule_status&&
-               d.recent_sessions[0].rule_status.rules)||[
-    "At most 1 pressing movement per session.",
-    "No triceps isolation on a day that presses.",
-    "6 exercises per session.",
-    "No two adjacent exercises from the same group.",
-    "No face pulls; rear delt flies instead."];
-  $("lift-rules").innerHTML=rules.map(r=>`<div class="lf-rule"><b>·</b><span>${esc(String(r))}</span></div>`).join("");
+async function renderLiftRules(){
+  // Fetched, never hardcoded here. A copy of the rules in this file went stale
+  // the moment one was corrected in lifting_rules.py, and the tab kept showing
+  // a constraint the athlete had explicitly removed.
+  let rules=[];
+  try{ rules=(await j("/api/lifting/rules")).rules||[]; }catch(e){ rules=[]; }
+  $("lift-rules").innerHTML = rules.length
+    ? rules.map(r=>`<div class="lf-rule"><b>·</b><span>${esc(String(r))}</span></div>`).join("")
+    : `<div class="muted">Rules unavailable right now.</div>`;
 }
 
 function renderLiftGains(d){
