@@ -96,7 +96,12 @@ class HevyAPIConnector:
         self._api_key = key
         self._base_url = base_url.rstrip("/")
         self._timeout_s = timeout_s
-        self._verified_at = 0.0
+        # `None`, not 0.0: time.monotonic() counts from boot, so a 0.0
+        # sentinel makes "never verified" indistinguishable from "verified 33
+        # seconds after boot" and the check silently never runs. On a machine
+        # that cold-starts, that reported Hevy as disconnected for five minutes
+        # after every boot while the credential was perfectly valid.
+        self._verified_at: float | None = None
         self._verified_user: dict[str, Any] | None = None
         self._last_error: str | None = None
         self._write_results: dict[tuple[str, str], dict[str, Any]] = {}
@@ -146,9 +151,11 @@ class HevyAPIConnector:
             raise HevyAPIError("Hevy API returned an unexpected payload")
         return data
 
+    VERIFY_TTL_S = 300
+
     def status(self) -> dict[str, Any]:
         now = time.monotonic()
-        if now - self._verified_at >= 300:
+        if self._verified_at is None or now - self._verified_at >= self.VERIFY_TTL_S:
             try:
                 user = self._request("GET", "user/info")
                 self._verified_user = user
@@ -156,6 +163,9 @@ class HevyAPIConnector:
             except HevyAPIError as exc:
                 self._verified_user = None
                 self._last_error = str(exc)
+            except Exception as exc:  # noqa: BLE001 - a timeout is a status, not a crash
+                self._verified_user = None
+                self._last_error = f"{type(exc).__name__}: {exc}"
             self._verified_at = now
         connected = self._verified_user is not None
         capabilities = {name: connected for name in _CAPABILITIES}

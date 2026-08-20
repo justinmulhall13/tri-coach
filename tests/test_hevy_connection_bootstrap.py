@@ -65,3 +65,58 @@ class RulesSingleSourceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FreshBootVerificationTests(unittest.TestCase):
+    """time.monotonic() counts from boot, so a 0.0 'never verified' sentinel is
+    indistinguishable from 'verified moments ago' on a machine that cold-starts.
+    Fly machines auto-stop, so this reported a valid Hevy key as unverified for
+    the first five minutes after every boot."""
+
+    class _Recorder(hevy_connector.HevyAPIConnector):
+        def __init__(self) -> None:
+            super().__init__("test-key")
+            self.calls: list[str] = []
+
+        def _request(self, method, path, *, params=None, body=None, idempotency_key=None):
+            self.calls.append(path)
+            return {"data": {"id": "u1", "name": "athlete"}}
+
+    def test_verification_runs_immediately_after_boot(self) -> None:
+        import time
+        from unittest.mock import patch
+        client = self._Recorder()
+        # 33 seconds of uptime: what a freshly booted Fly machine reports.
+        with patch.object(time, "monotonic", return_value=33.0):
+            state = client.status()
+        self.assertEqual(client.calls, ["user/info"])
+        self.assertTrue(state["connected"], state)
+
+    def test_a_verified_credential_is_not_rechecked_every_call(self) -> None:
+        import time
+        from unittest.mock import patch
+        client = self._Recorder()
+        with patch.object(time, "monotonic", return_value=33.0):
+            client.status()
+            client.status()
+        self.assertEqual(client.calls, ["user/info"])
+
+    def test_verification_is_retried_once_the_ttl_lapses(self) -> None:
+        import time
+        from unittest.mock import patch
+        client = self._Recorder()
+        with patch.object(time, "monotonic", return_value=33.0):
+            client.status()
+        with patch.object(time, "monotonic",
+                          return_value=33.0 + client.VERIFY_TTL_S + 1):
+            client.status()
+        self.assertEqual(client.calls, ["user/info", "user/info"])
+
+    def test_a_transport_failure_reports_rather_than_raising(self) -> None:
+        class Broken(hevy_connector.HevyAPIConnector):
+            def _request(self, *a, **k):
+                raise TimeoutError("connection timed out")
+
+        state = Broken("test-key").status()
+        self.assertFalse(state["connected"])
+        self.assertIn("TimeoutError", state["reason"])
