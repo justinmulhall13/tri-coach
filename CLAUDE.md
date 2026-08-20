@@ -173,3 +173,72 @@ early and is unaffected.
   share state (`test_event_profile_namespace.py`).
 - Garmin-offline handling: every affected route returns a 502 naming the source;
   `/api/plan/strength-effort` degrades to 200 with a null readiness score.
+
+
+## Session 2026-08-20 (part 2) — lifting rules, tab, and Hevy resolution
+
+### The athlete's shoulder is a hard constraint, enforced in code
+`app/lifting_rules.py` is the authority, not the prompt: at most one pressing
+movement per session, never paired with triceps isolation, six exercises,
+no two adjacent exercises from the same group, no face pulls (rear delt fly
+instead), and back volume capped. `check` reports violations, `arrange`
+reorders without ever adding or dropping an exercise.
+
+A **chest fly is not a press**. It is grouped as push for alternation but does
+not spend the single pressing slot, so one press plus a fly is legal — which is
+how the athlete actually builds an upper day. `strength_visual` gained a `fly`
+pattern for this; without it the rule engine rejected valid sessions.
+
+### The coach was never actually blocked by missing exercises
+It reported Chest Fly, Plank and Dead Bug as having "no template ID on file".
+All three exist in Hevy's 476-template catalogue. It was searching only the
+athlete's recent *workout history* (45 titles). `hevy_exercises.find_existing`
+now searches the catalogue, ranked:
+
+1. exact title, 2. title ignoring the equipment qualifier, 3. candidate
+containing every requested word ("Rear Delt Fly" → "Rear Delt Reverse Fly").
+
+Within a tier, **variants the athlete has actually used win**. Without that bias
+"Squat" resolved to *Squat (Band)* and "Incline Bench Press" to *(Barbell)* when
+his history is dumbbell. A request whose words are not all present is never
+matched, so Lateral Raise still cannot stand in for Rear Delt Fly.
+
+Genuinely absent exercises are created via `POST /v1/exercise_templates`. That
+schema does NOT match the GET schema:
+
+| GET returns | POST expects |
+| --- | --- |
+| `primary_muscle_group` | `muscle_group` |
+| `type` | `exercise_type` |
+| `equipment` | `equipment_category` |
+
+`resolve_routine_exercises` fills ids from plain titles, so the model no longer
+needs to quote one, and reports per-exercise outcomes instead of silently
+returning a shorter session.
+
+### Readiness follows the active event
+`app/event_readiness.py` derives 14-day volume targets from the active profile's
+own race distances and labels the ring from the event ("Marathon Ready",
+"70.3 Ready"). The tuned T100 model is kept where it applies because its targets
+are specific to that race; every other event is scored against its own numbers.
+Weights are renormalised over the disciplines the event actually has, so a
+run-only race is not capped by absent swim and bike volume.
+
+### Lifting tab
+`app/lifting_stats.py` + `GET /api/lifting/stats`. Records, biggest gains,
+push/pull balance (a health metric for this shoulder, not a curiosity),
+consistency, stale lifts, weekly tonnage, and a retrospective rule check on
+logged sessions — which correctly flags historical press+triceps days and face
+pulls.
+
+**Progress is measured between sessions, never within one.** Comparing the first
+logged set to the best reported a "+443% gain" on bench press where both ends
+were the same December afternoon: the first set was the empty bar. `biggest_gains`
+requires three separate sessions and a `first_date != pr_date`.
+
+### Fixed: importing the app reconciled the real calendar
+`main.py` called `_bg_sync()` at import, so every test run — and any script
+importing `app.main` — fired a real Google Calendar reconcile from the dev
+machine. With Fly reconciling the same plan, that is exactly how duplicate
+events appear. It is now an ASGI startup handler, covered by
+`tests/test_startup_side_effects.py`.

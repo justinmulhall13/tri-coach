@@ -56,7 +56,10 @@ class CoachExternalToolTests(unittest.TestCase):
             '"sets":[{"type":"normal","reps":8,"weight_kg":100}]}]}'
             '\n```'
         )
-        self.assertIsNone(coach._extract_hevy_routine(raw))
+        routine, notes = coach._extract_hevy_routine(raw)
+        self.assertIsNone(routine)
+        # The reason is reported now rather than the proposal vanishing silently.
+        self.assertTrue(any("exact Hevy value" in e for e in notes["errors"]))
 
 
 if __name__ == "__main__":

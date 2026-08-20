@@ -5,6 +5,7 @@ import math
 from typing import Any
 
 from . import hevy_connector
+from . import hevy_exercises
 from . import strength_weights as sw
 
 
@@ -39,6 +40,62 @@ def _integer(value: Any, *, minimum: int = 0) -> int | None:
     if number is None or not number.is_integer():
         return None
     return int(number)
+
+
+def resolve_routine_exercises(raw: dict[str, Any], *, create_missing: bool = True,
+                              connector: Any = None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Fill in `exercise_template_id` for any exercise given only by name.
+
+    Previously the model had to supply an exact template id, so an exercise it
+    could not find an id for was dropped and the session silently shrank. Now a
+    plain title is enough: the full Hevy catalogue is searched (not just the
+    athlete's recent history, which is what made ordinary movements look
+    missing), preferring variants the athlete actually uses, and anything
+    genuinely absent is created.
+
+    Returns the routine plus one report per exercise, so the caller can tell the
+    athlete which movements were matched, created, or could not be resolved
+    rather than quietly returning a shorter workout.
+    """
+    reports: list[dict[str, Any]] = []
+    if not isinstance(raw, dict):
+        return raw, reports
+    exercises = raw.get("exercises")
+    if not isinstance(exercises, list):
+        return raw, reports
+
+    client = connector or hevy_connector.connector()
+    # `search_exercise_templates` matches a needle against the full cached
+    # catalogue, so each title is looked up directly. History ids only bias
+    # which equipment variant wins, so a failure there is not fatal.
+    try:
+        history_ids = set(hevy_connector.known_exercises()[0])
+    except Exception:  # noqa: BLE001
+        history_ids = set()
+
+    resolved: list[Any] = []
+    for exercise in exercises:
+        if not isinstance(exercise, dict):
+            resolved.append(exercise)
+            continue
+        template_id = str(exercise.get("exercise_template_id") or "").strip()
+        title = str(exercise.get("title") or exercise.get("exercise_name") or "").strip()
+        if template_id or not title:
+            resolved.append(exercise)
+            continue
+        try:
+            pool = client.search_exercise_templates(title) or []
+        except Exception:  # noqa: BLE001
+            pool = []
+        report = hevy_exercises.resolve(
+            title, templates=pool, connector=client if create_missing else None,
+            create=create_missing, history_ids=history_ids,
+        )
+        reports.append(report)
+        if report.get("exercise_template_id"):
+            exercise = {**exercise, "exercise_template_id": report["exercise_template_id"]}
+        resolved.append(exercise)
+    return {**raw, "exercises": resolved}, reports
 
 
 def validate_routine(raw: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:

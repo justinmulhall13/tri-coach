@@ -325,6 +325,25 @@ A few problems here were more interesting than they first look:
   namespaces; re-confirming the same event resolves to the same one, so a plan is
   never orphaned by a repeated confirmation.
 
+- **An injury constraint belongs in code, not a prompt.** The athlete has a bad
+  shoulder: at most one pressing movement per session, never paired with triceps
+  isolation, and no face pulls. A model told this in a system prompt will follow it
+  most of the time, and "most of the time" is the wrong reliability target for
+  something that can hurt someone. The rules are a module the generator is checked
+  against, so a session that breaks them cannot be proposed — and logged history is
+  checked against them too, which surfaced real past sessions that paired a press
+  with triceps work. The interesting case is the chest fly: it is push, but it is not
+  a press, and treating it as one rejected sessions the athlete deliberately builds.
+
+- **"Not found" usually means "looked in the wrong place".** The coach kept
+  reporting that ordinary exercises had no Hevy template and quietly shipping a
+  three-exercise workout instead of six. All of them existed; it was searching the
+  athlete's recent history rather than the full catalogue. Matching is now ranked —
+  exact title, then ignoring the equipment qualifier, then requiring every requested
+  word — and, crucially, variants the athlete has actually used win ties. Without
+  that last rule "Squat" resolves to *Squat (Band)*. Anything genuinely missing is
+  created through the API rather than dropped.
+
 - **Two sources that each hold half the truth.** Garmin records *that* a strength
   session happened — duration, heart rate — and never which exercises or weights.
   Hevy records exercises, sets and exact weights, but only for sessions logged

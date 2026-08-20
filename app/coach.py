@@ -28,7 +28,8 @@ from typing import Any
 from . import (athlete_guide, coaching_contract, config, db,
                fueling_reference, garmin_source, hevy_connector,
                interval_analysis, rings, suggest, web_lookup, zones)
-from . import hevy_actions, strength_context, strength_effort, strength_visual
+from . import (hevy_actions, lifting_rules, strength_context,
+               strength_effort, strength_visual)
 
 _SYSTEM = """
 
@@ -147,6 +148,17 @@ the limiter. NEVER jump run volume to hit a load target; add that volume on the 
 LIFTING AND HEVY:
 - A lifting question does not change event mode. Do not insert lifting unprompted, but fully handle it
 when asked. Give exercise order, sets, reps or duration, rest, and effort; never invent working weight.
+- SHOULDER RULES (injury constraints, enforced in code, never negotiable):
+  at most ONE pressing movement per session; NEVER pair a press with triceps isolation on the same
+  day; SIX exercises per session; alternate so no muscle group runs back to back; NO face pulls
+  (use a rear delt fly); keep true back work to about one movement, not three. A chest fly is not a
+  press, so a session may pair one press with a fly.
+- When the athlete builds or edits a lifting session, ALWAYS append the `hevy_routine` block in the
+  same reply. Do not wait to be asked to "put it in Hevy" and do not offer it as a follow-up
+  question: propose it, and let the athlete decide with the Create button.
+- When the athlete edits a session in conversation ("swap X for Y", "too much back", "that hurts my
+  shoulder"), rebuild the whole session and re-emit the block. Treat their wording as the
+  instruction; do not ask them to restate it more precisely.
 - Read `strength_training_source`. It holds two dated sources that must not be conflated:
 `session_evidence` (Garmin: that a lift happened, its duration and HR — never which weights) and
 `weight_evidence` (Hevy: exercises, sets and exact weights — only for sessions logged there).
@@ -166,8 +178,12 @@ a stale weight. Say plainly that logging those sessions is what turns the cue in
 was created from chat text; writes require resolved exercise-template IDs and explicit confirmation.
 - When the athlete asks you to build or program a reusable lifting session and
   `strength_training_source.weight_evidence.connected` is true, append one `hevy_routine` block.
-  Use only exact exercise_template_id values present in `strength_training_source`; never fabricate
-  an ID. For working weight choose exactly one of:
+  Give each exercise a plain `title`. The server searches the whole Hevy catalogue, prefers the
+  equipment variant the athlete actually uses, and creates the exercise if it genuinely does not
+  exist, so you do NOT need an exercise_template_id and must never claim an exercise is
+  unavailable. Include an id only when quoting one from `strength_training_source`.
+  NEVER drop an exercise from a session because you could not find an id: keep the session whole.
+  For working weight choose exactly one of:
     - omit it entirely and prescribe by reps in reserve, or
     - set `weight_kg` to a value that appears verbatim in Hevy history with
       `weight_provenance` set to `hevy_history`, or
@@ -805,32 +821,62 @@ def _extract_event_profile(text: str) -> dict[str, Any] | None:
     return profile if isinstance(profile, dict) else None
 
 
-def _extract_hevy_routine(text: str) -> dict[str, Any] | None:
-    """Parse and locally validate a proposed reusable Hevy routine."""
+def _extract_hevy_routine(text: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Parse a proposed routine, resolve its exercises, then validate it.
+
+    Resolution runs first so the model may name an exercise instead of quoting
+    a template id. Anything it could not resolve is reported rather than
+    dropped: silently returning a shorter session is what made a six-exercise
+    workout arrive as three with no explanation.
+    """
+    notes: dict[str, Any] = {"resolution": [], "rules": None}
     match = _HEVY_RE.search(text or "")
     if not match:
-        return None
+        return None, notes
     try:
         raw = json.loads(match.group(1))
     except json.JSONDecodeError:
-        return None
+        return None, notes
+    try:
+        raw, reports = hevy_actions.resolve_routine_exercises(raw)
+        notes["resolution"] = reports
+    except Exception:  # noqa: BLE001 - a lookup failure must not lose the session
+        notes["resolution"] = []
+    # The shoulder rules are injury constraints, so they are checked on the
+    # server rather than trusted to the prompt.
+    try:
+        notes["rules"] = lifting_rules.summary(raw.get("exercises")
+                                               if isinstance(raw, dict) else None)
+    except Exception:  # noqa: BLE001
+        notes["rules"] = None
     routine, errors = hevy_actions.validate_routine(raw)
     if errors or routine is None:
-        return None
-    return routine
+        notes["errors"] = errors
+        return None, notes
+    return routine, notes
 
 
-def _hevy_routine_view(routine: dict[str, Any]) -> dict[str, Any] | None:
+def _hevy_routine_view(routine: dict[str, Any],
+                       notes: dict[str, Any] | None = None) -> dict[str, Any] | None:
     """Build the chat card model for a proposed routine, never raising."""
     try:
         titles, muscles = hevy_connector.known_exercises()
         with _EFFORT_LOCK:
             fresh = _EFFORT_CACHE.get("date") == config.local_today().isoformat()
             effort = _EFFORT_CACHE.get("data") if fresh else None
-        return strength_visual.build_view(
+        view = strength_visual.build_view(
             routine, titles=titles, muscle_groups=muscles,
             effort_cue=(effort or {}).get("cue"),
         )
+        if isinstance(notes, dict):
+            created = [r for r in (notes.get("resolution") or [])
+                       if isinstance(r, dict) and r.get("created")]
+            unresolved = [r for r in (notes.get("resolution") or [])
+                          if isinstance(r, dict) and not r.get("exercise_template_id")]
+            view["created_exercises"] = [r["title"] for r in created]
+            view["unresolved_exercises"] = [r["title"] for r in unresolved]
+            view["rules"] = notes.get("rules")
+        return view
     except Exception:  # noqa: BLE001 - a card is never worth failing a reply over
         return None
 
@@ -1264,7 +1310,7 @@ def _finish_chat(user_message: str, today: str, msg: Any, *,
     activities = _extract_activities(reply)
     event = _extract_event(reply)
     event_profile = _extract_event_profile(reply)
-    hevy_routine = _extract_hevy_routine(reply)
+    hevy_routine, hevy_notes = _extract_hevy_routine(reply)
     remember = _extract_remember(reply)
     staged_profile = None
     profile_error = None
@@ -1354,7 +1400,8 @@ def _finish_chat(user_message: str, today: str, msg: Any, *,
         "proposed_hevy_routine": hevy_routine,
         # Display model only. Built from the same validated routine but never
         # posted to Hevy, so no render-only field can reach the API.
-        "hevy_routine_view": _hevy_routine_view(hevy_routine) if hevy_routine else None,
+        "hevy_routine_view": _hevy_routine_view(hevy_routine, hevy_notes) if hevy_routine else None,
+        "hevy_routine_notes": hevy_notes if hevy_routine or hevy_notes.get("errors") else None,
         "hevy_operation_id": (
             "hevy-" + hashlib.sha256(
                 (user_message + "\n" + json.dumps(hevy_routine, sort_keys=True, separators=(",", ":")))

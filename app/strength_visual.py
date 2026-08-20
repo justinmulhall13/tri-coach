@@ -19,7 +19,7 @@ from . import strength_weights as sw
 # Movement patterns the UI can draw. Anything unrecognised falls back to
 # "other", which draws a neutral figure rather than a wrong one.
 PATTERNS = (
-    "squat", "hinge", "lunge", "push_horizontal", "push_vertical",
+    "squat", "hinge", "lunge", "push_horizontal", "push_vertical", "fly",
     "pull_vertical", "pull_horizontal", "calf", "core", "curl",
     "triceps", "raise", "plyo", "olympic", "carry", "cardio", "other",
 )
@@ -40,8 +40,8 @@ _TITLE_RULES: tuple[tuple[str, str], ...] = (
     (r"pull[- ]?ups?\b|chin[- ]?ups?\b|pulldowns?\b|pull[- ]?downs?\b", "pull_vertical"),
     (r"\brows?\b|face pulls?\b|pull[- ]?aparts?\b|rear delt", "pull_horizontal"),
     (r"overhead press|shoulder press|military|landmine press|push press", "push_vertical"),
-    (r"bench press|floor press|\bpush[- ]?ups?\b|\bdips?\b|\bfl(y|ies|yes)\b|"
-     r"jm press", "push_horizontal"),
+    (r"\bfl(y|ies|yes)\b|pec ?deck|pec ?fly|chest fly|rear delt fly|reverse fly", "fly"),
+    (r"bench press|floor press|\bpush[- ]?ups?\b|\bdips?\b|jm press", "push_horizontal"),
     (r"lateral raises?\b|front raises?\b|\braises?\b", "raise"),
     (r"triceps?\b|pushdowns?\b|skull ?crusher|extension \(triceps\)", "triceps"),
     (r"\bcurls?\b", "curl"),

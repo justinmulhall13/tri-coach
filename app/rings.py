@@ -9,7 +9,8 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
-from . import config, garmin_source
+from . import config
+from . import event_readiness as _event_readiness, garmin_source
 
 
 def _safe(fn, default=None):
@@ -140,6 +141,18 @@ def get_rings() -> dict[str, Any]:
                       "current_freshness": cur.get("freshness")},
         "strain": strain,
     }
+    # One race-readiness ring that follows the active event. The T100 model is
+    # kept where it applies because its targets are tuned to that race; every
+    # other event is scored against its own distances instead of T100's.
+    days_left = race.get("days_remaining", 0)
+    profile = config.active_event_profile()
     if config.supports_t100_features():
-        payload["t100"] = t100_readiness(load14, decision_tl, tr_score, race.get("days_remaining", 0))
+        payload["t100"] = t100_readiness(load14, decision_tl, tr_score, days_left)
+        payload["event_ready"] = {**payload["t100"], "available": True,
+                                  "event_label": _event_readiness.event_label(profile)}
+    else:
+        payload["event_ready"] = _event_readiness.readiness(
+            load14=load14, training_load=decision_tl, readiness_score=tr_score,
+            days_left=days_left, profile=profile,
+        )
     return payload

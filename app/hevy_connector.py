@@ -47,6 +47,9 @@ class HevyConnector(Protocol):
 
     def create_workout(self, workout: dict[str, Any], *, idempotency_key: str) -> dict[str, Any]: ...
 
+    def create_exercise_template(self, exercise: dict[str, Any], *,
+                                 idempotency_key: str) -> dict[str, Any]: ...
+
 
 _CAPABILITIES = {
     "get_workouts": False,
@@ -79,6 +82,7 @@ class UnavailableHevyConnector:
     search_exercise_templates = _unavailable
     create_routine = _unavailable
     create_workout = _unavailable
+    create_exercise_template = _unavailable
 
 
 class HevyAPIConnector:
@@ -232,6 +236,21 @@ class HevyAPIConnector:
     def create_workout(self, workout: dict[str, Any], *, idempotency_key: str) -> dict[str, Any]:
         return self._create_once("workouts", "workout", workout, idempotency_key)
 
+    def create_exercise_template(self, exercise: dict[str, Any], *,
+                                 idempotency_key: str) -> dict[str, Any]:
+        """Create a custom exercise so a missing movement is not a dead end.
+
+        The cached template catalog is dropped afterwards; otherwise the very
+        next lookup would still report the exercise as missing and try to
+        create it again.
+        """
+        result = self._create_once("exercise_templates", "exercise", exercise,
+                                   idempotency_key)
+        with self._catalog_lock:
+            self._template_catalog = None
+            self._template_catalog_at = 0.0
+        return result
+
 
 def _connector_from_environment() -> HevyConnector:
     key = (os.environ.get("HEVY_API_KEY") or "").strip()
@@ -241,6 +260,8 @@ def _connector_from_environment() -> HevyConnector:
 _connector: HevyConnector = _connector_from_environment()
 _CONTEXT_CACHE: dict[str, Any] = {"at": 0.0, "data": None}
 _CONTEXT_LOCK = threading.Lock()
+_WORKOUTS_CACHE: dict[str, Any] = {"at": 0.0, "data": None}
+_WORKOUTS_LOCK = threading.Lock()
 _LIFTING_RE = re.compile(
     r"\b(lift|lifting|strength|weight[ -]?training|working weight|gym|reps?|squat|"
     r"deadlift|rdl|bench(?: press)?|overhead press|barbell(?: row)?|dumbbell(?: row)?|"
@@ -329,6 +350,36 @@ def context_for(text: str) -> dict[str, Any] | None:
             "Never automatically retry a timed-out create because it may already have succeeded.",
         ],
     }
+
+
+def all_workouts(max_pages: int = 6, page_size: int = 10) -> list[dict[str, Any]]:
+    """Every recent logged workout, paged, for the lifting statistics.
+
+    Cached briefly: the stats tab re-renders often and this is several round
+    trips. A read failure returns what was gathered rather than raising, so a
+    partial history still produces a usable tab.
+    """
+    now = time.monotonic()
+    with _WORKOUTS_LOCK:
+        cached = _WORKOUTS_CACHE.get("data")
+        if cached is not None and now - float(_WORKOUTS_CACHE.get("at") or 0) < 300:
+            return list(cached)
+    client = connector()
+    collected: list[dict[str, Any]] = []
+    try:
+        for page in range(1, max(1, max_pages) + 1):
+            result = client.get_workouts(page=page, page_size=page_size)
+            batch = (result or {}).get("workouts") or []
+            collected.extend(w for w in batch if isinstance(w, dict))
+            page_count = (result or {}).get("page_count")
+            if not batch or (isinstance(page_count, int) and page >= page_count):
+                break
+    except Exception:  # noqa: BLE001 - a partial history still renders
+        pass
+    if collected:
+        with _WORKOUTS_LOCK:
+            _WORKOUTS_CACHE.update({"at": time.monotonic(), "data": list(collected)})
+    return collected
 
 
 def known_exercises() -> tuple[dict[str, str], dict[str, str]]:

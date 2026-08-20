@@ -27,6 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from . import (activity_detail, baselines, calendar_agent, calendar_source,
                calendar_sync, coach, coaching_contract, config, db, fitness_trend, garmin_source,
                garmin_workout, hevy_actions, hevy_connector, insights, nudges, nutrition, plan, plan_adapt, zones,
+               lifting_rules, lifting_stats,
                push, rings, ring_detail, strength_block, strength_effort, suggest)
 
 app = FastAPI(title="Tri Coach")
@@ -140,9 +141,18 @@ def _bg_sync() -> None:
     threading.Thread(target=run, daemon=True).start()
 
 
-# Reconcile once on startup so Google reflects the current plan even if nothing
-# is edited this session (no-op when Google isn't connected).
-_bg_sync()
+@app.on_event("startup")
+def _startup_sync() -> None:
+    """Reconcile once on startup so Google reflects the current plan even if
+    nothing is edited this session (no-op when Google isn't connected).
+
+    This deliberately runs on ASGI startup rather than at import. Importing a
+    module must not perform I/O: the test suite imports `app.main` for route
+    coverage, and doing this at import meant every test run fired a real
+    calendar reconcile from a developer machine — which is precisely how the
+    same plan gets written to Google from both here and Fly.
+    """
+    _bg_sync()
 
 
 @app.get("/api/health")
@@ -591,6 +601,42 @@ def plan_strength_block(body: dict = Body(default={})) -> JSONResponse:
         ))
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@app.get("/api/lifting/stats")
+def lifting_stats_view() -> JSONResponse:
+    """Everything the lifting tab renders, from the logged Hevy history."""
+    state = hevy_connector.status()
+    if not state.get("connected"):
+        return JSONResponse({
+            "connected": False,
+            "reason": state.get("reason") or "Hevy is not connected",
+            "has_data": False,
+        })
+    workouts = hevy_connector.all_workouts()
+    payload = lifting_stats.build(workouts, today=config.local_today())
+    payload["connected"] = True
+    payload["workouts_read"] = len(workouts)
+    return JSONResponse(payload)
+
+
+@app.get("/api/lifting/rules")
+def lifting_rules_view() -> JSONResponse:
+    """The athlete's standing programming constraints, for display."""
+    return JSONResponse(lifting_rules.summary([]))
+
+
+@app.post("/api/lifting/check")
+def lifting_check(body: dict = Body(default={})) -> JSONResponse:
+    """Check an edited session against the injury rules before it is saved."""
+    exercises = body.get("exercises")
+    if not isinstance(exercises, list):
+        return JSONResponse({"error": "exercises array is required"}, status_code=400)
+    normalised = [{"title": str(e.get("title") or e)} if isinstance(e, dict)
+                  else {"title": str(e)} for e in exercises]
+    summary = lifting_rules.summary(normalised)
+    summary["suggested_order"] = [e["title"] for e in lifting_rules.arrange(normalised)]
+    return JSONResponse(summary)
 
 
 @app.get("/api/plan/strength-effort")

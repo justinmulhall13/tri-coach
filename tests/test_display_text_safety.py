@@ -138,3 +138,21 @@ class RenderEscapingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LiftingTabEscapingTests(unittest.TestCase):
+    """The lifting tab renders Hevy-sourced titles, which the app does not author."""
+
+    def setUp(self) -> None:
+        self.html = (main.STATIC_DIR / "index.html").read_text()
+
+    def test_exercise_and_session_names_are_escaped(self) -> None:
+        for sink in ('${esc(String(g.exercise))}', '${esc(String(r.exercise))}',
+                     '${esc(String(sn.title))}', '${esc(String(x.exercise))}'):
+            self.assertIn(sink, self.html, sink)
+
+    def test_the_movement_pattern_is_whitelisted_before_drawing(self) -> None:
+        self.assertIn("EXFIG[pattern]||EXFIG.other", self.html)
+
+    def test_the_joined_exercise_list_is_escaped(self) -> None:
+        self.assertIn('${esc((sn.exercises||[]).join(" · "))}', self.html)
