@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app import coach
+from app import coach, hevy_actions
 
 
 class _TextBlock:

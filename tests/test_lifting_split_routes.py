@@ -108,3 +108,90 @@ class SplitUITests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SplitEditingUITests(unittest.TestCase):
+    """The split is edited in place. Routing every tweak through the coach meant
+    leaving the page to change one exercise."""
+
+    def setUp(self) -> None:
+        self.html = (main.STATIC_DIR / "index.html").read_text()
+
+    def test_the_day_sheet_edits_saves_and_pushes_without_leaving(self) -> None:
+        for control in ('id="split-editor"', 'id="split-add"', 'id="split-save"',
+                        'id="split-push"'):
+            self.assertIn(control, self.html, control)
+
+    def test_asking_the_coach_is_available_but_not_the_only_path(self) -> None:
+        self.assertIn('id="split-ask"', self.html)
+        # Saving must not bounce to the coach tab.
+        save = self.html[self.html.index('$("split-save").onclick'):]
+        save = save[:save.index('$("split-push")')]
+        self.assertNotIn("switchView", save)
+
+    def test_pushing_a_day_requires_explicit_confirmation(self) -> None:
+        self.assertIn('JSON.stringify({confirmed:true})', self.html)
+
+    def test_every_helper_the_tab_calls_is_actually_defined(self) -> None:
+        # A block rewrite once deleted _liftFig while leaving eight call sites,
+        # which would have thrown a ReferenceError on opening the tab.
+        for helper in ("_liftFig", "_liftNum", "renderLiftSplit", "openSplitDay",
+                       "renderSplitEditor", "_splitEditedDay", "_saveSplit",
+                       "_splitStatus", "closeSplitDay"):
+            self.assertIn(f"function {helper}(", self.html, helper)
+
+
+class SplitPushTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._old_path, self._old_local = db._DB_PATH, db._local
+        self._tmp = tempfile.TemporaryDirectory()
+        db._DB_PATH = pathlib.Path(self._tmp.name) / "push.db"
+        db._local = threading.local()
+        self.client = TestClient(main.app)
+
+    def tearDown(self) -> None:
+        conn = getattr(db._local, "conn", None)
+        if conn is not None:
+            conn.close()
+        db._DB_PATH, db._local = self._old_path, self._old_local
+        self._tmp.cleanup()
+
+    def test_a_push_without_confirmation_is_refused(self) -> None:
+        response = self.client.post("/api/lifting/split/upper_1/push", json={})
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()["created"])
+
+    def test_an_unknown_day_is_a_404_not_a_crash(self) -> None:
+        response = self.client.post("/api/lifting/split/nonsense/push",
+                                    json={"confirmed": True})
+        self.assertEqual(response.status_code, 404)
+
+    def test_a_day_that_cannot_be_fully_matched_is_not_partially_created(self) -> None:
+        from unittest.mock import patch
+        # Half the exercises unresolvable: the day must be refused whole rather
+        # than shipped with movements quietly missing.
+        with patch.object(main.hevy_actions, "resolve_routine_exercises",
+                          return_value=({"title": "Upper 1", "exercises": []},
+                                        [{"title": "Chest Fly",
+                                          "exercise_template_id": None,
+                                          "resolution": "failed"}])):
+            response = self.client.post("/api/lifting/split/upper_1/push",
+                                        json={"confirmed": True})
+        self.assertEqual(response.status_code, 422)
+        self.assertFalse(response.json()["created"])
+        self.assertIn("Chest Fly", response.json()["unresolved"])
+
+    def test_reps_become_hevy_sets_without_inventing_a_weight(self) -> None:
+        sets = main._reps_to_sets({"reps": "8-10"}, 3)
+        self.assertEqual(len(sets), 3)
+        self.assertEqual(sets[0]["rep_range"], {"start": 8, "end": 10})
+        self.assertNotIn("weight_kg", sets[0])
+
+    def test_per_side_rep_text_is_parsed_rather_than_defaulted(self) -> None:
+        sets = main._reps_to_sets({"reps": "12-15 each side"}, 2)
+        self.assertEqual(sets[0]["rep_range"], {"start": 12, "end": 15})
+        self.assertEqual(len(sets), 2)
+
+    def test_unparseable_reps_fall_back_rather_than_raising(self) -> None:
+        self.assertEqual(main._reps_to_sets({"reps": "as many as you like"}, 1)[0]["reps"], 10)
+        self.assertEqual(main._reps_to_sets({}, 0)[0]["reps"], 10)

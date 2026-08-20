@@ -314,3 +314,41 @@ competence ends.
 Regex note, twice-learned: match **stems**, not whole words. `\btweak\b` misses
 "tweaked", `\binjur\b` misses "injured", `\bsubstitut\b` misses "substitution" —
 which is most of how anyone actually writes.
+
+
+## Session 2026-08-20 (part 4) — why exercises were still vanishing
+
+### Root cause: the matcher was handed an empty pool
+`resolve_routine_exercises` called `search_exercise_templates(title)`, which does a
+naive substring match on the WHOLE query. `"rear delt fly"` is not a substring of
+`"Rear Delt Reverse Fly (Dumbbell)"`, so the search returned **zero** candidates and
+the ranked matcher never ran. The earlier fix was verified by passing the full
+catalogue by hand, which is why it looked correct.
+
+`all_exercise_templates()` now exposes the cached catalogue and resolution ranks
+against all 476. A six-exercise day resolves as six.
+
+### Variant selection needed frequency, not membership
+`history_template_ids()` came from the chat context cache, which is only warm after
+a lifting conversation — empty otherwise, so "Squat" resolved to *Squat (Band)*.
+It now reads real workouts. And membership alone still tied: the athlete has logged
+barbell, cable AND dumbbell curls, so the tie-break fell to the alphabet.
+`history_template_counts()` ranks by how often each variant is actually used.
+
+### Only fetch when something needs resolving
+The catalogue and history were fetched unconditionally, so a routine that already
+carried template ids cost 11 API calls — and pushed one test from 1.4s to 21.5s by
+reaching the live API. Guarded by `needs_lookup`.
+
+### The split is edited in place
+`POST /api/lifting/split/{slot}/push` creates one day as a Hevy routine, confirmation
+required, refusing the whole day (422) if any exercise cannot be matched rather than
+shipping it with movements missing. The day sheet edits title/sets/reps inline, saves
+the whole split back, and reports rule violations after saving. "Ask coach" remains,
+but it is no longer the only way to change one exercise.
+
+### Near-miss worth remembering
+A block rewrite deleted `_liftFig` and `_liftNum` while leaving eight call sites — a
+`ReferenceError` that would have broken the whole Lifting tab at runtime. `node --check`
+passes fine on that, since the syntax is valid. `test_lifting_split_routes` now asserts
+every helper the tab calls is actually defined.

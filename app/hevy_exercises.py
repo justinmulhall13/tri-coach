@@ -130,7 +130,15 @@ def find_existing(templates: Any, title: str, *,
     wanted = normalize(title)
     if not wanted:
         return None
-    known = {str(i) for i in history_ids} if isinstance(history_ids, (set, frozenset, list, tuple)) else set()
+    # Accepts a set of ids or a mapping of id -> times logged. Counts let a
+    # variant the athlete uses weekly beat one he tried once.
+    if isinstance(history_ids, dict):
+        counts = {str(k): int(v) for k, v in history_ids.items()}
+    elif isinstance(history_ids, (set, frozenset, list, tuple)):
+        counts = {str(i): 1 for i in history_ids}
+    else:
+        counts = {}
+    known = set(counts)
     candidates = [t for t in templates if isinstance(t, dict) and t.get("id")]
     wanted_tokens = _tokens(title)
 
@@ -140,7 +148,8 @@ def find_existing(templates: Any, title: str, *,
         matches_equipment = bool(prefer_equipment) and equipment == prefer_equipment
         extra_words = len(_tokens(template.get("title")) - wanted_tokens)
         # Sorted ascending, so negate the preferences that should win.
-        return (not in_history, not matches_equipment, extra_words,
+        return (not in_history, -counts.get(str(template.get("id")), 0),
+                not matches_equipment, extra_words,
                 str(template.get("title") or ""))
 
     for tier in (

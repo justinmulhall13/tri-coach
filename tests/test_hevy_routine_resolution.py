@@ -24,9 +24,14 @@ class FakeConnector:
         return {"connected": True}
 
     def search_exercise_templates(self, query):
-        needle = (query or "").casefold()
+        # Mirrors the real adapter: a naive substring match on the whole query,
+        # which is exactly why it cannot find "Rear Delt Reverse Fly".
+        needle = (query or "").casefold().strip()
         return [t for t in self.catalog
-                if needle and needle.split()[0] in t["title"].casefold()]
+                if needle and needle in t["title"].casefold()]
+
+    def all_exercise_templates(self):
+        return list(self.catalog)
 
     def create_exercise_template(self, exercise, *, idempotency_key):
         if not self._create_ok:
@@ -45,9 +50,11 @@ class ResolutionTests(unittest.TestCase):
         self.previous = hevy_connector.connector()
         self.addCleanup(hevy_connector.configure, self.previous)
 
-    def _resolve(self, routine, fake, **kw):
-        with patch.object(hevy_connector, "known_exercises",
-                          return_value=({"SQBAR": "Squat (Barbell)"}, {})):
+    def _resolve(self, routine, fake, history=None, **kw):
+        # Patch the history source too: without it this reaches the live API,
+        # which is both slow and non-deterministic.
+        with patch.object(hevy_connector, "history_template_counts",
+                          return_value=history if history is not None else {"SQBAR": 5}):
             hevy_connector.configure(fake)
             return hevy_actions.resolve_routine_exercises(routine, connector=fake, **kw)
 
@@ -60,6 +67,23 @@ class ResolutionTests(unittest.TestCase):
         # Without the history bias this resolves to Squat (Band).
         routine, _ = self._resolve(_routine("Squat"), FakeConnector())
         self.assertEqual(routine["exercises"][0]["exercise_template_id"], "SQBAR")
+
+    def test_the_most_used_variant_wins_when_several_are_in_history(self) -> None:
+        # All three logged; frequency is what separates them, not the alphabet.
+        routine, _ = self._resolve(
+            _routine("Squat"), FakeConnector(),
+            history={"SQBAND": 1, "SQBAR": 40})
+        self.assertEqual(routine["exercises"][0]["exercise_template_id"], "SQBAR")
+
+    def test_a_renamed_movement_is_found_even_though_substring_search_misses_it(self) -> None:
+        # "Rear Delt Fly" is not a substring of "Rear Delt Reverse Fly", so the
+        # search endpoint returns nothing; ranking the full catalogue finds it.
+        fake = FakeConnector()
+        self.assertEqual(fake.search_exercise_templates("Rear Delt Fly"), [])
+        routine, reports = self._resolve(_routine("Rear Delt Fly"), fake)
+        self.assertEqual(routine["exercises"][0]["exercise_template_id"], "REARDELT")
+        self.assertEqual(reports[0]["resolution"], "matched")
+        self.assertEqual(fake.created, [])
 
     def test_a_renamed_movement_is_found_rather_than_duplicated(self) -> None:
         fake = FakeConnector()

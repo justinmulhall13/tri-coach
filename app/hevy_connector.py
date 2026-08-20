@@ -43,6 +43,8 @@ class HevyConnector(Protocol):
 
     def search_exercise_templates(self, query: str) -> list[dict[str, Any]]: ...
 
+    def all_exercise_templates(self) -> list[dict[str, Any]]: ...
+
     def create_routine(self, routine: dict[str, Any], *, idempotency_key: str) -> dict[str, Any]: ...
 
     def create_workout(self, workout: dict[str, Any], *, idempotency_key: str) -> dict[str, Any]: ...
@@ -83,6 +85,7 @@ class UnavailableHevyConnector:
     create_routine = _unavailable
     create_workout = _unavailable
     create_exercise_template = _unavailable
+    all_exercise_templates = _unavailable
 
 
 class HevyAPIConnector:
@@ -198,6 +201,17 @@ class HevyAPIConnector:
             raise ValueError("exercise_template_id is required")
         template_id = quote(str(exercise_template_id), safe="")
         return self._request("GET", f"exercise_templates/{template_id}")
+
+    def all_exercise_templates(self) -> list[dict[str, Any]]:
+        """The whole catalogue, cached.
+
+        `search_exercise_templates` filters by naive substring, so a request for
+        "Rear Delt Fly" returns nothing at all against "Rear Delt Reverse Fly".
+        Ranking needs every candidate, not a pre-filtered handful.
+        """
+        self.search_exercise_templates("__warm__")
+        with self._catalog_lock:
+            return list(self._template_catalog or [])
 
     def search_exercise_templates(self, query: str) -> list[dict[str, Any]]:
         needle = (query or "").strip().casefold()
@@ -406,6 +420,38 @@ def all_workouts(max_pages: int = 6, page_size: int = 10) -> list[dict[str, Any]
         with _WORKOUTS_LOCK:
             _WORKOUTS_CACHE.update({"at": time.monotonic(), "data": list(collected)})
     return collected
+
+
+def history_template_counts() -> dict[str, int]:
+    """How often each template appears in logged workouts.
+
+    Membership alone cannot separate variants the athlete uses regularly from
+    ones tried once: he has logged barbell, cable and dumbbell curls, so a
+    set-based tie-break falls to whichever sorts first alphabetically.
+    """
+    counts: dict[str, int] = {}
+    for workout in all_workouts():
+        for exercise in (workout or {}).get("exercises") or []:
+            if isinstance(exercise, dict) and exercise.get("exercise_template_id"):
+                key = str(exercise["exercise_template_id"])
+                counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def history_template_ids() -> set[str]:
+    """Template ids the athlete has actually logged.
+
+    Read from fetched workouts rather than the chat context cache, which is only
+    warm after a lifting conversation. When it was empty, exercise resolution
+    silently fell back to whichever equipment variant sorted first — band squats
+    for a barbell lifter.
+    """
+    ids: set[str] = set()
+    for workout in all_workouts():
+        for exercise in (workout or {}).get("exercises") or []:
+            if isinstance(exercise, dict) and exercise.get("exercise_template_id"):
+                ids.add(str(exercise["exercise_template_id"]))
+    return ids
 
 
 def known_exercises() -> tuple[dict[str, str], dict[str, str]]:

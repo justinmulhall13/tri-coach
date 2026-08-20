@@ -655,6 +655,72 @@ def lifting_split_reset() -> JSONResponse:
     return JSONResponse({"ok": True, "reset": db.reset_lifting_split()})
 
 
+def _reps_to_sets(exercise: dict, count: int) -> list[dict]:
+    """Turn "3 x 8-10" into Hevy set objects, with no invented weight.
+
+    Weights stay out: the split is a template, and a working weight must come
+    from verified history or a bounded derivation from it.
+    """
+    import re as _re
+    reps = str(exercise.get("reps") or "").strip()
+    match = _re.match(r"^(\d+)\s*-\s*(\d+)", reps)
+    if match:
+        body = {"rep_range": {"start": int(match.group(1)), "end": int(match.group(2))}}
+    elif _re.match(r"^\d+$", reps):
+        body = {"reps": int(reps)}
+    else:
+        single = _re.search(r"(\d+)", reps)
+        body = {"reps": int(single.group(1))} if single else {"reps": 10}
+    return [{"type": "normal", **body} for _ in range(max(1, count))]
+
+
+@app.post("/api/lifting/split/{slot}/push")
+def lifting_split_push(slot: str, body: dict = Body(default={})) -> JSONResponse:
+    """Create one split day as a Hevy routine.
+
+    Explicitly confirmed by the athlete pressing the button, exactly like the
+    proposal card. Exercise names are resolved against the whole catalogue, so a
+    day is never shipped with movements quietly missing.
+    """
+    if not body.get("confirmed"):
+        return JSONResponse({"error": "confirmation is required", "created": False},
+                            status_code=400)
+    stored = db.get_lifting_split()
+    built = lifting_split.build(stored["days"] if stored else None)
+    day = next((d for d in built["days"] if str(d.get("slot")) == str(slot)), None)
+    if day is None:
+        return JSONResponse({"error": f"no split day named {slot}"}, status_code=404)
+
+    raw = {
+        "title": day["name"],
+        "notes": day.get("focus") or "",
+        "exercises": [{
+            "title": exercise.get("title"),
+            "rest_seconds": exercise.get("rest_seconds"),
+            "sets": _reps_to_sets(exercise, int(exercise.get("sets") or 3)),
+        } for exercise in day.get("exercises") or []],
+    }
+    try:
+        resolved, reports = hevy_actions.resolve_routine_exercises(raw)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": f"could not resolve exercises: {exc}",
+                             "created": False}, status_code=502)
+    unresolved = [r["title"] for r in reports if not r.get("exercise_template_id")]
+    if unresolved:
+        return JSONResponse({
+            "error": "some exercises could not be matched or created in Hevy",
+            "unresolved": unresolved, "created": False, "retry_safe": True,
+        }, status_code=422)
+
+    operation_id = str(body.get("operation_id") or
+                       f"split-{slot}-{(stored or {}).get('updated_at') or 'default'}")
+    result = hevy_actions.create_confirmed_routine(
+        resolved, operation_id=operation_id, confirmed=True)
+    result["resolution"] = reports
+    result["created_exercises"] = [r["title"] for r in reports if r.get("created")]
+    return JSONResponse(result)
+
+
 @app.get("/api/lifting/rules")
 def lifting_rules_view() -> JSONResponse:
     """The athlete's standing programming constraints, for display."""

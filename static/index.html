@@ -474,6 +474,19 @@
   .sx-t{font-weight:650;font-size:13px;}
   .sx-p{color:var(--muted);font-size:11.5px;font-variant-numeric:tabular-nums;}
   .sx-w{color:var(--muted);font-size:11px;margin-top:2px;line-height:1.35;opacity:.9;}
+  .splitedit{margin-top:16px;padding-top:13px;border-top:1px solid var(--line);}
+  .se-head{font-weight:650;font-size:12.5px;margin-bottom:8px;}
+  .se-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;}
+  .se-row input{font:inherit;padding:7px 9px;border-radius:9px;border:1px solid var(--line);
+    background:var(--glass2);color:inherit;min-width:0;}
+  .se-row .se-title{flex:1;}
+  .se-row .se-sets{width:52px;text-align:center;}
+  .se-row .se-reps{width:112px;text-align:center;}
+  .se-row .se-del{flex:0 0 30px;width:30px;height:30px;border-radius:8px;border:1px solid var(--line);
+    background:transparent;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;}
+  .se-row .se-del:hover{color:var(--bad);border-color:var(--bad);}
+  .se-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px;}
+  #split-status{margin-top:9px;min-height:16px;}
   .cday .cdow{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:600;}
   .cday .cdate{font-family:var(--disp);font-size:15px;font-weight:600;color:var(--ink);line-height:1;}
   .cday .cdate .todaydot{display:inline-block;width:5px;height:5px;border-radius:50%;background:currentColor;margin-left:5px;vertical-align:middle;}
@@ -1635,10 +1648,16 @@
       <div id="split-why" class="lf-sub" style="margin-bottom:12px"></div>
       <div id="split-exercises"></div>
       <div id="split-flags"></div>
-      <div class="splitask">
-        <label for="split-input">Change this day with the coach</label>
-        <textarea id="split-input" rows="2" placeholder="e.g. swap the front squat for a leg press, my knee is cranky"></textarea>
-        <button class="primary" id="split-send">Ask coach about this day</button>
+      <div class="splitedit">
+        <div class="se-head">Edit this day</div>
+        <div id="split-editor"></div>
+        <button class="ghostbtn" id="split-add">+ Add exercise</button>
+        <div class="se-actions">
+          <button class="primary" id="split-save">Save day</button>
+          <button class="ghostbtn" id="split-push">Send to Hevy</button>
+          <button class="ghostbtn" id="split-ask">Ask coach</button>
+        </div>
+        <div id="split-status" class="lf-sub" role="status" aria-live="polite"></div>
       </div>
     </div>
   </div>
@@ -3593,6 +3612,10 @@ refreshRevealTargets();
 
 // ================= Lifting tab =================
 let _splitData=null, _splitOpenSlot=null;
+// `pattern` always comes from the server's whitelist; an unknown value draws a
+// neutral figure rather than injecting anything.
+function _liftFig(pattern){ return EXFIG[pattern]||EXFIG.other; }
+function _liftNum(n){ return Number(n||0).toLocaleString(); }
 
 async function renderLiftSplit(){
   let d;
@@ -3642,7 +3665,8 @@ function openSplitDay(slot){
     ? `<div class="lf-sub" style="margin-top:10px">${flags.map(v=>
         `<div class="lf-rule"><b>!</b><span>${esc(String(v.detail))}</span></div>`).join("")}</div>`
     : "";
-  $("split-input").value="";
+  renderSplitEditor(day);
+  _splitStatus("");
   $("split-overlay").classList.add("open");
 }
 
@@ -3650,26 +3674,96 @@ function closeSplitDay(){ $("split-overlay").classList.remove("open"); _splitOpe
 if($("split-close")) $("split-close").onclick=closeSplitDay;
 if($("split-overlay")) $("split-overlay").onclick=e=>{ if(e.target===$("split-overlay")) closeSplitDay(); };
 
-// Talking about one day routes into the main coach chat rather than running a
-// second conversation: the coach needs the same context either way, and a reply
-// that changes the day should land where every other change lands.
-if($("split-send")) $("split-send").onclick=()=>{
+// The day is edited here, in place. Routing every tweak back through the coach
+// meant leaving the page to change one exercise.
+function _splitEditorRow(ex){
+  const row=document.createElement("div"); row.className="se-row";
+  row.innerHTML=`<input class="se-title" value="${esc(String((ex&&ex.title)||""))}" placeholder="Exercise name">
+    <input class="se-sets" value="${esc(String((ex&&ex.sets)??3))}" inputmode="numeric" aria-label="Sets">
+    <input class="se-reps" value="${esc(String((ex&&ex.reps)||"8-10"))}" aria-label="Reps">
+    <button class="se-del" type="button" aria-label="Remove exercise">×</button>`;
+  row.querySelector(".se-del").onclick=()=>{ row.remove(); _splitStatus(""); };
+  return row;
+}
+function renderSplitEditor(day){
+  const host=$("split-editor"); host.innerHTML="";
+  (day.exercises||[]).forEach(ex=>host.appendChild(_splitEditorRow(ex)));
+}
+function _splitStatus(text,bad){
+  const el=$("split-status"); if(!el) return;
+  el.textContent=text||""; el.style.color=bad?"var(--bad)":"var(--muted)";
+}
+function _splitEditedDay(){
   const day=((_splitData||{}).days||[]).find(x=>String(x.slot)===String(_splitOpenSlot));
-  const text=($("split-input").value||"").trim();
+  if(!day) return null;
+  const exercises=[...$("split-editor").querySelectorAll(".se-row")].map(row=>{
+    const title=(row.querySelector(".se-title").value||"").trim();
+    if(!title) return null;
+    const sets=parseInt(row.querySelector(".se-sets").value,10);
+    return {title, sets:Number.isFinite(sets)&&sets>0?sets:3,
+            reps:(row.querySelector(".se-reps").value||"").trim()||"8-10",
+            rest_seconds:90};
+  }).filter(Boolean);
+  return {...day, exercises};
+}
+async function _saveSplit(edited){
+  // The whole split is sent, with this day replaced, so the stored shape always
+  // matches what the tab renders.
+  const days=((_splitData||{}).days||[]).map(d=>
+    String(d.slot)===String(edited.slot)?edited:d).map(d=>({
+      slot:d.slot, name:d.name, focus:d.focus, why:d.why,
+      exercises:(d.exercises||[]).map(e=>({title:e.title, sets:e.sets, reps:e.reps,
+        rest_seconds:e.rest_seconds, role:e.role, why:e.why})),
+    }));
+  const r=await j("/api/lifting/split",{method:"PUT",
+    headers:{"Content-Type":"application/json"}, body:JSON.stringify({days})});
+  _splitData=r;
+  return r;
+}
+if($("split-add")) $("split-add").onclick=()=>{
+  $("split-editor").appendChild(_splitEditorRow({title:"",sets:3,reps:"8-10"}));
+};
+if($("split-save")) $("split-save").onclick=async()=>{
+  const edited=_splitEditedDay(); if(!edited) return;
+  if(!edited.exercises.length){ _splitStatus("A day needs at least one exercise.",true); return; }
+  _splitStatus("Saving…");
+  try{
+    const saved=await _saveSplit(edited);
+    const day=(saved.days||[]).find(x=>String(x.slot)===String(_splitOpenSlot));
+    const issues=((day||{}).rule_status||{}).violations||[];
+    renderLiftSplit();
+    if(day) openSplitDay(_splitOpenSlot);
+    _splitStatus(issues.length
+      ? `Saved. ${issues.length} rule ${issues.length===1?"issue":"issues"}: ${issues.map(v=>v.detail).join("; ")}`
+      : "Saved. Rules still pass.", issues.length>0);
+  }catch(e){ _splitStatus("Could not save that change.",true); }
+};
+if($("split-push")) $("split-push").onclick=async()=>{
+  const slot=_splitOpenSlot; if(!slot) return;
+  const btn=$("split-push"); btn.disabled=true; _splitStatus("Creating in Hevy…");
+  try{
+    const r=await j(`/api/lifting/split/${encodeURIComponent(slot)}/push`,{method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify({confirmed:true})});
+    if(r&&r.created){
+      const made=(r.created_exercises||[]);
+      _splitStatus("✓ Created in Hevy."+(made.length?` New exercises added: ${made.join(", ")}.`:""));
+    }else if(r&&r.unresolved){
+      _splitStatus(`Not created — could not match: ${r.unresolved.join(", ")}.`,true);
+    }else{
+      _splitStatus((r&&r.instruction)||`Not created: ${(r&&r.error)||"unknown Hevy error"}.`,true);
+    }
+  }catch(e){ _splitStatus("Check Hevy before retrying: the request may have arrived.",true); }
+  btn.disabled=false;
+};
+if($("split-ask")) $("split-ask").onclick=()=>{
+  const day=((_splitData||{}).days||[]).find(x=>String(x.slot)===String(_splitOpenSlot));
   if(!day) return;
   const current=(day.exercises||[]).map(e=>e.title).join(", ");
-  const prompt=`About my ${day.name} day (${day.focus}) — currently ${current}. `+
-    (text||"Rebuild this day for me.");
-  closeSplitDay();
-  switchView("coach");
+  closeSplitDay(); switchView("coach");
   const input=$("chatinput");
-  if(input){ input.value=prompt; resizeChatInput(); setTimeout(()=>{ input.focus(); send(); },120); }
+  if(input){ input.value=`About my ${day.name} day (${day.focus}) — currently ${current}. `;
+    resizeChatInput(); setTimeout(()=>input.focus(),120); }
 };
-
-
-let _liftData=null;
-function _liftFig(pattern){ return EXFIG[pattern]||EXFIG.other; }
-function _liftNum(n){ return Number(n||0).toLocaleString(); }
 
 async function loadLifting(){
   const head=$("lift-head");

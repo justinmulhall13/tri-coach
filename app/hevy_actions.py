@@ -65,13 +65,30 @@ def resolve_routine_exercises(raw: dict[str, Any], *, create_missing: bool = Tru
         return raw, reports
 
     client = connector or hevy_connector.connector()
-    # `search_exercise_templates` matches a needle against the full cached
-    # catalogue, so each title is looked up directly. History ids only bias
-    # which equipment variant wins, so a failure there is not fatal.
-    try:
-        history_ids = set(hevy_connector.known_exercises()[0])
-    except Exception:  # noqa: BLE001
-        history_ids = set()
+    # Only reach for Hevy when something actually needs resolving: a routine
+    # that already carries template ids should cost zero API calls.
+    needs_lookup = any(
+        isinstance(e, dict)
+        and not str(e.get("exercise_template_id") or "").strip()
+        and str(e.get("title") or e.get("exercise_name") or "").strip()
+        for e in exercises
+    )
+    history_ids: Any = {}
+    catalog: list[dict[str, Any]] = []
+    if needs_lookup:
+        # History counts only bias which equipment variant wins, so a failure
+        # there is not fatal.
+        try:
+            history_ids = hevy_connector.history_template_counts()
+        except Exception:  # noqa: BLE001
+            history_ids = {}
+        # Rank against the whole catalogue. A substring search cannot find
+        # "Rear Delt Reverse Fly" from "Rear Delt Fly", and handing the matcher
+        # an empty pool is what made exercises silently vanish from a session.
+        try:
+            catalog = client.all_exercise_templates() or []
+        except Exception:  # noqa: BLE001
+            catalog = []
 
     resolved: list[Any] = []
     for exercise in exercises:
@@ -83,10 +100,12 @@ def resolve_routine_exercises(raw: dict[str, Any], *, create_missing: bool = Tru
         if template_id or not title:
             resolved.append(exercise)
             continue
-        try:
-            pool = client.search_exercise_templates(title) or []
-        except Exception:  # noqa: BLE001
-            pool = []
+        pool = catalog
+        if not pool:
+            try:
+                pool = client.search_exercise_templates(title) or []
+            except Exception:  # noqa: BLE001
+                pool = []
         report = hevy_exercises.resolve(
             title, templates=pool, connector=client if create_missing else None,
             create=create_missing, history_ids=history_ids,
