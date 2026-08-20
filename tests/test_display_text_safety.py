@@ -154,5 +154,11 @@ class LiftingTabEscapingTests(unittest.TestCase):
     def test_the_movement_pattern_is_whitelisted_before_drawing(self) -> None:
         self.assertIn("EXFIG[pattern]||EXFIG.other", self.html)
 
-    def test_the_joined_exercise_list_is_escaped(self) -> None:
-        self.assertIn('${esc((sn.exercises||[]).join(" · "))}', self.html)
+    def test_the_logged_set_detail_is_escaped(self) -> None:
+        # Exercise titles and set values come from Hevy, which the app does not
+        # author, and are rendered per exercise rather than joined into a string.
+        self.assertIn('${esc(String(ex.title))}', self.html)
+        self.assertIn('${esc(sets)}', self.html)
+
+    def test_the_rule_violation_tooltip_is_escaped(self) -> None:
+        self.assertIn('esc((st.injury_violations||[]).map(v=>v.detail).join("; "))', self.html)

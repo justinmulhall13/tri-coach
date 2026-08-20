@@ -185,6 +185,69 @@ class SessionAndTrendTests(unittest.TestCase):
                          sorted(t["week_of"] for t in trend))
 
 
+class SessionDetailTests(unittest.TestCase):
+    """The tab reflects Hevy, so a session carries the sets actually performed."""
+
+    def setUp(self) -> None:
+        self.records = ls.exercise_records(LOG)
+        self.sessions = ls.recent_sessions(LOG, records=self.records)
+
+    def test_each_exercise_carries_its_real_sets(self) -> None:
+        squat = next(e for e in self.sessions[0]["exercises"]
+                     if e["title"] == "Squat (Barbell)")
+        self.assertEqual([s["weight_lb"] for s in squat["sets"]], [315.0, 315.0])
+        self.assertEqual([s["reps"] for s in squat["sets"]], [5, 5])
+
+    def test_weights_are_in_pounds_not_stored_kilograms(self) -> None:
+        self.assertNotIn("142.88", str(self.sessions))
+
+    def test_the_top_set_of_each_exercise_is_identified(self) -> None:
+        squat = next(e for e in self.sessions[0]["exercises"]
+                     if e["title"] == "Squat (Barbell)")
+        self.assertEqual(squat["top_set"], {"weight_lb": 315.0, "reps": 5})
+
+    def test_a_set_matching_the_all_time_best_is_marked_a_pr(self) -> None:
+        squat = next(e for e in self.sessions[0]["exercises"]
+                     if e["title"] == "Squat (Barbell)")
+        self.assertTrue(any(s["is_pr"] for s in squat["sets"]))
+        self.assertGreaterEqual(self.sessions[0]["pr_count"], 1)
+
+    def test_an_older_lighter_session_has_no_pr(self) -> None:
+        old = next(s for s in self.sessions if s["date"] == "2026-05-01")
+        self.assertEqual(old["pr_count"], 0)
+
+    def test_a_first_ever_exercise_is_not_badged_as_a_pr(self) -> None:
+        # Zercher Squat appears once. Technically it is an all-time best, but a
+        # PR badge on every new movement is noise.
+        log = [_workout("2026-08-18", "New", [("Zercher Squat", [_set(185, 8)])])]
+        session = ls.recent_sessions(log, records=ls.exercise_records(log))[0]
+        self.assertEqual(session["pr_count"], 0)
+
+    def test_beating_a_previous_best_is_badged(self) -> None:
+        log = [
+            _workout("2026-07-01", "A", [("Squat (Barbell)", [_set(275, 5)])]),
+            _workout("2026-08-01", "B", [("Squat (Barbell)", [_set(315, 5)])]),
+        ]
+        sessions = ls.recent_sessions(log, records=ls.exercise_records(log))
+        newest = next(s for s in sessions if s["date"] == "2026-08-01")
+        older = next(s for s in sessions if s["date"] == "2026-07-01")
+        self.assertEqual(newest["pr_count"], 1)
+        self.assertEqual(older["pr_count"], 0)
+
+    def test_bodyweight_and_timed_sets_are_kept_not_discarded(self) -> None:
+        log = [_workout("2026-08-18", "Core", [
+            ("Plank", [{"duration_seconds": 45}, {"reps": 10}])])]
+        plank = ls.recent_sessions(log)[0]["exercises"][0]
+        self.assertEqual(len(plank["sets"]), 2)
+        self.assertIsNone(plank["sets"][0]["weight_lb"])
+        self.assertIsNone(plank["top_set"])
+
+    def test_each_exercise_carries_a_drawable_pattern(self) -> None:
+        for exercise in self.sessions[0]["exercises"]:
+            self.assertIn(exercise["pattern"], __import__(
+                "app.strength_visual", fromlist=["PATTERNS"]).PATTERNS)
+
+
 class BuildTests(unittest.TestCase):
     def test_the_payload_carries_every_section(self) -> None:
         payload = ls.build(LOG, today=TODAY)

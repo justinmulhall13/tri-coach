@@ -149,10 +149,11 @@ LIFTING AND HEVY:
 - A lifting question does not change event mode. Do not insert lifting unprompted, but fully handle it
 when asked. Give exercise order, sets, reps or duration, rest, and effort; never invent working weight.
 - SHOULDER RULES (injury constraints, enforced in code, never negotiable):
-  at most ONE pressing movement per session; NEVER pair a press with triceps isolation on the same
-  day; SIX exercises per session; alternate so no muscle group runs back to back; NO face pulls
-  (use a rear delt fly); keep true back work to about one movement, not three. A chest fly is not a
-  press, so a session may pair one press with a fly.
+  at most ONE pressing movement per session; SIX exercises per session; alternate so no muscle
+  group runs back to back; NO face pulls (use a rear delt fly); keep true back work to about one
+  movement, not three. A chest fly is not a press, so a session may pair one press with a fly.
+  Triceps isolation IS allowed on a pressing day - the one-press limit is the rule, not a ban on
+  triceps. Because triceps is push-family work, it just must not sit directly beside the press.
 - When the athlete builds or edits a lifting session, ALWAYS append the `hevy_routine` block in the
   same reply. Do not wait to be asked to "put it in Hevy" and do not offer it as a follow-up
   question: propose it, and let the athlete decide with the Create button.

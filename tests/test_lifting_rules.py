@@ -9,14 +9,15 @@ def _ex(title: str) -> dict:
     return {"title": title}
 
 
-# The session the coach originally proposed, which broke the shoulder rule by
-# pairing a press with triceps work and stacking three back movements.
+# The session the coach originally proposed, which stacked three back movements
+# and included a face pull.
 BAD_SESSION = [
     _ex("Dumbbell Row"), _ex("Floor Press (Barbell)"), _ex("Lat Pulldown (Cable)"),
     _ex("T Bar Row"), _ex("Face Pull"), _ex("Triceps Rope Pushdown"),
 ]
 
-# The corrected shape: one press, no triceps, rear delt instead of face pull.
+# The corrected shape: one press, rear delt fly instead of a face pull,
+# and back volume kept in check.
 GOOD_SESSION = [
     _ex("Dumbbell Row"), _ex("Incline Bench Press (Dumbbell)"), _ex("Rear Delt Fly"),
     _ex("Chest Fly (Cable)"), _ex("Bicep Curl (Dumbbell)"), _ex("Dead Bug"),
@@ -37,20 +38,25 @@ class PressRuleTests(unittest.TestCase):
         rules = [v["rule"] for v in lr.check(GOOD_SESSION)]
         self.assertNotIn("one_press_per_session", rules)
 
-    def test_pressing_with_triceps_isolation_is_an_injury_violation(self) -> None:
+    def test_triceps_work_on_a_pressing_day_is_allowed(self) -> None:
+        # The athlete mentioned triceps to stress why ONE press matters, not to
+        # ban triceps: "I never said that no tricep isolation on a day that
+        # presses. Just one press per day."
         session = [_ex("Bench Press (Barbell)"), _ex("Dumbbell Row"),
                    _ex("Triceps Rope Pushdown"), _ex("Lat Pulldown (Cable)"),
                    _ex("Bicep Curl (Dumbbell)"), _ex("Dead Bug")]
-        violations = [v for v in lr.check(session) if v["rule"] == "no_triceps_with_press"]
-        self.assertEqual(len(violations), 1)
-        self.assertEqual(violations[0]["severity"], "injury")
+        self.assertEqual([v["rule"] for v in lr.check(session)
+                          if v["severity"] == "injury"], [])
 
-    def test_triceps_alone_without_a_press_is_fine(self) -> None:
-        session = [_ex("Dumbbell Row"), _ex("Triceps Rope Pushdown"),
-                   _ex("Lat Pulldown (Cable)"), _ex("Bicep Curl (Dumbbell)"),
+    def test_a_press_immediately_followed_by_triceps_is_still_caught(self) -> None:
+        # "no push then triceps back": triceps is push-family work, so the
+        # alternation rule is what keeps them apart, not a blanket ban.
+        session = [_ex("Bench Press (Barbell)"), _ex("Triceps Rope Pushdown"),
+                   _ex("Dumbbell Row"), _ex("Bicep Curl (Dumbbell)"),
                    _ex("Rear Delt Fly"), _ex("Dead Bug")]
-        rules = [v["rule"] for v in lr.check(session)]
-        self.assertNotIn("no_triceps_with_press", rules)
+        violations = [v for v in lr.check(session) if v["rule"] == "consecutive_same_group"]
+        self.assertTrue(violations)
+        self.assertIn("both push", violations[0]["detail"])
 
 
 class BannedMovementTests(unittest.TestCase):
@@ -131,7 +137,6 @@ class SummaryTests(unittest.TestCase):
         summary = lr.summary(BAD_SESSION)
         self.assertFalse(summary["ok"])
         injury_rules = {v["rule"] for v in summary["injury_violations"]}
-        self.assertIn("no_triceps_with_press", injury_rules)
         self.assertIn("banned_movement", injury_rules)
         self.assertNotIn("back_volume", injury_rules)
 

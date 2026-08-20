@@ -65,43 +65,90 @@ def _weight_reps(item: dict[str, Any]) -> tuple[float, int] | None:
     return float(weight), reps
 
 
-def recent_sessions(workouts: Any, *, limit: int = 10) -> list[dict[str, Any]]:
-    """Most recent sessions with their headline numbers."""
+def recent_sessions(workouts: Any, *, limit: int = 12,
+                    records: Any = None) -> list[dict[str, Any]]:
+    """Recent sessions with the sets actually performed.
+
+    The tab exists to reflect what is in Hevy, so a session carries its real
+    sets — weight, reps, and whether a set matched the all-time best for that
+    exercise — rather than only a summary. Editing happens in Hevy; this is the
+    record of what happened.
+    """
     sessions: list[dict[str, Any]] = []
     if not isinstance(workouts, (list, tuple)):
         return sessions
+    # All-time best per exercise, used to mark a set as a personal record.
+    # A PR means beating a previous best. An exercise performed once has no
+    # previous best, so badging its only session would put "PR" on every new
+    # movement and teach the athlete to ignore the badge.
+    best_by_exercise: dict[str, float] = {}
+    if isinstance(records, (list, tuple)):
+        for record in records:
+            if (isinstance(record, dict) and record.get("exercise")
+                    and record.get("sessions_logged", 0) >= 2):
+                best_by_exercise[str(record["exercise"])] = float(record.get("e1rm_lb") or 0)
+
     for workout in workouts:
         if not isinstance(workout, dict):
             continue
         date = _as_date(workout.get("start_time"))
         if date is None:
             continue
-        exercises = [e for e in (workout.get("exercises") or []) if isinstance(e, dict)]
+        rendered: list[dict[str, Any]] = []
         tonnage = 0.0
         set_count = 0
-        for exercise in exercises:
+        pr_count = 0
+        for exercise in workout.get("exercises") or []:
+            if not isinstance(exercise, dict):
+                continue
+            title = str(exercise.get("title") or "").strip() or "Exercise"
+            items: list[dict[str, Any]] = []
+            top_lb = top_reps = 0
             for item in exercise.get("sets") or []:
                 if not isinstance(item, dict):
                     continue
                 set_count += 1
                 pair = _weight_reps(item)
-                if pair:
-                    tonnage += sw.history_weight_lb(pair[0]) * pair[1]
-        titles = [str(e.get("title") or "") for e in exercises]
+                if not pair:
+                    # Bodyweight or timed work still belongs in the record.
+                    items.append({"weight_lb": None, "reps": item.get("reps"),
+                                  "duration_seconds": item.get("duration_seconds"),
+                                  "type": item.get("type") or "normal", "is_pr": False})
+                    continue
+                weight_lb = sw.history_weight_lb(pair[0])
+                tonnage += weight_lb * pair[1]
+                is_pr = False
+                if pair[1] <= MAX_E1RM_REPS and title in best_by_exercise:
+                    e1rm = sw.epley_e1rm_lb(weight_lb, pair[1])
+                    is_pr = abs(e1rm - best_by_exercise[title]) < 0.05
+                    if is_pr:
+                        pr_count += 1
+                if weight_lb > top_lb:
+                    top_lb, top_reps = weight_lb, pair[1]
+                items.append({"weight_lb": weight_lb, "reps": pair[1],
+                              "type": item.get("type") or "normal", "is_pr": is_pr})
+            rendered.append({
+                "title": title,
+                "pattern": strength_visual.classify(title),
+                "sets": items,
+                "set_count": len(items),
+                "top_set": {"weight_lb": top_lb, "reps": top_reps} if top_lb else None,
+            })
         sessions.append({
             "workout_id": workout.get("id"),
             "date": date.isoformat(),
             "title": str(workout.get("title") or "Workout"),
-            "exercise_count": len(exercises),
+            "exercise_count": len(rendered),
             "set_count": set_count,
             "tonnage_lb": round(tonnage),
-            "exercises": titles,
-            # The shoulder rules apply to logged sessions too, so a session that
-            # broke them is visible rather than only caught at generation time.
+            "pr_count": pr_count,
+            "exercises": rendered,
+            # The programming rules apply to logged sessions too, so a session
+            # that broke them is visible rather than only caught at generation.
             "rule_status": lifting_rules.summary(
-                [{"title": t} for t in titles]),
+                [{"title": e["title"]} for e in rendered]),
         })
-    sessions.sort(key=lambda s: s["date"], reverse=True)
+    sessions.sort(key=lambda item: item["date"], reverse=True)
     return sessions[:limit]
 
 
@@ -293,7 +340,7 @@ def build(workouts: Any, *, today: datetime.date | None = None) -> dict[str, Any
         "generated_for": today.isoformat(),
         "unit": "lb",
         "has_data": bool(records),
-        "recent_sessions": recent_sessions(workouts),
+        "recent_sessions": recent_sessions(workouts, records=records),
         "records": records,
         "biggest_gains": biggest_gains(records),
         "push_pull_balance": push_pull_balance(workouts, today=today),

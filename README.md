@@ -326,14 +326,18 @@ A few problems here were more interesting than they first look:
   never orphaned by a repeated confirmation.
 
 - **An injury constraint belongs in code, not a prompt.** The athlete has a bad
-  shoulder: at most one pressing movement per session, never paired with triceps
-  isolation, and no face pulls. A model told this in a system prompt will follow it
+  shoulder: at most one pressing movement per session, no face pulls, and no muscle
+  group worked twice in a row. A model told this in a system prompt will follow it
   most of the time, and "most of the time" is the wrong reliability target for
   something that can hurt someone. The rules are a module the generator is checked
   against, so a session that breaks them cannot be proposed — and logged history is
-  checked against them too, which surfaced real past sessions that paired a press
-  with triceps work. The interesting case is the chest fly: it is push, but it is not
-  a press, and treating it as one rejected sessions the athlete deliberately builds.
+  checked against them too, which surfaced real past sessions built around a banned
+  movement. Two cases were worth getting right: a chest fly is push but is *not* a
+  press, and treating it as one rejected sessions the athlete deliberately builds.
+  And an early version also banned triceps work on a pressing day, having read a
+  remark about triceps as a second rule when it was emphasis on the first —
+  over-constraining is its own failure mode, and it took the athlete correcting it
+  to notice. Rules like these are worth reading back to the person before encoding.
 
 - **"Not found" usually means "looked in the wrong place".** The coach kept
   reporting that ordinary exercises had no Hevy template and quietly shipping a

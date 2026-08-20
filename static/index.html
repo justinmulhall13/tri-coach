@@ -424,6 +424,22 @@
   .lf-spark i{flex:1;background:linear-gradient(180deg,var(--a1),var(--a2));border-radius:2px 2px 0 0;min-height:2px;}
   .lf-rule{display:flex;gap:7px;align-items:flex-start;font-size:12px;padding:3px 0;}
   .lf-rule b{color:var(--a1);}
+  .lf-sess{border-bottom:1px solid var(--line);}
+  .lf-sess:last-child{border-bottom:0;}
+  .lf-sess>summary{display:flex;align-items:center;gap:10px;padding:9px 0;cursor:pointer;
+    list-style:none;}
+  .lf-sess>summary::-webkit-details-marker{display:none;}
+  .lf-sess>summary::after{content:"›";color:var(--muted);transform:rotate(90deg);
+    transition:transform .18s ease;font-size:16px;line-height:1;}
+  .lf-sess[open]>summary::after{transform:rotate(-90deg);}
+  .lf-sess .lf-main{display:flex;flex-direction:column;}
+  .lf-sess .lf-num{display:flex;flex-direction:column;align-items:flex-end;}
+  .lf-detail{padding:2px 0 11px 0;}
+  .lf-set{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;}
+  .lf-setfig{flex:0 0 18px;width:18px;height:18px;color:var(--a1);opacity:.7;}
+  .lf-setfig svg{width:100%;height:100%;display:block;}
+  .lf-setname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .lf-setvals{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;}
   .cday .cdow{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:600;}
   .cday .cdate{font-family:var(--disp);font-size:15px;font-weight:600;color:var(--ink);line-height:1;}
   .cday .cdate .todaydot{display:inline-block;width:5px;height:5px;border-radius:50%;background:currentColor;margin-left:5px;vertical-align:middle;}
@@ -1516,17 +1532,13 @@
     <div class="hd">Lifting</div>
     <div id="lift-head" class="muted">Loading…</div>
   </div>
-  <div class="card" id="lift-rules-card">
-    <div class="hd">Your standing rules</div>
-    <div id="lift-rules" class="muted"></div>
+  <div class="card">
+    <div class="hd">Recent sessions <span class="muted" style="font-weight:400">· as logged in Hevy</span></div>
+    <div id="lift-sessions"></div>
   </div>
   <div class="card">
     <div class="hd">Biggest strength gains</div>
     <div id="lift-gains"></div>
-  </div>
-  <div class="card">
-    <div class="hd">Recent sessions</div>
-    <div id="lift-sessions"></div>
   </div>
   <div class="card">
     <div class="hd">Strength records <span class="muted" style="font-weight:400">· estimated</span></div>
@@ -1535,6 +1547,10 @@
   <div class="card">
     <div class="hd">Drifting away</div>
     <div id="lift-stale"></div>
+  </div>
+  <div class="card" id="lift-rules-card">
+    <div class="hd">Your standing rules</div>
+    <div id="lift-rules" class="muted"></div>
   </div>
 </main>
 
@@ -3609,18 +3625,36 @@ function renderLiftGains(d){
 }
 
 function renderLiftSessions(d){
-  const rows=(d.recent_sessions||[]).map(sn=>{
+  const rows=(d.recent_sessions||[]).map((sn,i)=>{
     const st=sn.rule_status||{};
     const issues=(st.injury_violations||[]).length;
-    const flag=issues?`<span class="lf-flag" title="${esc((st.injury_violations||[]).map(v=>v.detail).join('; '))}">${issues} rule ${issues===1?"issue":"issues"}</span>`:"";
-    return `<div class="lf-row">
-      <div class="lf-main">
-        <div class="lf-name">${esc(String(sn.title))}${flag}</div>
-        <div class="lf-sub">${esc(String(sn.date))} · ${esc(String(sn.exercise_count))} exercises · ${esc(String(sn.set_count))} sets</div>
-        <div class="lf-sub">${esc((sn.exercises||[]).join(" · "))}</div>
-      </div>
-      <div class="lf-num">${_liftNum(sn.tonnage_lb)}<div class="lf-sub">lb</div></div>
-    </div>`;}).join("");
+    const flag=issues
+      ? `<span class="lf-flag" title="${esc((st.injury_violations||[]).map(v=>v.detail).join("; "))}">${issues} rule ${issues===1?"issue":"issues"}</span>`
+      : "";
+    const prs=sn.pr_count?`<span class="lf-flag lf-ok">${esc(String(sn.pr_count))} PR${sn.pr_count===1?"":"s"}</span>`:"";
+    // Every set as logged in Hevy: this tab reflects what happened, and the
+    // workout itself is edited in Hevy rather than here.
+    const detail=(sn.exercises||[]).map(ex=>{
+      const sets=(ex.sets||[]).map(x=>{
+        if(x.weight_lb!=null) return `${x.weight_lb}×${x.reps??"—"}${x.is_pr?"★":""}`;
+        if(x.duration_seconds!=null) return `${x.duration_seconds}s`;
+        return `${x.reps??"—"} reps`;
+      }).join("  ");
+      return `<div class="lf-set">
+        <span class="lf-setfig">${_liftFig(ex.pattern)}</span>
+        <span class="lf-setname">${esc(String(ex.title))}</span>
+        <span class="lf-setvals">${esc(sets)}</span></div>`;
+    }).join("");
+    return `<details class="lf-sess"${i===0?" open":""}>
+      <summary>
+        <span class="lf-main">
+          <span class="lf-name">${esc(String(sn.title))}${prs}${flag}</span>
+          <span class="lf-sub">${esc(String(sn.date))} · ${esc(String(sn.exercise_count))} exercises · ${esc(String(sn.set_count))} sets</span>
+        </span>
+        <span class="lf-num">${_liftNum(sn.tonnage_lb)}<span class="lf-sub">lb</span></span>
+      </summary>
+      <div class="lf-detail">${detail}</div>
+    </details>`;}).join("");
   $("lift-sessions").innerHTML=rows||`<div class="muted">No sessions logged yet.</div>`;
 }
 

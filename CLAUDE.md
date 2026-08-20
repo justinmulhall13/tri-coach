@@ -179,10 +179,17 @@ early and is unaffected.
 
 ### The athlete's shoulder is a hard constraint, enforced in code
 `app/lifting_rules.py` is the authority, not the prompt: at most one pressing
-movement per session, never paired with triceps isolation, six exercises,
-no two adjacent exercises from the same group, no face pulls (rear delt fly
-instead), and back volume capped. `check` reports violations, `arrange`
-reorders without ever adding or dropping an exercise.
+movement per session, six exercises, no two adjacent exercises from the same
+group, no face pulls (rear delt fly instead), and back volume capped. `check`
+reports violations, `arrange` reorders without ever adding or dropping an
+exercise.
+
+**Triceps isolation on a pressing day is ALLOWED.** An earlier version banned it,
+reading the athlete's remark "only one pressing exercise per, especially if I'm
+doing triceps as well" as a second constraint when it was emphasis on the first.
+He corrected it explicitly. Because triceps is push-family work, the alternation
+rule already keeps it off the press's shoulder; that is what "no push then
+triceps back" meant. Do not reintroduce the ban.
 
 A **chest fly is not a press**. It is grouped as push for alternation but does
 not spend the single pressing slot, so one press plus a fly is legal — which is
@@ -242,3 +249,16 @@ importing `app.main` — fired a real Google Calendar reconcile from the dev
 machine. With Fly reconciling the same plan, that is exactly how duplicate
 events appear. It is now an ASGI startup handler, covered by
 `tests/test_startup_side_effects.py`.
+
+
+### Correction: the lifting tab is a READ surface
+The athlete edits workouts in Hevy once they exist — "I will likely fuck around
+with it and only deal with that workout in the app itself". The tab therefore
+invests in reflecting Hevy: recent sessions now carry the actual sets, reps and
+weights performed, with PR markers, and the history leads the tab while the
+rules card sits last. Creating or restructuring a session stays in the coach
+chat; editing and executing it stays in Hevy.
+
+A PR badge requires beating a *previous* best (`sessions_logged >= 2`).
+Badging an exercise's only-ever session is technically correct and useless: it
+puts "PR" on every new movement and teaches the athlete to ignore the badge.

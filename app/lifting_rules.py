@@ -7,11 +7,16 @@ than only in a prompt the model may drift away from.
 
 The rules, as the athlete stated them:
 
-* At most **one pressing movement** per session.
-* **Never** pair pressing with triceps isolation on the same day.
+* At most **one pressing movement** per session. This is the core rule.
 * **Six exercises** per session.
 * Alternate so no muscle group runs **back to back** — a group gets a rest
-  before it is loaded again.
+  before it is loaded again. Triceps counts as push-family work, so a push
+  followed by triceps is the shape this rule catches.
+
+Triceps isolation on a pressing day is explicitly **allowed**. An earlier
+version banned it, reading a remark about triceps as a second constraint when
+it was emphasis on why the one-press limit matters. Over-constraining is its own
+failure: it rejects sessions the athlete deliberately wants.
 * **No face pulls.** They aggravate the shoulder; rear delt flies instead.
 * Watch back volume — one true back/thickness movement, not three.
 
@@ -32,9 +37,6 @@ from . import strength_visual
 # that loads the shoulder through a different path, so a session may pair one
 # press with a fly, which is exactly how the athlete builds an upper day.
 PRESS_PATTERNS = frozenset({"push_horizontal", "push_vertical"})
-
-# Triceps isolation. Barred from any session that already spends its press slot.
-TRICEPS_PATTERNS = frozenset({"triceps"})
 
 # True back/thickness work, the volume the athlete flagged as excessive at three.
 BACK_PATTERNS = frozenset({"pull_horizontal", "pull_vertical"})
@@ -96,7 +98,6 @@ def check(exercises: Any) -> list[dict[str, Any]]:
     violations: list[dict[str, Any]] = []
 
     presses = [e for e in items if pattern_of(e) in PRESS_PATTERNS]
-    triceps = [e for e in items if pattern_of(e) in TRICEPS_PATTERNS]
     back = [e for e in items if pattern_of(e) in BACK_PATTERNS]
 
     if len(presses) > MAX_PRESSES:
@@ -106,13 +107,6 @@ def check(exercises: Any) -> list[dict[str, Any]]:
             "detail": (f"{len(presses)} pressing movements; this shoulder tolerates "
                        f"{MAX_PRESSES} per session"),
             "exercises": [_title(e) for e in presses],
-        })
-    if presses and triceps:
-        violations.append({
-            "rule": "no_triceps_with_press",
-            "severity": "injury",
-            "detail": "triceps isolation is not programmed on a day that already presses",
-            "exercises": [_title(e) for e in presses + triceps],
         })
     for exercise in items:
         for expression, reason in _BANNED:
@@ -192,7 +186,6 @@ def summary(exercises: Any) -> dict[str, Any]:
         "groups": [group_of(e) for e in items],
         "rules": [
             f"At most {MAX_PRESSES} pressing movement per session.",
-            "No triceps isolation on a day that presses.",
             f"{TARGET_EXERCISE_COUNT} exercises per session.",
             "No two adjacent exercises from the same group.",
             "No face pulls; rear delt flies instead.",
