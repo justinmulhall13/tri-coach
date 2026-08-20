@@ -304,6 +304,27 @@ both directions.
 
 A few problems here were more interesting than they first look:
 
+- **The model's output is untrusted input.** The coach writes the training plan,
+  and the app renders it. That makes every generated title and workout description
+  attacker-reachable the moment the model reads something it didn't author — a web
+  search result, a pasted race guide. Since the API token lives in `localStorage`
+  and a generated week persists and re-renders in a later session, an unescaped
+  title is stored token exfiltration, not a cosmetic bug. Three layers keep them
+  apart: every model-derived field is escaped at the render site, the escape helper
+  handles quotes as well as angle brackets (`textContent` does not, and one sink
+  interpolates into a `class` attribute), and the server refuses markup outright so
+  a payload never reaches storage for some future render path to find. Quotes are
+  deliberately still allowed through the server guard — `5' rest` and `3" spacing`
+  are ordinary training text, and escaping at the sink is what makes them harmless.
+
+- **Identity is server-owned.** An event's persistence namespace decides which
+  plans, drafts and chat history it can see. That namespace is derived server-side
+  from a hash of everything that makes the event what it is — name, date, distances,
+  goal, mode — and never from an id the model supplied. Two races on the same day
+  with the same name but different distances are different events and get different
+  namespaces; re-confirming the same event resolves to the same one, so a plan is
+  never orphaned by a repeated confirmation.
+
 - **Two sources that each hold half the truth.** Garmin records *that* a strength
   session happened — duration, heart rate — and never which exercises or weights.
   Hevy records exercises, sets and exact weights, but only for sessions logged
