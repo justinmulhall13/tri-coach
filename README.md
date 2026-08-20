@@ -325,6 +325,16 @@ A few problems here were more interesting than they first look:
   namespaces; re-confirming the same event resolves to the same one, so a plan is
   never orphaned by a repeated confirmation.
 
+- **A coach that knows where its competence ends.** The app carries a
+  physiotherapy and strength-coaching reference — the pain-monitoring traffic light,
+  tissue adaptation timelines, per-region exercise substitutions — so advice about a
+  sore shoulder follows a consistent standard instead of whatever a general model
+  recalls. The important half is what it refuses: it never names a diagnosis. "This
+  movement aggravates it, here is one that does not" is a training decision; "you have
+  impingement" is a clinical judgement, and acting on a wrong one is how somebody
+  trains through a stress fracture. It carries explicit referral triggers for exactly
+  that reason.
+
 - **An injury constraint belongs in code, not a prompt.** The athlete has a bad
   shoulder: at most one pressing movement per session, no face pulls, and no muscle
   group worked twice in a row. A model told this in a system prompt will follow it

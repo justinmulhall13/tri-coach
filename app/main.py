@@ -27,7 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from . import (activity_detail, baselines, calendar_agent, calendar_source,
                calendar_sync, coach, coaching_contract, config, db, fitness_trend, garmin_source,
                garmin_workout, hevy_actions, hevy_connector, insights, nudges, nutrition, plan, plan_adapt, zones,
-               lifting_rules, lifting_stats,
+               lifting_rules, lifting_split, lifting_stats,
                push, rings, ring_detail, strength_block, strength_effort, suggest)
 
 app = FastAPI(title="Tri Coach")
@@ -618,6 +618,41 @@ def lifting_stats_view() -> JSONResponse:
     payload["connected"] = True
     payload["workouts_read"] = len(workouts)
     return JSONResponse(payload)
+
+
+@app.get("/api/lifting/split")
+def lifting_split_view() -> JSONResponse:
+    """The active four-day split, validated, with its reasoning attached."""
+    stored = db.get_lifting_split()
+    payload = lifting_split.build(stored["days"] if stored else None)
+    payload["source"] = stored["source"] if stored else "default"
+    payload["updated_at"] = stored["updated_at"] if stored else None
+    return JSONResponse(payload)
+
+
+@app.put("/api/lifting/split")
+def lifting_split_save(body: dict = Body(default={})) -> JSONResponse:
+    """Replace the stored split.
+
+    The result is returned validated, so an edit that breaks a rule is saved but
+    reported rather than silently accepted or silently rejected.
+    """
+    days = body.get("days")
+    if not isinstance(days, list) or not days:
+        return JSONResponse({"error": "days array is required"}, status_code=400)
+    try:
+        stored = db.save_lifting_split(days, source=str(body.get("source") or "edited"))
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    payload = lifting_split.build(stored["days"])
+    payload["source"] = stored["source"]
+    payload["updated_at"] = stored["updated_at"]
+    return JSONResponse(payload)
+
+
+@app.delete("/api/lifting/split")
+def lifting_split_reset() -> JSONResponse:
+    return JSONResponse({"ok": True, "reset": db.reset_lifting_split()})
 
 
 @app.get("/api/lifting/rules")

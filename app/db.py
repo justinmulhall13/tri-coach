@@ -77,6 +77,17 @@ CREATE TABLE IF NOT EXISTS plan_drafts (
 CREATE INDEX IF NOT EXISTS idx_plan_drafts_profile_status
     ON plan_drafts (event_profile_id, status, id DESC);
 
+CREATE TABLE IF NOT EXISTS lifting_split (
+    -- The athlete's standing four-day split. One row per event profile, so a
+    -- marathon block and a triathlon block can carry different splits without
+    -- one overwriting the other.
+    event_profile_id TEXT NOT NULL,
+    days_json        TEXT NOT NULL,
+    source           TEXT NOT NULL DEFAULT 'default',  -- default | coach | edited
+    updated_at       TEXT NOT NULL,
+    PRIMARY KEY (event_profile_id)
+);
+
 CREATE TABLE IF NOT EXISTS plan_strength (
     -- A lift attached to a calendar day. plan_days is one row per date and the
     -- whole app depends on that (reconciliation, calendar sync, activation), so
@@ -1119,4 +1130,51 @@ def delete_plan_strength(date: str) -> bool:
             "DELETE FROM plan_strength WHERE date=? AND event_profile_id=?",
             (date, _active_profile_id()),
         )
+    return cursor.rowcount > 0
+
+
+# ---------------------------------------------------------------- lifting split
+
+def get_lifting_split() -> dict[str, Any] | None:
+    """The stored split for the active event, or None to use the default."""
+    row = _conn().execute(
+        "SELECT * FROM lifting_split WHERE event_profile_id=?",
+        (_active_profile_id(),),
+    ).fetchone()
+    if not row:
+        return None
+    record = dict(row)
+    try:
+        record["days"] = json.loads(record.pop("days_json") or "null")
+    except (TypeError, ValueError):
+        return None
+    return record if isinstance(record.get("days"), list) else None
+
+
+def save_lifting_split(days: list[dict[str, Any]], *, source: str = "edited") -> dict[str, Any]:
+    """Persist an edited split. Stored verbatim so what is shown is what was agreed."""
+    import datetime
+    if not isinstance(days, list) or not days:
+        raise ValueError("a split needs at least one day")
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    with _conn() as conn:
+        conn.execute(
+            """INSERT INTO lifting_split (event_profile_id, days_json, source, updated_at)
+               VALUES (?,?,?,?)
+               ON CONFLICT(event_profile_id) DO UPDATE SET
+                   days_json=excluded.days_json, source=excluded.source,
+                   updated_at=excluded.updated_at""",
+            (_active_profile_id(), json.dumps(days, default=str), str(source), now),
+        )
+    stored = get_lifting_split()
+    if stored is None:  # pragma: no cover - only if the row vanished
+        raise RuntimeError("split was not stored")
+    return stored
+
+
+def reset_lifting_split() -> bool:
+    """Drop the stored split so the default applies again."""
+    with _conn() as conn:
+        cursor = conn.execute("DELETE FROM lifting_split WHERE event_profile_id=?",
+                              (_active_profile_id(),))
     return cursor.rowcount > 0

@@ -440,6 +440,40 @@
   .lf-setfig svg{width:100%;height:100%;display:block;}
   .lf-setname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .lf-setvals{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;}
+  /* Split block: four days across on desktop, two-by-two on a phone. */
+  .splitgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+  @media (max-width:820px){ .splitgrid{grid-template-columns:repeat(2,1fr);} }
+  .splitday{display:flex;flex-direction:column;gap:6px;padding:11px;border-radius:14px;
+    background:rgba(var(--glow),.07);border:1px solid rgba(var(--glow),.2);
+    cursor:pointer;text-align:left;font:inherit;color:inherit;
+    transition:transform .15s var(--spring),border-color .15s,background .15s;}
+  .splitday:hover{transform:translateY(-2px);border-color:rgba(var(--glow),.45);
+    background:rgba(var(--glow),.12);}
+  .splitday:active{transform:scale(.98);}
+  .splitday .sd-n{font-weight:700;font-size:13.5px;}
+  .splitday .sd-f{color:var(--muted);font-size:11px;line-height:1.3;min-height:26px;}
+  .splitday .sd-l{display:flex;flex-direction:column;gap:3px;margin-top:2px;}
+  .splitday .sd-e{display:flex;gap:6px;align-items:center;font-size:11.5px;}
+  .splitday .sd-e i{flex:0 0 14px;width:14px;height:14px;color:var(--a1);opacity:.75;}
+  .splitday .sd-e i svg{width:100%;height:100%;display:block;}
+  .splitday .sd-e span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .splitday .sd-tag{align-self:flex-start;font-size:10px;font-weight:600;padding:2px 7px;
+    border-radius:999px;background:rgba(var(--glow),.18);color:var(--a1);}
+  .splitday.lower .sd-tag{background:rgba(15,157,110,.14);color:var(--good);}
+  .splitcov{margin-top:10px;color:var(--muted);font-size:11.5px;}
+  .splitask{margin-top:16px;padding-top:13px;border-top:1px solid var(--line);}
+  .splitask label{display:block;font-weight:650;font-size:12.5px;margin-bottom:6px;}
+  .splitask textarea{width:100%;font:inherit;padding:9px 11px;border-radius:11px;
+    border:1px solid var(--line);background:var(--glass2);color:inherit;resize:vertical;}
+  .splitask button{margin-top:9px;}
+  .sx-row{display:flex;gap:9px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line);}
+  .sx-row:last-child{border-bottom:0;}
+  .sx-fig{flex:0 0 24px;width:24px;height:24px;color:var(--a1);opacity:.85;}
+  .sx-fig svg{width:100%;height:100%;display:block;}
+  .sx-b{flex:1;min-width:0;}
+  .sx-t{font-weight:650;font-size:13px;}
+  .sx-p{color:var(--muted);font-size:11.5px;font-variant-numeric:tabular-nums;}
+  .sx-w{color:var(--muted);font-size:11px;margin-top:2px;line-height:1.35;opacity:.9;}
   .cday .cdow{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:600;}
   .cday .cdate{font-family:var(--disp);font-size:15px;font-weight:600;color:var(--ink);line-height:1;}
   .cday .cdate .todaydot{display:inline-block;width:5px;height:5px;border-radius:50%;background:currentColor;margin-left:5px;vertical-align:middle;}
@@ -1529,6 +1563,10 @@
 
 <main id="main-lift" style="display:none">
   <div class="card">
+    <div class="hd">Current split <span class="muted" style="font-weight:400" id="lift-split-sub"></span></div>
+    <div id="lift-split"></div>
+  </div>
+  <div class="card">
     <div class="hd">Lifting</div>
     <div id="lift-head" class="muted">Loading…</div>
   </div>
@@ -1586,6 +1624,25 @@
     </div>
   </div>
 </main>
+
+<div class="overlay" id="split-overlay" role="dialog" aria-modal="true" aria-labelledby="split-title">
+  <div class="sheet">
+    <div class="sheet-head">
+      <div><div class="t" id="split-title">Day</div><div class="m" id="split-meta"></div></div>
+      <button class="xbtn" id="split-close" aria-label="Close day">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div id="split-why" class="lf-sub" style="margin-bottom:12px"></div>
+      <div id="split-exercises"></div>
+      <div id="split-flags"></div>
+      <div class="splitask">
+        <label for="split-input">Change this day with the coach</label>
+        <textarea id="split-input" rows="2" placeholder="e.g. swap the front squat for a leg press, my knee is cranky"></textarea>
+        <button class="primary" id="split-send">Ask coach about this day</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <nav class="botnav" id="botnav" aria-label="Primary">
   <button data-view="dash" class="on"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 4l9 6.5V19a1.5 1.5 0 0 1-1.5 1.5h-4V14h-7v6.5h-4A1.5 1.5 0 0 1 3 19z"/></svg>Home</button>
@@ -3535,6 +3592,81 @@ updateScrollChrome();
 refreshRevealTargets();
 
 // ================= Lifting tab =================
+let _splitData=null, _splitOpenSlot=null;
+
+async function renderLiftSplit(){
+  let d;
+  try{ d=await j("/api/lifting/split"); }
+  catch(e){ $("lift-split").innerHTML=`<div class="muted">Could not load your split.</div>`; return; }
+  _splitData=d;
+  const days=d.days||[];
+  $("lift-split-sub").textContent =
+    `· ${d.sessions_per_week||days.length} days a week${d.source&&d.source!=="default"?" · edited":""}`;
+  $("lift-split").innerHTML=`
+    <div class="splitgrid">${days.map(day=>{
+      const issues=((day.rule_status||{}).injury_violations||[]).length;
+      return `<button class="splitday${day.is_lower?" lower":""}" data-slot="${esc(String(day.slot))}">
+        <span class="sd-n">${esc(String(day.name))}</span>
+        <span class="sd-tag">${day.is_lower?"Lower":"Upper"}</span>
+        <span class="sd-f">${esc(String(day.focus||""))}</span>
+        <span class="sd-l">${(day.exercises||[]).map(ex=>`
+          <span class="sd-e"><i>${_liftFig(ex.pattern)}</i><span>${esc(String(ex.title))}</span></span>`).join("")}</span>
+        ${issues?`<span class="lf-flag">${issues} rule ${issues===1?"issue":"issues"}</span>`:""}
+      </button>`;}).join("")}</div>
+    <div class="splitcov">${esc(String((d.coverage||{}).note||""))}</div>`;
+  $("lift-split").querySelectorAll(".splitday").forEach(b=>{
+    b.onclick=()=>openSplitDay(b.dataset.slot);
+  });
+}
+
+function openSplitDay(slot){
+  const day=((_splitData||{}).days||[]).find(x=>String(x.slot)===String(slot));
+  if(!day) return;
+  _splitOpenSlot=slot;
+  $("split-title").textContent=day.name;
+  $("split-meta").textContent=`${day.focus||""} · ${day.exercise_count||0} exercises`;
+  $("split-why").textContent=day.why||"";
+  $("split-exercises").innerHTML=(day.exercises||[]).map(ex=>`
+    <div class="sx-row">
+      <div class="sx-fig">${_liftFig(ex.pattern)}</div>
+      <div class="sx-b">
+        <div class="sx-t">${esc(String(ex.title))}</div>
+        <div class="sx-p">${esc(String(ex.sets??"—"))} x ${esc(String(ex.reps??"—"))}${
+          ex.rest_seconds?` · ${esc(String(ex.rest_seconds))}s rest`:""}${
+          ex.role?` · ${esc(String(ex.role))}`:""}</div>
+        ${ex.why?`<div class="sx-w">${esc(String(ex.why))}</div>`:""}
+      </div>
+    </div>`).join("");
+  const flags=((day.rule_status||{}).violations||[]);
+  $("split-flags").innerHTML=flags.length
+    ? `<div class="lf-sub" style="margin-top:10px">${flags.map(v=>
+        `<div class="lf-rule"><b>!</b><span>${esc(String(v.detail))}</span></div>`).join("")}</div>`
+    : "";
+  $("split-input").value="";
+  $("split-overlay").classList.add("open");
+}
+
+function closeSplitDay(){ $("split-overlay").classList.remove("open"); _splitOpenSlot=null; }
+if($("split-close")) $("split-close").onclick=closeSplitDay;
+if($("split-overlay")) $("split-overlay").onclick=e=>{ if(e.target===$("split-overlay")) closeSplitDay(); };
+
+// Talking about one day routes into the main coach chat rather than running a
+// second conversation: the coach needs the same context either way, and a reply
+// that changes the day should land where every other change lands.
+if($("split-send")) $("split-send").onclick=()=>{
+  const day=((_splitData||{}).days||[]).find(x=>String(x.slot)===String(_splitOpenSlot));
+  const text=($("split-input").value||"").trim();
+  if(!day) return;
+  const current=(day.exercises||[]).map(e=>e.title).join(", ");
+  const prompt=`About my ${day.name} day (${day.focus}) — currently ${current}. `+
+    (text||"Rebuild this day for me.");
+  closeSplitDay();
+  switchView("coach");
+  const input=$("chatinput");
+  if(input){ input.value=prompt; resizeChatInput(); setTimeout(()=>{ input.focus(); send(); },120); }
+};
+
+
 let _liftData=null;
 function _liftFig(pattern){ return EXFIG[pattern]||EXFIG.other; }
 function _liftNum(n){ return Number(n||0).toLocaleString(); }
@@ -3546,6 +3678,7 @@ async function loadLifting(){
   try{ d=await j("/api/lifting/stats"); }
   catch(e){ head.textContent="Could not read your lifting history."; return; }
   _liftData=d;
+  renderLiftSplit();
   if(d.connected===false){
     head.innerHTML=`<div>Hevy is not connected, so there is no lifting history to show.</div>
       <div class="lf-sub">${esc(String(d.reason||""))}</div>`;
@@ -3560,6 +3693,7 @@ async function loadLifting(){
     renderLiftRules();
     return;
   }
+  renderLiftSplit();
   renderLiftHead(d); renderLiftRules(); renderLiftGains(d);
   renderLiftSessions(d); renderLiftRecords(d); renderLiftStale(d);
 }

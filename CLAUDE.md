@@ -262,3 +262,55 @@ chat; editing and executing it stays in Hevy.
 A PR badge requires beating a *previous* best (`sessions_logged >= 2`).
 Badging an exercise's only-ever session is technically correct and useless: it
 puts "PR" on every new movement and teaches the athlete to ignore the badge.
+
+
+## Session 2026-08-20 (part 3) — the split, and physio knowledge for Coach Steve
+
+### The four-day split is the first thing on the Lifting tab
+`app/lifting_split.py` holds Upper 1 / Lower 1 / Upper 2 / Lower 2, rendered four
+across on desktop and two-by-two under 820px. Each day is clickable; the sheet
+shows every exercise with its reason, and "ask coach about this day" routes into
+the **main** coach chat rather than running a second conversation, because a reply
+that changes the day should land where every other change lands.
+
+Design points worth keeping:
+
+- The two Upper days differ **by plane** — horizontal then vertical. Running the
+  same upper session twice trains one plane twice and leaves the other untrained.
+- Leg days are built for a runner: unilateral loading, eccentric hamstrings, hip
+  extension and calves, with the highest-damage lifts kept low in volume. A
+  bodybuilding leg day costs two days of running.
+- Every exercise carries a `role` and a `why`. The tab shows them; a split the
+  athlete cannot interrogate is one he will not follow.
+- `db.lifting_split` is per event profile, so a marathon block and a tri block do
+  not overwrite each other. An edit that breaks a rule is **saved and reported**,
+  never silently rejected or silently accepted.
+
+### Group subdivision (this made leg days possible at all)
+"legs" as a single alternation group flagged every lower session, because a lower
+day is legs by definition. Groups are now `quad` / `hinge` / `calf`, and
+`_TITLE_GROUP` overrides the pattern where the movement name misleads:
+
+- a Nordic **curl** is a hamstring exercise, not biceps work;
+- a rear delt fly is shoulder isolation, not back thickness — grouping it with
+  rows both broke the alternation shape and inflated the back-volume count the
+  athlete asked to keep down.
+
+`back_count` checks group as well as pattern for the same reason.
+
+### Coach Steve now carries a physio/strength reference
+`app/strength_knowledge.py`: the pain-monitoring traffic light, tissue adaptation
+timelines, load-progression limits, concurrent-training rules, per-region
+substitutions, and referral triggers. It is carried whenever the athlete mentions
+pain **or** programming — a sore knee usually arrives mid-conversation about
+running — and always includes the shoulder as the standing problem area.
+
+**It never names a diagnosis.** "Your shoulder hurts pressing overhead" is an
+observation the coach can act on; "you have impingement" is a clinical judgement
+it is not entitled to make, and acting on a wrong one is how someone trains
+through a stress fracture. Referral triggers exist so the coach knows where its
+competence ends.
+
+Regex note, twice-learned: match **stems**, not whole words. `\btweak\b` misses
+"tweaked", `\binjur\b` misses "injured", `\bsubstitut\b` misses "substitution" —
+which is most of how anyone actually writes.

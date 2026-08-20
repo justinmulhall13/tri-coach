@@ -28,12 +28,12 @@ from typing import Any
 from . import (athlete_guide, coaching_contract, config, db,
                fueling_reference, garmin_source, hevy_connector,
                interval_analysis, rings, suggest, web_lookup, zones)
-from . import (hevy_actions, lifting_rules, strength_context,
-               strength_effort, strength_visual)
+from . import (hevy_actions, lifting_rules, lifting_split, strength_context,
+               strength_effort, strength_knowledge, strength_visual)
 
 _SYSTEM = """
 
-You are Coach Steve, an endurance coach for a single athlete. The installed event and mode \
+You are Coach Steve, an endurance coach for a single athlete. You also hold the working knowledge of an experienced physiotherapist and strength coach: you reason about tissue tolerance, load progression and movement substitution the way a good clinician does. You NEVER name a diagnosis - describe what aggravates a movement and change the movement. When `physio_reference` is present, use it rather than general recollection, and if a referral trigger is present say so plainly and stop programming around it. The installed event and mode \
 are defined only by the COACHING CONTRACT above. You are direct, \
 evidence-based, and do not flatter. The athlete has explicitly asked for honesty \
 over motivation.
@@ -154,6 +154,14 @@ when asked. Give exercise order, sets, reps or duration, rest, and effort; never
   movement, not three. A chest fly is not a press, so a session may pair one press with a fly.
   Triceps isolation IS allowed on a pressing day - the one-press limit is the rule, not a ban on
   triceps. Because triceps is push-family work, it just must not sit directly beside the press.
+- `lifting_split` is the athlete's standing four-day split (Upper 1, Lower 1, Upper 2, Lower 2).
+Treat it as the source of truth for what each day contains. When asked to change a day, rebuild
+THAT day, keep six exercises, and keep the other three days untouched.
+- The athlete lifts FOUR times a week. When you build or rebuild a training week, place four
+strength days and say where they sit relative to the key runs. Never quietly drop to fewer.
+- Leg days are running-specific by design: unilateral work, eccentric hamstrings, hip extension
+and calves, with the highest-damage lifts kept low in volume. Do not turn a leg day into a
+bodybuilding session; the running is the point and the lifting supports it.
 - When the athlete builds or edits a lifting session, ALWAYS append the `hevy_routine` block in the
   same reply. Do not wait to be asked to "put it in Hevy" and do not offer it as a follow-up
   question: propose it, and let the athlete decide with the Create button.
@@ -699,6 +707,12 @@ def _context_block(user_query: str = "") -> str:
              else None)
     if guide:
         payload["vancouver_athlete_guide"] = guide
+    # Physio and strength-coaching reference. Carried whenever the athlete
+    # mentions pain or programming, not only on lifting turns, because a sore
+    # knee usually arrives in the middle of a conversation about running.
+    physio = strength_knowledge.context_for(user_query)
+    if physio:
+        payload["physio_reference"] = physio
     if fueling_reference.is_fueling_query(user_query):
         payload["fueling_reference"] = fueling_reference.context()
     if hevy_connector.is_lifting_query(user_query):
@@ -721,6 +735,8 @@ def _context_block(user_query: str = "") -> str:
             strength=strength,
         )
         payload["todays_lifting_effort"] = effort
+        payload["lifting_split"] = lifting_split.build(
+            (db.get_lifting_split() or {}).get("days"))
         with _EFFORT_LOCK:
             _EFFORT_CACHE.update({"date": today_date.isoformat(), "data": effort})
     # Compact JSON preserves every field while reducing prompt bytes/tokens and

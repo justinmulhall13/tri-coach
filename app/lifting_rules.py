@@ -51,17 +51,41 @@ _BANNED = (
      "face pulls aggravate this athlete's shoulder; use a rear delt fly instead"),
 )
 
-# Coarse group used for the alternation rule. Two exercises in the same group
-# must not sit next to each other.
+# Group used for the alternation rule. Legs are deliberately subdivided:
+# treating a whole lower day as one "legs" group flags every leg session, since
+# a lower day is legs by definition. What actually needs a rest between
+# exercises is the specific pattern — knee-dominant, hip-dominant, calves.
 _PATTERN_GROUP = {
     "push_horizontal": "push", "push_vertical": "push", "triceps": "push",
     "fly": "push",
     "pull_horizontal": "pull", "pull_vertical": "pull", "curl": "pull",
     "raise": "shoulder", "carry": "shoulder",
-    "squat": "legs", "hinge": "legs", "lunge": "legs", "calf": "legs",
-    "plyo": "legs", "olympic": "legs",
+    "squat": "quad", "lunge": "quad", "plyo": "quad",
+    "hinge": "hinge", "olympic": "hinge",
+    "calf": "calf",
     "core": "core", "cardio": "conditioning", "other": "other",
 }
+
+# Titles whose movement pattern is a poor guide to the muscle worked. A Nordic
+# *curl* is a hamstring exercise, not biceps work, and grouping it with curls
+# put it on the wrong side of the alternation rule entirely.
+_TITLE_GROUP = (
+    # Rear delt work is shoulder isolation, not back thickness. Grouping it with
+    # rows both breaks the alternation shape of an upper day and inflates the
+    # back-volume count the athlete asked to keep down.
+    (re.compile(r"rear[- ]?delt|reverse fly|face ?pull|band pull[- ]?apart", re.I), "shoulder"),
+    (re.compile(r"(leg|hamstring|nordic|lying|seated)\s*curl|nordic", re.I), "hinge"),
+    (re.compile(r"leg extension|knee extension", re.I), "quad"),
+    (re.compile(r"\bcalf|calve", re.I), "calf"),
+    (re.compile(r"hip thrust|glute bridge|glute ham|back extension|good morning", re.I), "hinge"),
+    (re.compile(r"hip (abduction|adduction)|abductor|adductor", re.I), "hinge"),
+)
+
+
+def _title(exercise: Any) -> str:
+    if not isinstance(exercise, dict):
+        return ""
+    return str(exercise.get("title") or exercise.get("exercise_name") or "")
 
 
 def pattern_of(exercise: Any) -> str:
@@ -78,13 +102,12 @@ def pattern_of(exercise: Any) -> str:
 
 
 def group_of(exercise: Any) -> str:
+    """Which group an exercise belongs to for the alternation rule."""
+    title = _title(exercise)
+    for expression, group in _TITLE_GROUP:
+        if expression.search(title):
+            return group
     return _PATTERN_GROUP.get(pattern_of(exercise), "other")
-
-
-def _title(exercise: Any) -> str:
-    if not isinstance(exercise, dict):
-        return ""
-    return str(exercise.get("title") or exercise.get("exercise_name") or "")
 
 
 def check(exercises: Any) -> list[dict[str, Any]]:
@@ -98,7 +121,11 @@ def check(exercises: Any) -> list[dict[str, Any]]:
     violations: list[dict[str, Any]] = []
 
     presses = [e for e in items if pattern_of(e) in PRESS_PATTERNS]
-    back = [e for e in items if pattern_of(e) in BACK_PATTERNS]
+    # Back volume means rows and pulldowns. Group is checked as well as pattern
+    # so shoulder isolation that happens to pull — a rear delt fly — is not
+    # counted as back thickness work.
+    back = [e for e in items
+            if pattern_of(e) in BACK_PATTERNS and group_of(e) == "pull"]
 
     if len(presses) > MAX_PRESSES:
         violations.append({
@@ -181,7 +208,8 @@ def summary(exercises: Any) -> dict[str, Any]:
         "violations": violations,
         "injury_violations": [v for v in violations if v["severity"] == "injury"],
         "press_count": sum(1 for e in items if pattern_of(e) in PRESS_PATTERNS),
-        "back_count": sum(1 for e in items if pattern_of(e) in BACK_PATTERNS),
+        "back_count": sum(1 for e in items
+                          if pattern_of(e) in BACK_PATTERNS and group_of(e) == "pull"),
         "exercise_count": len(items),
         "groups": [group_of(e) for e in items],
         "rules": [
