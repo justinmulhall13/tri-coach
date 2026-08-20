@@ -10,6 +10,40 @@ from app import plan
 
 
 class GarminWorkoutSafetyTests(unittest.TestCase):
+    def test_active_event_profile_drives_race_targets_after_cross_profile_switch(self) -> None:
+        active_profile = {
+            "id": "marathon-2026",
+            "mode": "MARATHON",
+            "event": "Autumn Marathon",
+            "pacing_targets": {
+                "bike_hr_bpm": [125, 135],
+                "run_hr_bpm": [145, 155],
+                "run_lap_1_min_per_km": "7:05",
+            },
+        }
+        with patch.object(coaching_contract, "event_context", return_value=active_profile):
+            bike = garmin_workout.build_workout({
+                "discipline": "bike", "title": "Race support ride",
+                "duration_min": 30, "intensity": "race pace",
+                "structure": {"main": "30 min race effort"},
+            }, "2026-10-17")
+            run = garmin_workout.build_workout({
+                "discipline": "run", "title": "Race pace run",
+                "duration_min": 20, "intensity": "race pace",
+                "structure": {"main": "20 min race effort"},
+            }, "2026-10-17", thr_pace=270)
+
+        bike_step = bike["workoutSegments"][0]["workoutSteps"][0]
+        run_step = run["workoutSegments"][0]["workoutSteps"][0]
+        self.assertEqual(
+            (bike_step["targetValueOne"], bike_step["targetValueTwo"]), (125.0, 135.0),
+        )
+        self.assertEqual(
+            (run_step["targetValueOne"], run_step["targetValueTwo"]), (145.0, 155.0),
+        )
+        self.assertIn("lap 1 ceiling 7:05/km", run_step["description"])
+        self.assertNotIn("6:15/km", run_step["description"])
+
     def test_race_day_never_builds_or_uploads_as_one_cycling_workout(self) -> None:
         race = {
             "discipline": "race",

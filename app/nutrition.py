@@ -41,7 +41,7 @@ def weight_kg() -> float:
     return float(weight_info()["kg"])
 
 
-_SYSTEM = coaching_contract.system_prompt() + """
+_SYSTEM = """
 
 You are Chef Gordo, a high-performance sports chef and fueling coach for ONE \
 endurance athlete (bodyweight is in the context block) training for the installed event. You work hand-in-hand \
@@ -116,14 +116,21 @@ def _sanitize_visible_reply(text: str) -> str:
     return (text or "").replace(" — ", ": ").replace("—", "-")
 
 
-def _reply(messages: list[dict[str, Any]], max_tokens: int = 1200, system: str = _SYSTEM) -> Any:
+def _system_prompt() -> str:
+    """Render Chef Gordo's contract from the persisted active profile per request."""
+    return _sanitize_visible_reply(coaching_contract.system_prompt() + _SYSTEM)
+
+
+def _reply(messages: list[dict[str, Any]], max_tokens: int = 1200,
+           system: str | None = None) -> Any:
     import anthropic
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY, max_retries=2)
+    system_text = _sanitize_visible_reply(system) if system is not None else _system_prompt()
     last: Exception | None = None
     for _ in range(3):
         try:
             with client.messages.stream(model=config.COACH_MODEL, max_tokens=max_tokens,
-                                        system=system, messages=messages) as stream:
+                                        system=system_text, messages=messages) as stream:
                 return stream.get_final_message()
         except Exception as e:  # noqa: BLE001
             last = e
@@ -285,6 +292,7 @@ def fueling_plan(session: dict[str, Any]) -> dict[str, Any]:
     if session.get("is_rest") or disc == "rest":
         return {"needed": False, "note": "Rest day. No intra-session fuelling."}
     if disc in {"race", "triathlon"} and config.event_has_leg("bike"):
+        event_goal = coaching_contract.event_context().get("goal")
         return {
             "needed": True,
             "requires_input": True,
@@ -292,8 +300,8 @@ def fueling_plan(session: dict[str, Any]) -> dict[str, Any]:
                      "and confirmed carried bottle volumes before calculating totals; do not apply "
                      "the whole-race duration to a bike-only carbohydrate plan."),
             "known_inputs": {
-                "event_duration_min": ((coaching_contract.EVENT_PROFILE.get("goal") or {})
-                                       .get("modelled_duration_min")),
+                "event_duration_min": (event_goal.get("modelled_duration_min")
+                                       if isinstance(event_goal, dict) else None),
                 "event_duration_source": "self-reported",
                 "bike_duration_min": None,
                 "bike_duration_source": "unknown",
@@ -652,7 +660,7 @@ def _context_block(user_request: str = "") -> str:
                             "duration_min": d["duration_min"]} for d in plan_week],
     }
     guide = (athlete_guide.context_for(user_request)
-             if coaching_contract.EVENT_PROFILE.get("athlete_guide_key") == "vancouver-2026"
+             if coaching_contract.event_context().get("athlete_guide_key") == "vancouver-2026"
              else None)
     if guide:
         payload["vancouver_athlete_guide"] = guide

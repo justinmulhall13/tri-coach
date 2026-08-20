@@ -389,6 +389,17 @@
     transition:transform .15s,border-color .15s,background .15s;}
   .cday:hover{transform:translateY(-2px);border-color:rgba(16,18,22,.16);background:rgba(16,18,22,.04);}
   .cday.today{border-color:currentColor;box-shadow:0 0 0 1px currentColor,0 6px 22px -10px currentColor;}
+  /* A lift attached to a day renders beneath that day's session, never instead
+     of it: plan_days holds one row per date and the lift lives alongside it. */
+  .clift{margin-top:auto;display:flex;align-items:center;gap:5px;font-size:10.5px;
+    color:var(--muted);padding-top:7px;border-top:1px dashed var(--line);}
+  .cliftfig{width:15px;height:15px;flex:0 0 15px;color:var(--a1);opacity:.85;}
+  .cliftfig svg{width:100%;height:100%;display:block;}
+  .clifttxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .clift.skip{opacity:.55;text-decoration:line-through;}
+  .liftsheet{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);}
+  .liftsheet .lh{font-weight:700;margin-bottom:3px;}
+  .liftsheet .lc{color:var(--muted);font-size:12px;margin-bottom:9px;}
   .cday .cdow{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:600;}
   .cday .cdate{font-family:var(--disp);font-size:15px;font-weight:600;color:var(--ink);line-height:1;}
   .cday .cdate .todaydot{display:inline-block;width:5px;height:5px;border-radius:50%;background:currentColor;margin-left:5px;vertical-align:middle;}
@@ -472,6 +483,21 @@
   .wk-row{display:flex;justify-content:space-between;gap:10px;align-items:baseline;
     font-size:12px;padding:5px 0;border-bottom:1px solid var(--line);}
   .wk-row:last-child{border-bottom:0;}
+  /* Illustrated strength proposal card */
+  .exgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:8px;margin-bottom:10px;}
+  .excard{display:flex;gap:9px;align-items:flex-start;padding:9px;border-radius:12px;
+    background:rgba(var(--glow),.07);border:1px solid rgba(var(--glow),.18);}
+  .exfig{flex:0 0 38px;width:38px;height:38px;color:var(--a1);opacity:.92;}
+  .exfig svg{width:100%;height:100%;display:block;}
+  .exbody{min-width:0;flex:1;}
+  .exname{font-weight:650;font-size:12.5px;line-height:1.25;overflow-wrap:anywhere;}
+  .exsets{color:var(--muted);font-size:11.5px;margin-top:2px;font-variant-numeric:tabular-nums;}
+  .exwhy{color:var(--muted);font-size:10.5px;margin-top:3px;opacity:.85;line-height:1.3;}
+  .exrest{color:var(--muted);font-size:10.5px;margin-top:2px;opacity:.7;}
+  .cue{display:inline-block;padding:3px 9px;border-radius:999px;font-size:11.5px;font-weight:650;
+    background:rgba(var(--glow),.18);border:1px solid rgba(var(--glow),.35);margin-bottom:8px;}
+  .hevyacts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .hevyacts button.ghost{background:transparent;border:1px solid rgba(var(--glow),.45);color:inherit;}
   .wk-day{color:var(--muted);min-width:64px;font-variant-numeric:tabular-nums;}
   .wk-row .wk-dur{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;}
   .chatbar{display:flex;gap:8px;align-items:center;}
@@ -1676,10 +1702,16 @@ async function softRefresh(){
   try{
     const [sug,load]=await Promise.all([j("/api/suggestion"),j("/api/load?days=14")]);
     const grew=actCount(load)>actCount(_lastLoad);
+    const activityChanged=!!(_lastLoad&&load&&load.activity_revision&&_lastLoad.activity_revision
+      && load.activity_revision!==_lastLoad.activity_revision);
     _lastLoad=load; renderWorkout(sug); renderActivities(load);
     j("/api/rings").then(rg=>{ _lastRings=rg; renderRings(rg); renderReadyCard(rg, _lastReadiness); }).catch(()=>{});
     if(typeof loadNudges==="function") loadNudges();
-    if(grew){ toast("✓ New activity detected — updated your day."); maybeCoachEventBrief(); }
+    if(activityChanged){
+      _statsLoaded=false;
+      if(_currentView==="stats") loadStats();
+    }
+    if(grew||activityChanged){ toast("✓ New activity detected — updated your day."); maybeCoachEventBrief(); }
   }catch(e){}
 }
 document.addEventListener("visibilitychange",()=>{
@@ -1723,6 +1755,8 @@ async function loadDashboard(){
       j("/api/race"), j("/api/readiness"), j("/api/suggestion"),
       j("/api/load?days=14"), j("/api/plan"), j("/api/health"),
     ]);
+    const activityChanged=!!(_lastLoad&&load&&load.activity_revision&&_lastLoad.activity_revision
+      && load.activity_revision!==_lastLoad.activity_revision);
     _lastReadiness=rd;
     renderRace(race);
     renderRaceCard(race, planResp);
@@ -1731,6 +1765,10 @@ async function loadDashboard(){
     renderActivities(load);
     renderBanners(health);
     _lastLoad=load;
+    if(activityChanged){
+      _statsLoaded=false;
+      if(_currentView==="stats") loadStats();
+    }
     loadNudges();
     // These each make extra Garmin calls — load async so the core paints fast.
     j("/api/rings").then(rg=>{ _lastRings=rg; renderRings(rg); renderReadyCard(rg, rd); }).catch(()=>{});
@@ -1890,7 +1928,10 @@ function renderRings(rg){
   if(!rg||rg.error){ $("rings-card").style.display="none"; return; }
   bigRing($("br-sleep"),"Sleep",rg.sleep.score,"/100",rg.sleep.label);
   const rr=rg.readiness||{};
-  const rsub=(rr.current!=null && rr.current!==rr.score)
+  const currentPending=(rr.current_freshness&&rr.current_freshness.is_current===false);
+  const rsub=currentPending
+    ? `${rr.label} · latest intraday score pending Garmin refresh`
+    :(rr.current!=null && rr.current!==rr.score)
     ? `${rr.label} · now ${rr.current}${rr.current_post_exercise?" (post-workout)":""}`
     : rr.label;
   // Recovery ring is the one status colour: green ≥66, amber ≥34, coral below.
@@ -2211,6 +2252,35 @@ function openDayDetail(planDay){
            _planDate: planDay.date, _startTime: planDay.start_time, _durMin: planDay.duration_min };
   _woSessions=splitSessions(_woDay);
   openWorkoutDetail(0);
+  renderDayLift(planDay.date);
+}
+
+// The lift for a day, shown beneath that day's session in the detail sheet.
+function renderDayLift(date){
+  // Insert into the scrollable sheet body, directly after the session's steps
+  // so the lift reads as part of that day rather than a separate screen.
+  const host=document.querySelector("#wo-overlay .sheet-body"); if(!host) return;
+  host.querySelectorAll(".liftsheet").forEach(n=>n.remove());
+  const lift=_planStrength[date]; if(!lift) return;
+  const view=lift.view||null;
+  const rows=((view&&view.exercises)||((lift.routine&&lift.routine.exercises)||[]).map((e,i)=>({
+    title:e.title||e.exercise_template_id||`Exercise ${i+1}`,
+    pattern:"other",
+    summary:`${(e.sets||[]).length} set${(e.sets||[]).length===1?"":"s"}`
+  })));
+  const el=document.createElement("div");
+  el.className="liftsheet";
+  el.innerHTML=`<div class="lh">${esc(String(lift.title||"Strength"))}</div>
+    ${lift.effort_cue?`<div class="lc">${esc(String(lift.effort_cue))}</div>`:""}
+    <div class="exgrid">${rows.map(ex=>`<div class="excard">
+      <div class="exfig">${EXFIG[ex.pattern]||EXFIG.other}</div>
+      <div class="exbody">
+        <div class="exname">${esc(String(ex.title||"Exercise"))}</div>
+        <div class="exsets">${esc(String(ex.summary||""))}</div>
+      </div></div>`).join("")}</div>`;
+  const steps=$("wo-steps");
+  if(steps&&steps.parentNode===host) host.insertBefore(el, steps.nextSibling);
+  else host.appendChild(el);
 }
 // Reschedule from the editable time/day controls in the detail sheet.
 async function _schedChange(){
@@ -2483,6 +2553,32 @@ function renderPlan(p){
   $("plan").querySelectorAll(".cday").forEach(c=>{
     c.onclick=()=>{ const d=_planDays[c.dataset.date]; if(d) openDayDetail(d); else openPlanPreview(c.dataset.date); };
   });
+  decoratePlanStrength(days);
+}
+
+// Lifts attached to calendar days. Fetched separately because plan_days is one
+// row per date; a lift that shares a day with a run is stored alongside it and
+// drawn underneath rather than competing for the same tile.
+let _planStrength={};
+async function decoratePlanStrength(days){
+  if(!days||!days.length) return;
+  const start=days[0].date, end=days[days.length-1].date;
+  let payload;
+  try{ payload=await j(`/api/plan/strength?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`); }
+  catch(e){ return; }                       // a missing lift must never blank the plan
+  _planStrength={};
+  (payload&&payload.days||[]).forEach(d=>{ _planStrength[d.date]=d; });
+  Object.values(_planStrength).forEach(d=>{
+    const cell=$("plan").querySelector(`.cday[data-date="${CSS.escape(d.date)}"]`);
+    if(!cell||cell.querySelector(".clift")) return;
+    const slot=String(d.slot||"full");
+    const level=String(d.effort_level||"");
+    const el=document.createElement("div");
+    el.className="clift"+(level==="skip"?" skip":"");
+    el.innerHTML=`<span class="cliftfig">${EXFIG[slot==="lower"?"squat":slot==="upper"?"push_vertical":"olympic"]||EXFIG.other}</span>`+
+      `<span class="clifttxt">${esc(slot[0].toUpperCase()+slot.slice(1))}${level?" · "+esc(level):""}</span>`;
+    cell.appendChild(el);
+  });
 }
 
 // Distance estimate — per-segment, not "hard pace × whole duration". Warmup/cooldown
@@ -2697,9 +2793,14 @@ function addCalendarEvent(ev){
   };
   $("chatlog").appendChild(c); $("chatlog").scrollTop=$("chatlog").scrollHeight;
 }
-function addWeekPlan(days){
+function addWeekPlan(days,planId=null,options={}){
   if(!days||!days.length) return;
+  const id=planId==null?null:String(planId);
+  if(id&&$("chatlog").querySelector(`[data-plan-id="${CSS.escape(id)}"]`)) return;
+  if(id) $("chatlog").querySelectorAll(".weekcard[data-plan-id]").forEach(card=>card.remove());
+  const empty=$("chatlog").querySelector(".coach-empty"); if(empty) empty.remove();
   const c=document.createElement("div"); c.className="adjcard weekcard";
+  if(id) c.dataset.planId=id;
   const rows=days.slice().sort((a,b)=>(a.date||"").localeCompare(b.date||"")).map(d=>{
     const dt=new Date((d.date||"")+"T00:00:00");
     const dow=isNaN(dt)?"":DOW[dt.getDay()];
@@ -2708,16 +2809,153 @@ function addWeekPlan(days){
       <span class="sport-${disc}">${d.title||disc}</span>
       <span class="wk-dur">${d.is_rest?"—":fmt(d.duration_min)+" min"}</span></div>`;
   }).join("");
-  c.innerHTML=`<div class="t">Proposed week rebuild · ${days.length} day${days.length>1?"s":""}</div>
+  const draftLabel=id?`Saved week draft #${fmt(id)}`:"Proposed week rebuild";
+  c.innerHTML=`<div class="t">${draftLabel} · ${days.length} day${days.length>1?"s":""}</div>
     <div class="wk-list">${rows}</div>
     <button class="primary">Accept — rebuild my week</button>`;
   c.querySelector("button").onclick=async()=>{
     const btn=c.querySelector("button"); btn.disabled=true; btn.textContent="Rebuilding…";
-    const r=await j("/api/coach/accept_week",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({week:days})});
-    btn.textContent = r.ok?`✓ Week rebuilt (${r.count} day${r.count>1?"s":""})`:"Failed";
+    const payload=id?{plan_id:Number(id)}:{week:days};
+    const r=await j("/api/coach/accept_week",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    btn.textContent = r.ok?`✓ Week rebuilt (${r.count} day${r.count>1?"s":""})`:`Failed: ${r.error||"draft not activated"}`;
     if(r.ok){ loadDashboard(); }
   };
   $("chatlog").appendChild(c); $("chatlog").scrollTop=$("chatlog").scrollHeight;
+}
+// Stick figures for movement patterns. Keyed by the server-side classifier in
+// app/strength_visual.py, which only ever emits a value from its PATTERNS
+// whitelist; an unknown key falls back to a neutral figure rather than nothing.
+const EXFIG=(()=>{
+  const w='stroke="currentColor" stroke-width="2.1" fill="none" stroke-linecap="round" stroke-linejoin="round"';
+  const head=(cx,cy,r)=>`<circle cx="${cx}" cy="${cy}" r="${r}" ${w}/>`;
+  const S=b=>`<svg viewBox="0 0 48 48" aria-hidden="true">${b}</svg>`;
+  return {
+    // bar on shoulders, knees bent
+    squat:S(head(24,9,4)+`<path d="M11 17h26M24 13v13M24 26l-7 6v9M24 26l7 6v9" ${w}/>`),
+    // torso hinged forward, bar hanging from straight arms
+    hinge:S(head(33,12,4)+`<path d="M30 15L15 22M15 22l-2 10M13 32v9M23 18v12M12 31h20" ${w}/>`),
+    // split stance, front knee bent
+    lunge:S(head(24,9,4)+`<path d="M24 13v13M24 26l-8 7v8M24 26l8 5 0 10M13 41h6" ${w}/><path d="M14 18h20" ${w}/>`),
+    // lying on bench, pressing up
+    push_horizontal:S(head(13,26,3.5)+`<path d="M10 33h26M17 28h13M30 28l4 7v6M22 28v-8M28 28v-8M16 19h17" ${w}/>`),
+    // standing, arms locked overhead
+    push_vertical:S(head(24,16,4)+`<path d="M24 20v11M24 22l-7-6M24 22l7-6M13 13h22M24 31l-5 10M24 31l5 10" ${w}/>`),
+    // hanging from a bar
+    pull_vertical:S(head(24,17,4)+`<path d="M10 8h28M19 8v5l5 4M29 8v5l-5 4M24 21v10M24 31l-4 9M24 31l4 9" ${w}/>`),
+    // bent over, pulling to ribs
+    pull_horizontal:S(head(33,12,4)+`<path d="M30 15L15 22M15 22l-2 10M13 32v9M24 18l-2 7M14 25h18" ${w}/>`),
+    // up on the toes
+    calf:S(head(24,9,4)+`<path d="M24 13v14M24 27l-3 10M24 27l3 10M21 37l-3 4M27 37l3 4M12 41h9" ${w}/>`),
+    // forearm plank
+    core:S(head(10,23,3.5)+`<path d="M14 25l22 9M14 25l-1 8M9 33h9M36 34l2 6" ${w}/>`),
+    // standing curl
+    curl:S(head(24,9,4)+`<path d="M24 13v16M24 29l-4 12M24 29l4 12M20 16l-1 8M28 16l1 8M19 24l4-5M29 24l-4-5M19 19h10" ${w}/>`),
+    // triceps pushdown at a cable
+    triceps:S(head(22,10,4)+`<path d="M22 14v15M22 29l-4 12M22 29l4 12M19 17l1 7M25 17l-1 7M20 24l1 6M24 24l-1 6M17 30h10M34 5v9l-8 8" ${w}/>`),
+    // arms out to the sides
+    raise:S(head(24,10,4)+`<path d="M24 14v12M24 17L11 15M24 17l13-2M24 26l-4 15M24 26l4 15" ${w}/><path d="M7 15h6M35 15h6" ${w}/>`),
+    // airborne
+    plyo:S(head(24,11,4)+`<path d="M24 15v10M24 18l-8-5M24 18l8-5M24 25l-6 8M24 25l6 8" ${w}/><path d="M12 41h24" ${w}/>`),
+    // catch position
+    olympic:S(head(24,10,4)+`<path d="M11 17h26M24 14v3M20 17l-4 8M28 17l4 8M24 20v7M24 27l-7 6v8M24 27l7 6v8" ${w}/>`),
+    // loaded carry
+    carry:S(head(24,9,4)+`<path d="M24 13v14M18 15v11M30 15v11M24 27l-4 14M24 27l4 14" ${w}/><path d="M14 26h8M26 26h8" ${w}/>`),
+    // running
+    cardio:S(head(28,10,4)+`<path d="M26 14l-6 7M20 21l-6 4M20 21l6 5M26 26l-2 8M26 26l7 4M22 34l-6 6M33 30l3 8" ${w}/>`),
+    other:S(head(24,11,4)+`<path d="M24 15v13M24 19l-7 4M24 19l7 4M24 28l-4 13M24 28l4 13" ${w}/>`),
+  };
+})();
+function addHevyRoutine(routine,operationId,view){
+  if(!routine||typeof routine!=="object") return;
+  const operation=String(operationId||"").trim();
+  if(!operation) return;
+  const duplicate=[...$("chatlog").querySelectorAll("[data-hevy-operation-id]")]
+    .some(card=>card.dataset.hevyOperationId===operation);
+  if(duplicate) return;
+  const empty=$("chatlog").querySelector(".coach-empty"); if(empty) empty.remove();
+  const c=document.createElement("div"); c.className="adjcard weekcard hevycard";
+  c.dataset.hevyOperationId=operation;
+
+  const v=(view&&typeof view==="object")?view:null;
+  const exercises=v&&Array.isArray(v.exercises)?v.exercises
+    :(Array.isArray(routine.exercises)?routine.exercises:[]).map((e,i)=>({
+        title:e.title||e.exercise_template_id||`Exercise ${i+1}`,
+        pattern:"other",
+        summary:`${(e.sets||[]).length} set${(e.sets||[]).length===1?"":"s"}`,
+        rest_seconds:e.rest_seconds, sets:[]
+      }));
+
+  const tiles=exercises.map(ex=>{
+    // `pattern` comes from the server whitelist; anything else draws neutral.
+    const fig=EXFIG[ex.pattern]||EXFIG.other;
+    const why=(ex.sets||[]).map(st=>st.weight_note).filter(Boolean)[0]||"";
+    const rest=Number.isFinite(Number(ex.rest_seconds))&&Number(ex.rest_seconds)>0
+      ? `${fmt(Math.round(Number(ex.rest_seconds)/15)*15)}s rest` : "";
+    return `<div class="excard">
+      <div class="exfig">${fig}</div>
+      <div class="exbody">
+        <div class="exname">${esc(String(ex.title||"Exercise"))}</div>
+        <div class="exsets">${esc(String(ex.summary||""))}</div>
+        ${why?`<div class="exwhy">${esc(String(why))}</div>`:""}
+        ${rest?`<div class="exrest">${esc(rest)}</div>`:""}
+      </div></div>`;
+  }).join("");
+
+  const title=(v&&v.title)||routine.title||"Strength session";
+  const cue=v&&v.effort_cue?`<div class="cue">${esc(String(v.effort_cue))}</div>`:"";
+  c.innerHTML=`<div class="t">${esc(String(title))}</div>
+    <div class="d">Proposed lifting session · ${exercises.length} exercise${exercises.length===1?"":"s"} · weights in lb</div>
+    ${cue}
+    <div class="exgrid">${tiles}</div>
+    ${v&&v.notes?`<div class="exwhy" style="margin-bottom:9px">${esc(String(v.notes))}</div>`:""}
+    <div class="hevyacts">
+      <button class="primary">Send to Hevy</button>
+      <button class="ghost" type="button">Talk it through</button>
+    </div>
+    <div class="muted hevy-create-status" role="status" aria-live="polite"></div>`;
+
+  const btn=c.querySelector("button.primary");
+  const discuss=c.querySelector("button.ghost");
+  const status=c.querySelector(".hevy-create-status");
+  discuss.onclick=()=>{
+    const inp=$("chatinput"); if(!inp) return;
+    inp.value=`About "${title}" — `;
+    inp.focus(); try{ inp.setSelectionRange(inp.value.length,inp.value.length); }catch(e){}
+    resizeChatInput();
+  };
+  let attempted=false;
+  btn.onclick=async()=>{
+    if(attempted) return;
+    attempted=true; btn.disabled=true; discuss.disabled=false; btn.textContent="Creating in Hevy…";
+    try{
+      const r=await j("/api/integrations/hevy/routines",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({routine,operation_id:operation,confirmed:true})});
+      if(r&&r.created){
+        btn.textContent="✓ Created in Hevy";
+        status.textContent="Routine created once. Open Hevy to review it.";
+      }else{
+        btn.textContent="Create status unknown";
+        const detail=(r&&Array.isArray(r.details)&&r.details.length&&r.details[0].reason)
+          ? ` (${r.details[0].reason})` : "";
+        status.textContent=((r&&r.instruction)||`Not created: ${(r&&r.error)||"unknown Hevy error"}.`)+detail;
+      }
+    }catch(e){
+      btn.textContent="Create status unknown";
+      status.textContent="Check Hevy before trying again because the request may have arrived.";
+    }
+  };
+  $("chatlog").appendChild(c); $("chatlog").scrollTop=$("chatlog").scrollHeight;
+}
+let _planDraftLoading=false;
+async function loadLatestPlanDraft(){
+  if(_planDraftLoading) return;
+  _planDraftLoading=true;
+  try{
+    const r=await j("/api/coach/plan-drafts/latest");
+    const d=r&&r.draft;
+    if(d&&d.status==="draft"&&Array.isArray(d.schedule)) addWeekPlan(d.schedule,d.plan_id,{restored:true});
+  }catch(e){ console.warn("Could not restore Coach plan draft",e); }
+  finally{ _planDraftLoading=false; }
 }
 function addActivityLog(acts){
   if(!acts||!acts.length) return;
@@ -2852,6 +3090,7 @@ async function maybeCoachEventBrief(){
 function newCoachChat(){
   resetCoachSessionView();
   openCoachInbox();
+  loadLatestPlanDraft();
   setTimeout(()=>$("chatinput").focus(),80);
 }
 $("clearchat").onclick=newCoachChat;
@@ -2868,10 +3107,10 @@ async function send(){
       if(event.type==="status") setCoachThinkingStatus(thinking,event.message);
       if(event.type==="delta"){
         draft+=event.text||"";
-        thinking.className="msg assistant streaming";
-        thinking.removeAttribute("role");
-        thinking.textContent=visibleCoachDraft(draft);
-        $("chatlog").scrollTop=$("chatlog").scrollHeight;
+        // Keep model text behind the thinking state until the backend has
+        // parsed and durably stored any generated schedule. The final `done`
+        // event is the first point where a week proposal may become visible.
+        setCoachThinkingStatus(thinking,"Drafting the response and saving any plan changes");
       }
     });
     if(epoch!==_coachSessionEpoch) return;
@@ -2882,7 +3121,8 @@ async function send(){
     thinking.dataset.rawText=r.reply||"(no reply)";
     saveCoachSessionView();
     if(r.proposed_adjustment) addAdjustment(r.proposed_adjustment);
-    if(r.proposed_week) addWeekPlan(r.proposed_week);
+    if(r.proposed_week) addWeekPlan(r.proposed_week,r.plan_id);
+    if(r.proposed_hevy_routine) addHevyRoutine(r.proposed_hevy_routine,r.hevy_operation_id,r.hevy_routine_view);
     if(r.proposed_activities) addActivityLog(r.proposed_activities);
     if(r.proposed_event) addCalendarEvent(r.proposed_event);
   }catch(e){
@@ -3230,12 +3470,15 @@ function switchView(v){
   // (since we last looked) get pulled in before rendering.
   if(v==="calendar") syncAndLoadCalendar();
   if(v==="fuel" && !_fuelLoaded){ _fuelLoaded=true; loadFuel(); }
-  if(v==="stats" && !_statsLoaded){ _statsLoaded=true; loadStats(); }
+  // ACWR can change after any synced workout, so re-read Garmin whenever the
+  // Analytics tab is opened instead of treating the first tab visit as final.
+  if(v==="stats"){ _statsLoaded=true; loadStats(); }
   window.scrollTo({top:0,behavior:"instant"});
   updateScrollChrome();
   setTimeout(refreshRevealTargets,40);
   if(v==="coach"){
     openCoachInbox();
+    loadLatestPlanDraft();
     const i=document.getElementById("chatinput"); if(i) setTimeout(()=>i.focus(),120);
   }
 }
@@ -3477,10 +3720,16 @@ function renderZones(z){
 }
 function renderStatsLoad(tl){
   if(!tl||tl.error){ $("stats-load").innerHTML=`<div class="load-empty">Training load is temporarily unavailable.</div>`; return; }
+  const freshness=tl.freshness||{}, loadIsCurrent=freshness.is_current===true;
+  const asOf=freshness.source_date||tl.as_of||"unknown";
+  const focusFreshness=tl.load_focus_freshness||{}, focusIsCurrent=focusFreshness.is_current===true;
+  const focusAsOf=focusFreshness.source_date||tl.load_focus_as_of||"unknown";
   const ratioRaw=tl.load_ratio==null?NaN:Number(tl.load_ratio), ratio=Number.isFinite(ratioRaw)?ratioRaw:null;
   const acute=Math.round(Number(tl.acute_load)||0), chronic=Math.round(Number(tl.chronic_load)||0);
-  const cls=acwrClass(ratio), tone={good:"var(--good)",warn:"var(--warn)",bad:"var(--bad)",unknown:"var(--muted)"}[cls];
-  const balance=ratio==null
+  const cls=loadIsCurrent?acwrClass(ratio):"unknown", tone={good:"var(--good)",warn:"var(--warn)",bad:"var(--bad)",unknown:"var(--muted)"}[cls];
+  const balance=!loadIsCurrent
+    ? {label:"Last known",title:"Garmin load is not current",body:`This ACWR is dated ${asOf}. It is shown for reference and is not being treated as your post-workout load.`}
+    : ratio==null
     ? {label:"No ratio",title:"Building your baseline",body:"More recorded training is needed before recent and long-term load can be compared."}
     : ratio<.8
       ? {label:"Below target",title:"Fresh, but load is light",body:"Your last 7 days are lighter than your established base. That can be exactly right during recovery or taper."}
@@ -3502,8 +3751,8 @@ function renderStatsLoad(tl){
       const v=Math.round(lf[k]||0), t=lf[k+"_target"]||[0,1];
       const t0=Number(t[0])||0, t1=Number(t[1])||1;
       const state=v<t0?"under":(v>t1?"over":"in");
-      const col=state==="in"?"var(--good)":(state==="under"?"var(--warn)":"var(--bad)");
-      const stateLabel={in:"In range",under:"Below",over:"Above"}[state];
+      const col=!focusIsCurrent?"var(--muted)":(state==="in"?"var(--good)":(state==="under"?"var(--warn)":"var(--bad)"));
+      const stateLabel=focusIsCurrent?{in:"In range",under:"Below",over:"Above"}[state]:"Last known";
       const scale=Math.max(v,t1,1)*1.12;
       const valuePos=Math.max(v?2:0,Math.min(96,v/scale*100));
       const targetStart=Math.min(96,t0/scale*100), targetWidth=Math.max(2,Math.min(100-targetStart,(t1-t0)/scale*100));
@@ -3519,7 +3768,7 @@ function renderStatsLoad(tl){
   const rawFeedback=String(lf.feedback||"").replace(/_/g," ").trim().toLowerCase();
   const feedback=rawFeedback?`<div class="load-feedback" style="--feedback-tone:${tone}">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10m0 4v.01"/><circle cx="12" cy="12" r="9"/></svg>
-    <span><b>Garmin load focus:</b> ${rawFeedback}.</span>
+    <span><b>Garmin load focus${focusIsCurrent?"":` as of ${focusAsOf}`}:</b> ${rawFeedback}.</span>
   </div>`:"";
   $("stats-load").innerHTML=`
     <div class="load-summary">
@@ -3539,7 +3788,7 @@ function renderStatsLoad(tl){
         </div>
       </div>
     </div>
-    <div class="load-focus-head"><b>Energy-system balance</b><span>current · Garmin target range</span></div>
+    <div class="load-focus-head"><b>Energy-system balance</b><span>${focusIsCurrent?"current":`as of ${focusAsOf}`} · Garmin target range</span></div>
     <div class="load-systems">${systems}</div>
     ${feedback}`;
 }

@@ -27,7 +27,10 @@ class CoachingContractTests(unittest.TestCase):
         self.assertIn("goal-race finish celebration", prompt)
 
     def test_unknown_switch_leaves_current_mode_installed(self) -> None:
-        with patch.object(coach.db, "add_chat") as add_chat:
+        with (
+            patch.object(coach.db, "add_chat") as add_chat,
+            patch.object(coach.db, "stage_event_profile", return_value={"event_name": "marathon"}),
+        ):
             result = coach._explicit_mode_switch("switch to marathon")
         self.assertIn("Mode remains TRIATHLON", result["reply"])
         self.assertEqual(coaching_contract.current_mode(), "TRIATHLON")
@@ -66,6 +69,11 @@ class CoachingContractTests(unittest.TestCase):
             "weight": {"kg": 85.4, "as_of": "2026-08-15", "source": "self-reported", "provider": "Garmin"},
         }
         now = datetime.datetime(2026, 8, 15, 9, 0, tzinfo=datetime.timezone.utc)
+        # app.config loads .env, so a machine with a real HEVY_API_KEY would
+        # otherwise build a live connector and call the Hevy API from this test.
+        previous = hevy_connector.connector()
+        hevy_connector.reset()
+        self.addCleanup(hevy_connector.configure, previous)
         with (
             patch.object(coach, "_live_context", return_value=live),
             patch.object(coach.config, "local_now", return_value=now),
@@ -77,12 +85,24 @@ class CoachingContractTests(unittest.TestCase):
             patch.object(coach.db, "get_constraints", return_value=[]),
             patch.object(coach.db, "get_constraint_history", return_value=[]),
             patch.object(coach.db, "get_plan_day", return_value=None),
+            # A lifting turn pulls a longer activity window for strength history.
+            # Without this the test would make a real Garmin call.
+            patch.object(coach, "_strength_load", return_value={"activities": [
+                {"date": "2026-07-31", "sport": "strength", "name": "Weight Training",
+                 "minutes": 48.0, "hr_avg": 99},
+            ]}),
         ):
             payload = json.loads(coach._context_block("Build me a lifting routine"))
         self.assertEqual(payload["athlete_weight"]["kg"], 85.4)
         self.assertEqual(payload["athlete_weight"]["source"], "self-reported")
         self.assertEqual(payload["coaching_contract"]["current_mode"], "TRIATHLON")
-        self.assertEqual(payload["strength_training_source"]["recent_workouts"], "unknown")
+        strength = payload["strength_training_source"]
+        # Garmin saw the session even though Hevy holds no weights for it, and a
+        # disconnected Hevy must never read as "the athlete has not been lifting".
+        self.assertEqual(strength["session_evidence"]["last_session_date"], "2026-07-31")
+        self.assertFalse(strength["weight_evidence"]["connected"])
+        self.assertEqual(strength["weight_evidence"]["anchors"], [])
+        self.assertTrue(strength["calibration_required"])
 
 
 class FuelingContractTests(unittest.TestCase):
@@ -340,6 +360,11 @@ class PacingAndHevyTests(unittest.TestCase):
         self.assertEqual(refreshed["gcal_event_id"], "event-1")
 
     def test_disconnected_hevy_history_is_unknown_and_writes_fail_closed(self) -> None:
+        # app.config loads .env, so a machine with a real HEVY_API_KEY would
+        # otherwise build a live connector and call the Hevy API from this test.
+        previous = hevy_connector.connector()
+        hevy_connector.reset()
+        self.addCleanup(hevy_connector.configure, previous)
         context = hevy_connector.context_for("Build me a lifting routine")
         self.assertFalse(context["connection"]["connected"])
         self.assertEqual(context["recent_workouts"], "unknown")

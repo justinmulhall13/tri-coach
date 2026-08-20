@@ -216,7 +216,7 @@ def _analyze_prompt() -> str:
 
 def _analysis_cache_key(activity_id: int) -> str:
     """Keep analyses from one event profile out of every subsequent profile."""
-    profile_id = str(config.coaching_contract.EVENT_PROFILE.get("id") or "no-event")
+    profile_id = str(config.active_event_profile().get("id") or "no-event")
     safe_id = "".join(ch if ch.isalnum() else "_" for ch in profile_id)
     return f"analysis_v3_{safe_id}_{activity_id}"
 

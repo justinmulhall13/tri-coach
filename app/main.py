@@ -26,8 +26,8 @@ from fastapi.staticfiles import StaticFiles
 
 from . import (activity_detail, baselines, calendar_agent, calendar_source,
                calendar_sync, coach, coaching_contract, config, db, fitness_trend, garmin_source,
-               garmin_workout, hevy_connector, insights, nudges, nutrition, plan, plan_adapt, zones,
-               push, rings, ring_detail, suggest)
+               garmin_workout, hevy_actions, hevy_connector, insights, nudges, nutrition, plan, plan_adapt, zones,
+               push, rings, ring_detail, strength_block, strength_effort, suggest)
 
 app = FastAPI(title="Tri Coach")
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -102,9 +102,27 @@ async def _auth_gate(request, call_next):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
     return await call_next(request)
 
-_cache: dict[str, Any] = {"morning": None, "ts": 0.0}
+_cache: dict[str, Any] = {"morning": None, "ts": 0.0, "date": None}
 _CACHE_TTL = 300
 _lock = threading.Lock()
+_last_activity_revision: str | None = None
+
+
+def _observe_activity_revision(payload: dict[str, Any] | None) -> bool:
+    """Invalidate derived snapshots when Garmin's activity set changes."""
+    global _last_activity_revision
+    revision = payload.get("activity_revision") if isinstance(payload, dict) else None
+    if not revision:
+        return False
+    with _lock:
+        previous = _last_activity_revision
+        _last_activity_revision = str(revision)
+        changed = previous is not None and previous != revision
+        if changed:
+            _cache.update({"morning": None, "ts": 0.0, "date": None})
+    if changed:
+        coach.invalidate_context_cache()
+    return changed
 
 
 def _bg_sync() -> None:
@@ -149,6 +167,77 @@ def hevy_status() -> dict[str, Any]:
     return hevy_connector.status()
 
 
+@app.get("/api/integrations/hevy/workouts/recent")
+def hevy_recent_workouts(limit: int = 5) -> JSONResponse:
+    """Return a bounded list of recent Hevy workout summaries."""
+    state = hevy_connector.status()
+    if not state.get("connected"):
+        return JSONResponse(
+            {"error": state.get("reason") or "Hevy is not connected"}, status_code=503,
+        )
+    page_size = max(1, min(10, int(limit)))
+    try:
+        payload = hevy_connector.connector().get_workouts(page=1, page_size=page_size)
+    except (hevy_connector.HevyAPIError, hevy_connector.HevyUnavailableError, ValueError) as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+    return JSONResponse(payload)
+
+
+@app.get("/api/integrations/hevy/exercise-templates/search")
+def hevy_exercise_template_search(q: str = "") -> JSONResponse:
+    """Search real Hevy exercise templates before a routine is proposed."""
+    query = (q or "").strip()
+    if not query:
+        return JSONResponse({"error": "q is required"}, status_code=400)
+    state = hevy_connector.status()
+    if not state.get("connected"):
+        return JSONResponse(
+            {"error": state.get("reason") or "Hevy is not connected"}, status_code=503,
+        )
+    try:
+        templates = hevy_connector.connector().search_exercise_templates(query)
+    except (hevy_connector.HevyAPIError, hevy_connector.HevyUnavailableError, ValueError) as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+    return JSONResponse({"query": query, "exercise_templates": templates[:25]})
+
+
+@app.post("/api/integrations/hevy/routines")
+def hevy_create_routine(body: dict = Body(default={})) -> JSONResponse:
+    """Create one proposed routine only after explicit athlete confirmation.
+
+    The service call performs one non-retrying write. An ambiguous failure is
+    returned to the UI with the instruction to inspect Hevy before doing
+    anything else.
+    """
+    if body.get("confirmed") is not True:
+        return JSONResponse(
+            {"error": "explicit confirmation is required", "created": False}, status_code=400,
+        )
+    routine = body.get("routine")
+    if not isinstance(routine, dict):
+        return JSONResponse(
+            {"error": "routine object is required", "created": False}, status_code=400,
+        )
+    operation_id = str(body.get("operation_id") or "").strip()
+    if not operation_id:
+        return JSONResponse(
+            {"error": "operation_id is required", "created": False}, status_code=400,
+        )
+    if len(operation_id) > 200:
+        return JSONResponse(
+            {"error": "operation_id is too long", "created": False}, status_code=400,
+        )
+    result = hevy_actions.create_confirmed_routine(
+        routine, operation_id=operation_id, confirmed=True,
+    )
+    if result.get("created"):
+        return JSONResponse(result)
+    status_code = 502 if result.get("retry_safe") is False else 400
+    if not hevy_connector.status().get("connected"):
+        status_code = 503
+    return JSONResponse(result, status_code=status_code)
+
+
 @app.get("/api/readiness")
 def readiness() -> JSONResponse:
     try:
@@ -157,17 +246,25 @@ def readiness() -> JSONResponse:
             baselines.record_from_readiness(rd)  # snapshot for personal baselines
         except Exception:
             pass
-        return JSONResponse(rd)
+        return JSONResponse(rd, headers={"Cache-Control": "no-store"})
     except Exception as e:
-        return JSONResponse({"error": f"{type(e).__name__}: {e}", "source": "garmin"}, status_code=502)
+        return JSONResponse({"error": f"{type(e).__name__}: {e}", "source": "garmin"},
+                            status_code=502, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/load")
 def load(days: int = 14) -> JSONResponse:
     try:
-        return JSONResponse(garmin_source.get_recent_load(days))
+        payload = garmin_source.get_recent_load(days)
+        # The dashboard's canonical 14-day pull establishes the activity
+        # revision. A later sync (including a just-finished race) immediately
+        # expires Coach/readiness caches instead of waiting out their TTLs.
+        if days == 14:
+            _observe_activity_revision(payload)
+        return JSONResponse(payload, headers={"Cache-Control": "no-store"})
     except Exception as e:
-        return JSONResponse({"error": f"{type(e).__name__}: {e}", "source": "garmin"}, status_code=502)
+        return JSONResponse({"error": f"{type(e).__name__}: {e}", "source": "garmin"},
+                            status_code=502, headers={"Cache-Control": "no-store"})
 
 
 @app.post("/api/workout/push")
@@ -214,9 +311,10 @@ def workout_delete(body: dict = Body(...)) -> JSONResponse:
 @app.get("/api/rings")
 def get_rings() -> JSONResponse:
     try:
-        return JSONResponse(rings.get_rings())
+        return JSONResponse(rings.get_rings(), headers={"Cache-Control": "no-store"})
     except Exception as e:
-        return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=502)
+        return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=502,
+                            headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/ring/{name}")
@@ -246,9 +344,15 @@ def analyze_activity(activity_id: int) -> JSONResponse:
 @app.get("/api/training_load")
 def training_load() -> JSONResponse:
     try:
-        return JSONResponse(garmin_source.get_training_load())
+        recent = garmin_source.get_recent_load(14)
+        _observe_activity_revision(recent)
+        _, payload = garmin_source.reconcile_freshness(
+            None, garmin_source.get_training_load(), recent
+        )
+        return JSONResponse(payload, headers={"Cache-Control": "no-store"})
     except Exception as e:
-        return JSONResponse({"error": f"{type(e).__name__}: {e}", "source": "garmin"}, status_code=502)
+        return JSONResponse({"error": f"{type(e).__name__}: {e}", "source": "garmin"},
+                            status_code=502, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/fitness")
@@ -288,9 +392,10 @@ def backfill_baselines(days: int = 30) -> JSONResponse:
 @app.get("/api/insights")
 def get_insights() -> JSONResponse:
     try:
-        return JSONResponse(insights.get_insights())
+        return JSONResponse(insights.get_insights(), headers={"Cache-Control": "no-store"})
     except Exception as e:
-        return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=502)
+        return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=502,
+                            headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/nudges")
@@ -359,9 +464,14 @@ def morning(force: bool = False) -> JSONResponse:
     """Combined morning payload, cached so the page is fast and tolerant of
     delayed watch syncs. Each section degrades independently."""
     now = time.time()
+    today = config.local_today().isoformat()
     with _lock:
-        if _cache["morning"] and not force and (now - _cache["ts"]) < _CACHE_TTL:
-            return JSONResponse({"cached": True, "age_s": round(now - _cache["ts"]), **_cache["morning"]})
+        if (_cache["morning"] and _cache.get("date") == today and not force
+                and (now - _cache["ts"]) < _CACHE_TTL):
+            return JSONResponse(
+                {"cached": True, "age_s": round(now - _cache["ts"]), **_cache["morning"]},
+                headers={"Cache-Control": "no-store"},
+            )
 
     def safe(fn):
         try:
@@ -372,6 +482,10 @@ def morning(force: bool = False) -> JSONResponse:
     readiness = safe(garmin_source.get_readiness)
     fitness = safe(garmin_source.get_fitness_markers)
     load = safe(lambda: garmin_source.get_recent_load(14))
+    if isinstance(load, dict):
+        _observe_activity_revision(load)
+    if isinstance(readiness, dict) and isinstance(load, dict):
+        readiness, _ = garmin_source.reconcile_freshness(readiness, None, load)
     payload = {
         "race": config.race_phase(),
         "readiness": readiness,
@@ -387,13 +501,103 @@ def morning(force: bool = False) -> JSONResponse:
     with _lock:
         _cache["morning"] = payload
         _cache["ts"] = time.time()
-    return JSONResponse({"cached": False, "age_s": 0, **payload})
+        _cache["date"] = today
+    return JSONResponse({"cached": False, "age_s": 0, **payload},
+                        headers={"Cache-Control": "no-store"})
 
 
 # --- Training plan ------------------------------------------------------------
 @app.get("/api/plan")
 def get_plan(start: str | None = None, end: str | None = None) -> JSONResponse:
     return JSONResponse({"summary": db.plan_summary(), "days": db.get_plan(start, end)})
+
+
+# NOTE: must be declared BEFORE /api/plan/{date} or the literal segment is
+# parsed as a date, exactly as with /api/plan/history below.
+@app.get("/api/plan/strength")
+def plan_strength_range(start: str, end: str) -> JSONResponse:
+    """Lifts attached to calendar days, rendered beneath that day's session."""
+    return JSONResponse({"days": db.get_plan_strength_range(start, end)})
+
+
+@app.post("/api/plan/strength")
+def plan_strength_attach(body: dict = Body(default={})) -> JSONResponse:
+    """Attach one agreed lift to a date.
+
+    The routine is validated against the same boundary a Hevy write uses, so a
+    session cannot be parked on the calendar in a shape that could never be
+    created later.
+    """
+    date = str(body.get("date") or "").strip()
+    if not date:
+        return JSONResponse({"error": "date is required"}, status_code=400)
+    routine, errors = hevy_actions.validate_routine(body.get("routine") or {})
+    if errors or routine is None:
+        return JSONResponse({"error": "invalid routine", "details": errors},
+                            status_code=400)
+    try:
+        stored = db.upsert_plan_strength({
+            "date": date,
+            "slot": body.get("slot") or "full",
+            "title": body.get("title") or routine.get("title") or "Strength",
+            "routine": routine,
+            "effort_level": body.get("effort_level"),
+            "effort_cue": body.get("effort_cue"),
+            "hevy_routine_id": body.get("hevy_routine_id"),
+            "source": body.get("source") or "coach",
+        })
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return JSONResponse({"ok": True, "day": stored})
+
+
+@app.delete("/api/plan/strength/{date}")
+def plan_strength_remove(date: str) -> JSONResponse:
+    return JSONResponse({"ok": True, "removed": db.delete_plan_strength(date)})
+
+
+@app.post("/api/plan/strength-block")
+def plan_strength_block(body: dict = Body(default={})) -> JSONResponse:
+    """Preview a repeating upper/lower block placed around the existing runs.
+
+    Returns placements only. Nothing is written until each day is attached, so
+    the athlete agrees the shape before it appears on the calendar.
+    """
+    import datetime as _dt
+    try:
+        start = (_dt.date.fromisoformat(str(body["start"])[:10]) if body.get("start")
+                 else config.local_today())
+        until = (_dt.date.fromisoformat(str(body["until"])[:10])
+                 if body.get("until") else None)
+        weeks = int(body.get("weeks") or 1)
+        sessions = int(body.get("sessions_per_week") or 4)
+    except (KeyError, TypeError, ValueError) as exc:
+        return JSONResponse({"error": f"invalid block request: {exc}"}, status_code=400)
+    readiness = None
+    try:
+        readiness = garmin_source.get_readiness()
+    except Exception:  # noqa: BLE001 - an absent score must not fail the preview
+        readiness = None
+    try:
+        return JSONResponse(strength_block.build(
+            start=start, weeks=weeks, sessions_per_week=sessions,
+            plan_days=db.get_plan(), readiness=readiness, until=until,
+        ))
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@app.get("/api/plan/strength-effort")
+def plan_strength_effort() -> JSONResponse:
+    """Today's lifting ceiling, decided from run load then recovery."""
+    readiness = None
+    try:
+        readiness = garmin_source.get_readiness()
+    except Exception:  # noqa: BLE001 - an absent score must not fail the call
+        readiness = None
+    return JSONResponse(strength_effort.decide(
+        today=config.local_today(), plan_days=db.get_plan(), readiness=readiness,
+    ))
 
 
 # NOTE: must be declared BEFORE /api/plan/{date} or "history" is parsed as a date.
@@ -461,9 +665,10 @@ def add_constraint(body: dict = Body(...)) -> JSONResponse:
 @app.get("/api/suggestion")
 def suggestion() -> JSONResponse:
     try:
-        return JSONResponse(suggest.todays_suggestion())
+        return JSONResponse(suggest.todays_suggestion(), headers={"Cache-Control": "no-store"})
     except Exception as e:
-        return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=502)
+        return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=502,
+                            headers={"Cache-Control": "no-store"})
 
 
 # --- Coach agent --------------------------------------------------------------
@@ -673,11 +878,59 @@ def coach_accept(body: dict = Body(...)) -> JSONResponse:
 
 @app.post("/api/coach/accept_week")
 def coach_accept_week(body: dict = Body(...)) -> JSONResponse:
-    """Apply a whole-week rebuild proposed by the coach."""
+    """Apply a whole-week draft; legacy callers may still submit the array."""
+    plan_id = body.get("plan_id")
+    days = body.get("week") or body.get("days")
+    if plan_id is None and (not isinstance(days, list) or not days):
+        return JSONResponse({"error": "plan_id or week array is required"}, status_code=400)
+    try:
+        result = coach.accept_weekplan(days or [], plan_id=plan_id)
+    except coach.WeekPlanValidationError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": f"{type(exc).__name__}: {exc}"}, status_code=500)
+    if result.get("ok"):
+        _bg_sync()
+    return JSONResponse(result, status_code=200 if result.get("ok") else 404)
+
+
+@app.get("/api/coach/plan-drafts/latest")
+def coach_plan_draft_latest() -> JSONResponse:
+    """Recover the newest unactivated schedule in a fresh app session."""
+    return JSONResponse({"draft": db.get_latest_plan_draft(status="draft")})
+
+
+@app.get("/api/coach/plan-drafts/{plan_id}")
+def coach_plan_draft_get(plan_id: int) -> JSONResponse:
+    draft = db.get_plan_draft(plan_id)
+    if not draft:
+        return JSONResponse({"error": "plan draft not found"}, status_code=404)
+    return JSONResponse({"draft": draft})
+
+
+@app.patch("/api/coach/plan-drafts/{plan_id}")
+def coach_plan_draft_edit(plan_id: int, body: dict = Body(...)) -> JSONResponse:
     days = body.get("week") or body.get("days")
     if not isinstance(days, list) or not days:
         return JSONResponse({"error": "week array is required"}, status_code=400)
-    result = coach.accept_weekplan(days)
+    try:
+        coach.validate_weekplan(days)
+        draft = db.update_plan_draft(plan_id, days)
+    except (coach.WeekPlanValidationError, ValueError) as exc:
+        return JSONResponse({"error": str(exc)}, status_code=409)
+    if not draft:
+        return JSONResponse({"error": "plan draft not found"}, status_code=404)
+    return JSONResponse({"ok": True, "draft": draft})
+
+
+@app.post("/api/coach/plan-drafts/{plan_id}/activate")
+def coach_plan_draft_activate(plan_id: int) -> JSONResponse:
+    try:
+        result = coach.activate_weekplan(plan_id)
+    except coach.WeekPlanValidationError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": f"{type(exc).__name__}: {exc}"}, status_code=500)
     if result.get("ok"):
         _bg_sync()
     return JSONResponse(result, status_code=200 if result.get("ok") else 404)

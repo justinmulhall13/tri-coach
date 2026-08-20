@@ -19,14 +19,6 @@ def _get(key: str, default: str = "") -> str:
 
 
 # --- Race ---------------------------------------------------------------------
-# Event identity is deliberately not environment-driven. This keeps the app,
-# Coach prompt, fueling logic, and race detector on one installed event profile.
-_EVENT = coaching_contract.EVENT_PROFILE
-RACE_NAME = str(_EVENT.get("event") or "Unknown event")
-RACE_DATE = str(_EVENT.get("date") or "")
-_DISTANCES = _EVENT.get("disciplines_and_distances") or {}
-
-
 def _distance_value(raw: object) -> float:
     """Normalize an optional profile distance without inventing one."""
     if isinstance(raw, bool):
@@ -38,14 +30,22 @@ def _distance_value(raw: object) -> float:
     return value if value > 0 else 0.0
 
 
-SWIM_KM = _distance_value(_DISTANCES.get("swim_km"))
-BIKE_KM = _distance_value(_DISTANCES.get("bike_km"))
-RUN_KM = _distance_value(_DISTANCES.get("run_km"))
+def active_event_profile() -> dict:
+    """Read the persisted profile; never snapshot it at module import."""
+    return coaching_contract.event_context()
+
+
+def race_name() -> str:
+    return str(active_event_profile().get("event") or "Unknown event")
+
+
+def race_date() -> str:
+    return str(active_event_profile().get("date") or "")
 
 
 def event_distance_km(discipline: str) -> float | None:
     """Return a stated distance for one active-profile leg, otherwise unknown."""
-    distances = coaching_contract.EVENT_PROFILE.get("disciplines_and_distances") or {}
+    distances = active_event_profile().get("disciplines_and_distances") or {}
     if not isinstance(distances, dict):
         return None
     value = _distance_value(distances.get(f"{(discipline or '').lower()}_km"))
@@ -63,7 +63,7 @@ def supports_t100_features() -> bool:
     different distances and volume targets, so reusing the Vancouver model
     would silently carry event assumptions across a profile switch.
     """
-    event = coaching_contract.EVENT_PROFILE
+    event = active_event_profile()
     return (
         coaching_contract.current_mode() == "TRIATHLON"
         and str(event.get("id") or "") == "t100-vancouver-2026"

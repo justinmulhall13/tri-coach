@@ -147,7 +147,8 @@ def context_for(query: str, *, max_sections: int = 4) -> dict[str, Any] | None:
     normal turns are keyword-routed. Page references let the model distinguish
     guide facts from coaching inference.
     """
-    if coaching_contract.EVENT_PROFILE.get("athlete_guide_key") != "vancouver-2026":
+    event = coaching_contract.event_context()
+    if event.get("athlete_guide_key") != "vancouver-2026":
         return None
     q = (query or "").lower()
     if not _RACE_TRIGGER.search(q):
@@ -195,7 +196,7 @@ def context_for(query: str, *, max_sections: int = 4) -> dict[str, Any] | None:
         },
     }
     if {"course", "bike_aid"} & set(selected):
-        bike = (((coaching_contract.EVENT_PROFILE.get("course_aid") or {}).get("bike")) or {})
+        bike = (((event.get("course_aid") or {}).get("bike")) or {})
         if bike:
             result["known_conflicts"] = [{
                 "topic": "bike course topology",

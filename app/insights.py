@@ -48,8 +48,12 @@ def get_insights(*, baseline_data: dict[str, Any] | None = None,
 
     base = baseline_data if baseline_data is not None else (_safe(baselines.get_baselines, {}) or {})
     pmc = pmc_data if pmc_data is not None else (_safe(lambda: fitness_trend.get_pmc(90), {}) or {})
-    tl = (training_load_data if training_load_data is not None
-          else (_safe(garmin_source.get_training_load, {}) or {}))
+    if training_load_data is not None:
+        tl = training_load_data
+    else:
+        raw_tl = _safe(garmin_source.get_training_load, {}) or {}
+        recent = _safe(lambda: garmin_source.get_recent_load(14), {}) or {}
+        _, tl = garmin_source.reconcile_freshness({}, raw_tl, recent)
     rg = rings_data if rings_data is not None else (_safe(rings.get_rings, {}) or {})
     from . import db
     wellness = _safe(lambda: db.get_wellness(14), []) or []
@@ -114,7 +118,10 @@ def get_insights(*, baseline_data: dict[str, Any] | None = None,
             f"Fitness climbing {ramp:.1f}/week — strong, but a fast ramp raises injury/overreach risk.")
 
     # --- ACWR ---
+    tl_freshness = tl.get("freshness") if isinstance(tl, dict) else None
     acwr = tl.get("load_ratio") if isinstance(tl, dict) else None
+    if isinstance(tl_freshness, dict) and tl_freshness.get("is_current") is not True:
+        acwr = None
     if isinstance(acwr, (int, float)):
         if acwr > 1.5:
             add("high", "🚧", "Load ramp in the danger zone",

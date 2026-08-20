@@ -75,7 +75,7 @@ def gel_totals(count: float) -> dict[str, float]:
 
 
 def _active_event_has_bike_leg() -> bool:
-    distances = coaching_contract.EVENT_PROFILE.get("disciplines_and_distances") or {}
+    distances = coaching_contract.event_context().get("disciplines_and_distances") or {}
     if not isinstance(distances, dict):
         return False
     raw = distances.get("bike_km")
@@ -88,7 +88,7 @@ def _active_event_has_bike_leg() -> bool:
 
 
 def _active_event_is_t100_vancouver() -> bool:
-    return str(coaching_contract.EVENT_PROFILE.get("id") or "") == "t100-vancouver-2026"
+    return str(coaching_contract.event_context().get("id") or "") == "t100-vancouver-2026"
 
 
 def context() -> dict[str, Any]:

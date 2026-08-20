@@ -60,20 +60,24 @@ class EventScopedPersistenceTests(unittest.TestCase):
         with patch.object(coaching_contract, "EVENT_PROFILE", first):
             db.add_chat("user", "first course assumption")
             db.add_constraint("2026-08-15", "first event constraint")
+            db.add_completion("2026-08-15", "done", notes="first event completion")
             db.upsert_plan_day(_day("2026-08-15", "first plan"))
 
         with patch.object(coaching_contract, "EVENT_PROFILE", second):
             self.assertEqual(db.get_chat(), [])
             self.assertEqual(db.get_constraint_history(), [])
+            self.assertEqual(db.get_completions(), [])
             self.assertEqual(db.get_plan(), [])
             db.add_chat("user", "second event context")
             db.add_constraint("2026-08-15", "second event constraint")
+            db.add_completion("2026-08-15", "partial", notes="second event completion")
             db.upsert_plan_day(_day("2027-01-01", "second plan"))
             self.assertEqual(db.get_chat()[0]["content"], "second event context")
 
         with patch.object(coaching_contract, "EVENT_PROFILE", first):
             self.assertEqual(db.get_chat()[0]["content"], "first course assumption")
             self.assertEqual(db.get_constraint_history()[0]["text"], "first event constraint")
+            self.assertEqual(db.get_completions()[0]["notes"], "first event completion")
             self.assertEqual(db.get_plan()[0]["title"], "first plan")
 
     def test_two_profiles_keep_independent_plan_rows_on_the_same_date(self) -> None:

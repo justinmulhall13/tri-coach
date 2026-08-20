@@ -115,24 +115,31 @@ def get_rings() -> dict[str, Any]:
     readiness = _safe(garmin_source.get_readiness) or {}
     tl = _safe(garmin_source.get_training_load) or {}
     race = config.race_phase()
+    load14 = _safe(lambda: garmin_source.get_recent_load(14)) or {}
+    readiness, tl = garmin_source.reconcile_freshness(readiness, tl, load14)
+    decision_tl = garmin_source.current_training_load(tl)
 
     sleep_score = ((readiness.get("sleep") or {}).get("score"))
     tr = readiness.get("training_readiness") or {}       # morning recovery (stable)
-    cur = readiness.get("current_readiness") or {}        # live value (post-exercise)
-    tr_score = tr.get("score")
-    strain = day_strain(c, today, tl.get("chronic_load"))
+    cur = readiness.get("current_readiness") or {}        # latest Garmin intraday snapshot
+    tr_score = (tr.get("score") if (tr.get("freshness") or {}).get("is_current") is True else None)
+    cur_is_current = (cur.get("freshness") or {}).get("is_current") is True
+    strain = day_strain(c, today, decision_tl.get("chronic_load"))
     payload = {
         "date": today,
         "sleep": {"score": sleep_score, "label": ((readiness.get("sleep") or {}).get("hours") and
                   f"{readiness['sleep']['hours']} h") or "—"},
-        # "Recovery" = morning post-sleep readiness; current live readiness shown underneath.
+        # "Recovery" = morning post-sleep readiness; a verified-current intraday
+        # snapshot may be shown underneath without replacing the morning score.
         "readiness": {"score": tr_score, "label": (tr.get("level") or "—").title(),
-                      "current": cur.get("score"),
+                      "freshness": tr.get("freshness"),
+                      "current": cur.get("score") if cur_is_current else None,
+                      "current_last_known": cur.get("score"),
                       "current_label": (cur.get("level") or "").title(),
-                      "current_post_exercise": bool(cur.get("is_post_exercise"))},
+                      "current_post_exercise": bool(cur.get("is_post_exercise") and cur_is_current),
+                      "current_freshness": cur.get("freshness")},
         "strain": strain,
     }
     if config.supports_t100_features():
-        load14 = _safe(lambda: garmin_source.get_recent_load(14)) or {}
-        payload["t100"] = t100_readiness(load14, tl, tr_score, race.get("days_remaining", 0))
+        payload["t100"] = t100_readiness(load14, decision_tl, tr_score, race.get("days_remaining", 0))
     return payload

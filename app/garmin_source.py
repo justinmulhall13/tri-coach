@@ -7,6 +7,7 @@ the fields Garmin actually returns.
 """
 from __future__ import annotations
 
+import copy
 import datetime
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -114,10 +115,112 @@ def _safe(fn: Callable[[], Any]) -> Any:
         return None
 
 
+def _iso_now() -> str:
+    """Local fetch timestamp used to distinguish retrieval time from data time."""
+    return config.local_now().isoformat(timespec="seconds")
+
+
+def _as_local_datetime(value: Any) -> datetime.datetime | None:
+    """Parse Garmin ISO or epoch timestamps into the configured local timezone."""
+    if value is None or isinstance(value, bool):
+        return None
+    local_tz = config.local_now().tzinfo
+    if isinstance(value, (int, float)):
+        seconds = float(value) / 1000.0 if abs(float(value)) > 10_000_000_000 else float(value)
+        try:
+            return datetime.datetime.fromtimestamp(seconds, tz=local_tz)
+        except (OverflowError, OSError, ValueError):
+            return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=local_tz)
+    return parsed.astimezone(local_tz)
+
+
+def _source_date(record: dict[str, Any] | None) -> str | None:
+    """Extract a provider date; never substitute the date that was queried."""
+    if not isinstance(record, dict):
+        return None
+    for key in ("calendarDate", "date"):
+        value = record.get(key)
+        if isinstance(value, datetime.date):
+            return value.isoformat()
+        if value:
+            try:
+                return datetime.date.fromisoformat(str(value)[:10]).isoformat()
+            except ValueError:
+                pass
+    for key in ("timestampLocal", "timestamp", "lastUpdatedTimestamp"):
+        parsed = _as_local_datetime(record.get(key))
+        if parsed is not None:
+            return parsed.date().isoformat()
+    return None
+
+
+def _source_timestamp(record: dict[str, Any] | None) -> str | None:
+    if not isinstance(record, dict):
+        return None
+    for key in ("timestampLocal", "timestamp", "lastUpdatedTimestamp"):
+        value = record.get(key)
+        parsed = _as_local_datetime(value)
+        if parsed is not None:
+            return parsed.isoformat(timespec="seconds")
+    return None
+
+
+def _freshness(*, source_date: str | None, expected_date: str, fetched_at: str,
+               endpoint: str, source_timestamp: str | None = None) -> dict[str, Any]:
+    if source_date == expected_date:
+        state, reason = "current", "Garmin source date matches the local date"
+    elif source_date:
+        state, reason = "stale", f"Garmin returned {source_date} for local date {expected_date}"
+    else:
+        state, reason = "unknown", "Garmin did not provide a verifiable source date"
+    result: dict[str, Any] = {
+        "state": state,
+        "is_current": state == "current",
+        "source_date": source_date,
+        "expected_date": expected_date,
+        "source_timestamp": source_timestamp,
+        "fetched_at": fetched_at,
+        "provider": "Garmin",
+        "endpoint": endpoint,
+        "reason": reason,
+    }
+    source_dt = _as_local_datetime(source_timestamp)
+    fetched_dt = _as_local_datetime(fetched_at)
+    if source_dt is not None and fetched_dt is not None:
+        result["age_minutes_at_fetch"] = round(max(0.0, (fetched_dt - source_dt).total_seconds()) / 60, 1)
+    return result
+
+
+def _record_sort_key(record: dict[str, Any]) -> tuple[str, float, int]:
+    stamp = _as_local_datetime(
+        record.get("timestampLocal") or record.get("timestamp") or record.get("lastUpdatedTimestamp")
+    )
+    return (_source_date(record) or "", stamp.timestamp() if stamp else 0.0,
+            1 if record.get("primaryTrainingDevice") else 0)
+
+
+def _newest_record(mapping: Any) -> dict[str, Any]:
+    values = list(mapping.values()) if isinstance(mapping, dict) else (
+        mapping if isinstance(mapping, list) else []
+    )
+    rows = [row for row in values if isinstance(row, dict)]
+    return max(rows, key=_record_sort_key) if rows else {}
+
+
 def get_readiness() -> dict[str, Any]:
     """This-morning recovery panel. Each field tagged; missing → listed."""
     c = get_client()
     today, yest = _today(), _days_back(1)
+    fetched_at = _iso_now()
     missing: list[str] = []
 
     with ThreadPoolExecutor(max_workers=7) as ex:
@@ -132,18 +235,29 @@ def get_readiness() -> dict[str, Any]:
         f_spo2 = ex.submit(_safe, lambda: c.get_spo2_data(today))
 
     # training readiness — Garmin returns MULTIPLE readings through the day, each
-    # tagged with an inputContext. The score is LIVE: it's high after sleep and
-    # drops after a workout. We split them:
+    # tagged with an inputContext. Garmin may add a lower post-workout reset,
+    # but the endpoint can lag activity sync. We split and date-check them:
     #   • "Recovery"  = the post-sleep wake-up value (stable for the day, WHOOP-style)
     #   • "current"   = the most recent reading (reflects post-exercise depletion)
     tr_raw = f_tr.result()
     tr_list = tr_raw if isinstance(tr_raw, list) else ([tr_raw] if isinstance(tr_raw, dict) else [])
     tr_list = [x for x in tr_list if isinstance(x, dict) and x.get("score") is not None]
-    wake = next((x for x in tr_list if x.get("inputContext") == "AFTER_WAKEUP_RESET"), None)
-    if wake is None and tr_list:                       # fallback: the day's peak reading
-        wake = max(tr_list, key=lambda x: x.get("score") or 0)
-    current = max(tr_list, key=lambda x: x.get("timestamp") or "") if tr_list else {}
+    # The endpoint is date-scoped, but Garmin can briefly return its last known
+    # record while a new day or post-workout reset is still syncing. Only a
+    # provider-dated record for the requested local day is eligible as current.
+    current_day = [x for x in tr_list if _source_date(x) == today]
+    wake = next((x for x in current_day if x.get("inputContext") == "AFTER_WAKEUP_RESET"), None)
+    if wake is None and current_day:                   # fallback: the day's peak reading
+        wake = max(current_day, key=lambda x: x.get("score") or 0)
+    current = max(current_day, key=_record_sort_key) if current_day else {}
     wake = wake or {}
+    fallback = max(tr_list, key=_record_sort_key) if tr_list else {}
+    wake_source = wake or fallback
+    current_source = current or fallback
+    wake_date = _source_date(wake_source)
+    current_date = _source_date(current_source)
+    wake_timestamp = _source_timestamp(wake_source)
+    current_timestamp = _source_timestamp(current_source)
     # `training_readiness` is the MORNING recovery — the value that should drive
     # training decisions and displays ("how recovered you woke up").
     readiness = {
@@ -151,18 +265,30 @@ def get_readiness() -> dict[str, Any]:
         "level": wake.get("level"),
         "feedback": wake.get("feedbackShort"),
         "sleep_score_factor_pct": wake.get("sleepScoreFactorPercent"),
-        "as_of": wake.get("timestampLocal"),
+        "as_of": wake_timestamp,
+        "source_date": wake_date,
+        "freshness": _freshness(
+            source_date=wake_date, expected_date=today, fetched_at=fetched_at,
+            endpoint="training-readiness", source_timestamp=wake_timestamp,
+        ),
     }
     current_readiness = {
         "score": current.get("score"),
         "level": current.get("level"),
         "feedback": current.get("feedbackShort"),
-        "as_of": current.get("timestampLocal"),
+        "as_of": current_timestamp,
+        "source_date": current_date,
         "input_context": current.get("inputContext"),
         "is_post_exercise": current.get("inputContext") == "AFTER_POST_EXERCISE_RESET",
+        "freshness": _freshness(
+            source_date=current_date, expected_date=today, fetched_at=fetched_at,
+            endpoint="training-readiness", source_timestamp=current_timestamp,
+        ),
     }
     if readiness["score"] is None:
         missing.append("training_readiness")
+    if current_readiness["score"] is None:
+        missing.append("current_readiness")
 
     # sleep (last night)
     dto = (f_sleep.result() or {}).get("dailySleepDTO") or {}
@@ -224,8 +350,11 @@ def get_readiness() -> dict[str, Any]:
 
     return {
         "date": today,
+        "fetched_at": fetched_at,
+        "source": "measured",
+        "provider": "Garmin",
         "training_readiness": readiness,      # morning post-sleep recovery (stable)
-        "current_readiness": current_readiness,  # live value; drops after training
+        "current_readiness": current_readiness,  # latest snapshot; post-exercise when verified
         "sleep": sleep,
         "hrv": hrv,
         "body_battery": body_battery,
@@ -308,16 +437,29 @@ def get_fitness_markers() -> dict[str, Any]:
 def get_training_load() -> dict[str, Any]:
     """Acute/chronic load, ACWR, and load-focus distribution vs Garmin targets."""
     c = get_client()
-    raw = _safe(lambda: c.get_training_status(_today()))
+    today = _today()
+    fetched_at = _iso_now()
+    raw = _safe(lambda: c.get_training_status(today))
     out: dict[str, Any] = {"acute_load": None, "chronic_load": None, "load_ratio": None,
-                           "acwr_status": None, "load_focus": None}
+                           "acwr_status": None, "load_focus": None,
+                           "source": "measured", "provider": "Garmin",
+                           "fetched_at": fetched_at}
     if not isinstance(raw, dict):
         out["error"] = "training status unavailable (needs ~7 days on a compatible device)"
+        out["freshness"] = _freshness(
+            source_date=None, expected_date=today, fetched_at=fetched_at,
+            endpoint="training-status",
+        )
+        out["load_focus_freshness"] = _freshness(
+            source_date=None, expected_date=today, fetched_at=fetched_at,
+            endpoint="training-load-balance",
+        )
         return out
+    status_record: dict[str, Any] = {}
     try:
         latest = (raw.get("mostRecentTrainingStatus") or {}).get("latestTrainingStatusData") or {}
-        first = next(iter(latest.values()), {}) if latest else {}
-        atl = first.get("acuteTrainingLoadDTO") or {}
+        status_record = _newest_record(latest)
+        atl = status_record.get("acuteTrainingLoadDTO") or {}
         out.update({
             "acute_load": atl.get("dailyTrainingLoadAcute"),
             "chronic_load": atl.get("dailyTrainingLoadChronic"),
@@ -326,21 +468,37 @@ def get_training_load() -> dict[str, Any]:
         })
     except Exception:
         pass
+    status_date = _source_date(status_record)
+    status_timestamp = _source_timestamp(status_record)
+    out["as_of"] = status_date
+    out["source_timestamp"] = status_timestamp
+    out["freshness"] = _freshness(
+        source_date=status_date, expected_date=today, fetched_at=fetched_at,
+        endpoint="training-status", source_timestamp=status_timestamp,
+    )
+    focus_record: dict[str, Any] = {}
     try:
         bal = (raw.get("mostRecentTrainingLoadBalance") or {}).get("metricsTrainingLoadBalanceDTOMap") or {}
-        fb = next(iter(bal.values()), {}) if bal else {}
-        if fb:
+        focus_record = _newest_record(bal)
+        if focus_record:
             out["load_focus"] = {
-                "aerobic_low": fb.get("monthlyLoadAerobicLow"),
-                "aerobic_high": fb.get("monthlyLoadAerobicHigh"),
-                "anaerobic": fb.get("monthlyLoadAnaerobic"),
-                "aerobic_low_target": [fb.get("monthlyLoadAerobicLowTargetMin"), fb.get("monthlyLoadAerobicLowTargetMax")],
-                "aerobic_high_target": [fb.get("monthlyLoadAerobicHighTargetMin"), fb.get("monthlyLoadAerobicHighTargetMax")],
-                "anaerobic_target": [fb.get("monthlyLoadAnaerobicTargetMin"), fb.get("monthlyLoadAnaerobicTargetMax")],
-                "feedback": fb.get("trainingBalanceFeedbackPhrase"),
+                "aerobic_low": focus_record.get("monthlyLoadAerobicLow"),
+                "aerobic_high": focus_record.get("monthlyLoadAerobicHigh"),
+                "anaerobic": focus_record.get("monthlyLoadAnaerobic"),
+                "aerobic_low_target": [focus_record.get("monthlyLoadAerobicLowTargetMin"), focus_record.get("monthlyLoadAerobicLowTargetMax")],
+                "aerobic_high_target": [focus_record.get("monthlyLoadAerobicHighTargetMin"), focus_record.get("monthlyLoadAerobicHighTargetMax")],
+                "anaerobic_target": [focus_record.get("monthlyLoadAnaerobicTargetMin"), focus_record.get("monthlyLoadAnaerobicTargetMax")],
+                "feedback": focus_record.get("trainingBalanceFeedbackPhrase"),
             }
     except Exception:
         pass
+    focus_date = _source_date(focus_record)
+    focus_timestamp = _source_timestamp(focus_record)
+    out["load_focus_as_of"] = focus_date
+    out["load_focus_freshness"] = _freshness(
+        source_date=focus_date, expected_date=today, fetched_at=fetched_at,
+        endpoint="training-load-balance", source_timestamp=focus_timestamp,
+    )
     return out
 
 
@@ -501,15 +659,60 @@ def _dedupe_synced_activities(activities: list[dict[str, Any]]) -> list[dict[str
             names.append(activity.get("name"))
         # Keep the richer copy without ever adding the duplicated load/volume.
         for key in ("km", "hr_avg", "hr_max", "load", "avg_power_w", "norm_power_w",
-                    "pace_min_km", "start_local"):
+                    "pace_min_km", "start_local", "activity_end_local"):
             if existing.get(key) is None and activity.get(key) is not None:
                 existing[key] = activity[key]
     return unique
 
 
+def _activity_end_local(start_local: Any, duration_seconds: Any) -> str | None:
+    start = _as_local_datetime(start_local)
+    if start is None or not isinstance(duration_seconds, (int, float)) or duration_seconds < 0:
+        return None
+    return (start + datetime.timedelta(seconds=float(duration_seconds))).isoformat(timespec="seconds")
+
+
+def _activity_revision(activities: list[dict[str, Any]]) -> str:
+    """Stable fingerprint of the returned activity set, excluding fetch time."""
+    import hashlib
+    import json
+    rows = sorted((
+        str(a.get("activity_id") or a.get("manual_id") or ""),
+        str(a.get("date") or ""),
+        str(a.get("start_local") or ""),
+        str(a.get("sport") or ""),
+        str(a.get("minutes") or ""),
+        str(a.get("km") or ""),
+        str(a.get("load") or ""),
+    ) for a in activities)
+    return hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode()).hexdigest()[:20]
+
+
+def _latest_garmin_activity(activities: list[dict[str, Any]], fetched_at: str) -> dict[str, Any] | None:
+    rows = [a for a in activities if a.get("provider") == "Garmin" and a.get("date")]
+    if not rows:
+        return None
+    latest = max(rows, key=lambda a: (
+        _as_local_datetime(a.get("activity_end_local") or a.get("start_local"))
+        or datetime.datetime.min.replace(tzinfo=config.local_now().tzinfo),
+        str(a.get("activity_id") or ""),
+    ))
+    return {
+        "activity_id": latest.get("activity_id"),
+        "date": latest.get("date"),
+        "start_local": latest.get("start_local"),
+        "end_local": latest.get("activity_end_local"),
+        "sport": latest.get("sport"),
+        "observed_at": fetched_at,
+        "source": "measured",
+        "provider": "Garmin",
+    }
+
+
 def get_recent_load(days: int = 14) -> dict[str, Any]:
     """Recent activities + weekly volume/load by discipline (ramp check)."""
     c = get_client()
+    fetched_at = _iso_now()
     raw = _safe(lambda: c.get_activities(0, 100)) or []
     cutoff = _days_back(days)
     acts: list[dict[str, Any]] = []
@@ -524,6 +727,9 @@ def get_recent_load(days: int = 14) -> dict[str, Any]:
         entry = {
             "date": start,
             "start_local": a.get("startTimeLocal"),
+            "activity_end_local": _activity_end_local(
+                a.get("startTimeLocal"), a.get("elapsedDuration") or a.get("duration")
+            ),
             "name": a.get("activityName"),
             "sport": sport,
             "type_key": tk,
@@ -566,6 +772,10 @@ def get_recent_load(days: int = 14) -> dict[str, Any]:
                         label = l["sport"]
                     leg_entry = {
                         "date": start, "start_local": a.get("startTimeLocal"),
+                        # Child summaries do not always carry independent local
+                        # starts. The parent end is still sufficient to prove
+                        # that a pre-race/pre-workout metric has been superseded.
+                        "activity_end_local": entry.get("activity_end_local"),
                         "name": f"{pname} · {label}",
                         "sport": l["sport"], "type_key": l["type_key"],
                         "km": l["km"], "minutes": l["minutes"],
@@ -601,6 +811,7 @@ def get_recent_load(days: int = 14) -> dict[str, Any]:
                 "km": m.get("km"), "minutes": m.get("minutes") or 0,
                 "hr_avg": m.get("hr_avg"), "hr_max": None, "load": None,
                 "activity_id": None, "manual": True, "manual_id": m["id"],
+                "activity_end_local": None,
                 "notes": m.get("notes"),
                 "source": "self-reported", "provider": None,
             })
@@ -621,4 +832,93 @@ def get_recent_load(days: int = 14) -> dict[str, Any]:
         b["hours"] = round(b["hours"], 1)
         b["load"] = round(b["load"], 0)
 
-    return {"period_days": days, "count": len(acts), "by_sport": by_sport, "activities": acts}
+    return {
+        "period_days": days,
+        "count": len(acts),
+        "by_sport": by_sport,
+        "activities": acts,
+        "fetched_at": fetched_at,
+        "source": "measured and self-reported where tagged per activity",
+        "activity_revision": _activity_revision(acts),
+        "latest_garmin_activity": _latest_garmin_activity(acts, fetched_at),
+    }
+
+
+def _check_metric_after_activity(metric: dict[str, Any], latest: dict[str, Any] | None,
+                                 *, expected_date: str) -> None:
+    """Downgrade a same-day metric when a newer Garmin activity supersedes it."""
+    freshness = metric.get("freshness") if isinstance(metric, dict) else None
+    if not isinstance(freshness, dict) or not latest:
+        return
+    source_date = freshness.get("source_date")
+    activity_date = latest.get("date")
+    if source_date and activity_date and str(source_date) < str(activity_date):
+        freshness.update({
+            "state": "stale", "is_current": False,
+            "reason": f"A newer Garmin activity exists on {activity_date}",
+            "superseded_by_activity": latest,
+        })
+        return
+    if source_date != expected_date or activity_date != expected_date:
+        return
+    metric_dt = _as_local_datetime(freshness.get("source_timestamp"))
+    activity_dt = _as_local_datetime(latest.get("end_local") or latest.get("start_local"))
+    if activity_dt is None:
+        return
+    if metric_dt is None:
+        freshness.update({
+            "state": "unknown", "is_current": False,
+            "reason": "A same-day Garmin activity exists but this metric has no timestamp to verify it includes that activity",
+            "superseded_by_activity": latest,
+        })
+    elif metric_dt < activity_dt:
+        freshness.update({
+            "state": "stale", "is_current": False,
+            "reason": "The Garmin metric predates the latest synced activity",
+            "superseded_by_activity": latest,
+        })
+
+
+def reconcile_freshness(readiness: dict[str, Any] | None,
+                        training_load: dict[str, Any] | None,
+                        recent_load: dict[str, Any] | None
+                        ) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Cross-check live-looking metrics against the newest synced activity.
+
+    Morning readiness deliberately stays valid as the dated wake-up baseline.
+    Only the latest/current readiness snapshot and load metrics are downgraded
+    when a later workout means Garmin has not recalculated them yet.
+    """
+    rd = copy.deepcopy(readiness) if isinstance(readiness, dict) else {}
+    tl = copy.deepcopy(training_load) if isinstance(training_load, dict) else {}
+    load = recent_load if isinstance(recent_load, dict) else {}
+    latest = load.get("latest_garmin_activity")
+    if not isinstance(latest, dict):
+        latest = _latest_garmin_activity(load.get("activities") or [], load.get("fetched_at") or _iso_now())
+    today = _today()
+    _check_metric_after_activity(rd.get("current_readiness") or {}, latest, expected_date=today)
+    _check_metric_after_activity({"freshness": tl.get("freshness")}, latest, expected_date=today)
+    _check_metric_after_activity({"freshness": tl.get("load_focus_freshness")}, latest,
+                                 expected_date=today)
+    check = {
+        "checked_at": _iso_now(),
+        "latest_garmin_activity": latest,
+        "policy": (
+            "Morning readiness remains the wake-up baseline; current readiness and training "
+            "load must not predate the latest synced Garmin activity."
+        ),
+    }
+    rd["freshness_check"] = check
+    tl["freshness_check"] = check
+    return rd, tl
+
+
+def current_training_load(training_load: dict[str, Any] | None) -> dict[str, Any]:
+    """Return only load fields verified current enough for coaching decisions."""
+    out = copy.deepcopy(training_load) if isinstance(training_load, dict) else {}
+    if (out.get("freshness") or {}).get("is_current") is not True:
+        for key in ("acute_load", "chronic_load", "load_ratio", "acwr_status"):
+            out[key] = None
+    if (out.get("load_focus_freshness") or {}).get("is_current") is not True:
+        out["load_focus"] = None
+    return out

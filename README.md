@@ -259,6 +259,12 @@ app/
   config.py          env + race-phase math; timezone-correct "today"
   db.py              SQLite (schema, migrations, plan/completions/constraints)
 
+  strength_context.py  merges Garmin session evidence with Hevy weight evidence
+  strength_weights.py  lb/kg snapping, increment inference, anchor-derived weights
+  strength_effort.py   today's lifting ceiling: run load first, recovery may lower it
+  strength_block.py    places a repeating upper/lower block around the key runs
+  strength_visual.py   movement-pattern classifier + illustrated chat card view
+
   garmin_source.py   Garmin ingestion: readiness, HRV, sleep, activities,
                      training load / ACWR, VO2 & FTP, race predictions
   rings.py           the four dashboard rings
@@ -297,6 +303,31 @@ both directions.
 ## Design decisions worth calling out
 
 A few problems here were more interesting than they first look:
+
+- **Two sources that each hold half the truth.** Garmin records *that* a strength
+  session happened — duration, heart rate — and never which exercises or weights.
+  Hevy records exercises, sets and exact weights, but only for sessions logged
+  there. Reading either alone produces a confident wrong answer: for a stretch of
+  this athlete's training, Hevy said "no lifting since June" while Garmin plainly
+  showed six sessions through July. The app keeps both, dates each one, and treats
+  weight evidence being older than session evidence as the signal that a block must
+  start by calibrating rather than by prescribing stale loads.
+
+- **A working weight is never invented.** A model that guesses a squat weight is
+  guessing with someone's back. Every prescribed weight is either an exact value
+  from Hevy history or a bounded derivation from one — a declared percentage
+  (60–105%) of a specific set on a specific date — and the server re-verifies the
+  anchor against freshly fetched history before any write. Two checks run
+  independently: the anchor must exist, *and* the number must match its own stated
+  derivation, so a routine can never display "85% deload" while writing the full
+  load.
+
+- **Pounds, not the stored kilograms.** Hevy stores every weight in kg as a float,
+  so a 135 lb squat reads back as `61.235042773811365`. Showing that is wrong twice:
+  the precision is fictional and the unit isn't the one on the bar. Weights snap
+  back to the logged value, and the loadable increment is inferred per exercise from
+  its own history — so a selection stack that only ever produced 192, 332 and 392 lb
+  gets a real pin position rather than an arithmetically tidy number it cannot make.
 
 - **Timezone-correct "today."** The server runs UTC on Fly; the athlete lives in
   Pacific. "Today" is resolved in the athlete's local zone everywhere, so the day

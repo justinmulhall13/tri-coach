@@ -80,7 +80,8 @@ def _hr_bpm_target(lo: int, hi: int) -> dict[str, Any]:
 
 def _event_hr(discipline: str) -> tuple[int, int] | None:
     key = "bike_hr_bpm" if discipline in {"bike", "brick"} else "run_hr_bpm" if discipline == "run" else None
-    raw = ((coaching_contract.EVENT_PROFILE.get("pacing_targets") or {}).get(key) or []) if key else []
+    event = coaching_contract.event_context()
+    raw = ((event.get("pacing_targets") or {}).get(key) or []) if key else []
     if len(raw) != 2:
         return None
     try:
@@ -329,7 +330,8 @@ def _run_steps(main: str, intensity: str, thr: float | None, order: int,
 
     def note(inten: str) -> str:
         if "race" in (inten or "").lower():
-            pace = (coaching_contract.EVENT_PROFILE.get("pacing_targets") or {}).get("run_lap_1_min_per_km")
+            event = coaching_contract.event_context()
+            pace = (event.get("pacing_targets") or {}).get("run_lap_1_min_per_km")
             suffix = f"; lap 1 ceiling {pace}/km" if pace else "; lap 1 pace unknown"
             return f"{_hr_note(inten, 'run', title)}{suffix}"
         try:

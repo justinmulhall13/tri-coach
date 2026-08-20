@@ -24,7 +24,10 @@ def _readiness_signal(readiness: dict[str, Any]) -> dict[str, Any]:
         return {"level": "unknown", "reason": "readiness data unavailable", "downregulate": False}
 
     tr = (readiness.get("training_readiness") or {})
-    score = tr.get("score")
+    freshness = tr.get("freshness") if isinstance(tr, dict) else None
+    readiness_unverified = (isinstance(freshness, dict)
+                            and freshness.get("is_current") is not True)
+    score = None if readiness_unverified else tr.get("score")
     hrv = (readiness.get("hrv") or {})
     hrv_status = (hrv.get("status") or "").upper()
     sleep = (readiness.get("sleep") or {})
@@ -48,6 +51,11 @@ def _readiness_signal(readiness: dict[str, Any]) -> dict[str, Any]:
         return {"level": "poor", "reason": "; ".join(bad), "downregulate": True, "hard": True}
     if soft:
         return {"level": "moderate", "reason": "; ".join(soft), "downregulate": True, "hard": False}
+    if readiness_unverified:
+        source_date = freshness.get("source_date")
+        reason = (f"training readiness is stale (as of {source_date})" if source_date
+                  else "training readiness freshness is unknown")
+        return {"level": "unknown", "reason": reason, "downregulate": False}
     return {"level": "good", "reason": "recovery markers in range", "downregulate": False}
 
 

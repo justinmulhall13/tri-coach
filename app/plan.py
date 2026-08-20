@@ -26,7 +26,8 @@ from . import coaching_contract, config, db
 def _hr(intensity: str) -> str:
     """Bike target from the event profile or measured Garmin cycling zones."""
     if "race" in (intensity or "").lower():
-        target = ((coaching_contract.EVENT_PROFILE.get("pacing_targets") or {}).get("bike_hr_bpm") or [])
+        target = ((coaching_contract.event_context().get("pacing_targets") or {})
+                  .get("bike_hr_bpm") or [])
         if len(target) == 2:
             return f"HR {target[0]}-{target[1]}"
         return "HR unknown (event race target required)"
@@ -185,7 +186,7 @@ def _workout(weekday: int, phase: str, dtr: int) -> dict[str, Any]:
 
 
 def _race_day_workout() -> dict[str, Any]:
-    event = coaching_contract.EVENT_PROFILE
+    event = coaching_contract.event_context()
     if not config.supports_t100_features():
         raise ValueError("The bundled race-day workout is only valid for the installed T100 Vancouver profile")
     distances = event.get("disciplines_and_distances") or {}
@@ -221,11 +222,11 @@ def seed(start: datetime.date | None = None, *, overwrite_edited: bool = False) 
     """
     if not config.supports_t100_features():
         return {"error": (f"No plan builder is installed for event profile "
-                          f"{coaching_contract.EVENT_PROFILE.get('id') or 'unknown'}; "
+                          f"{coaching_contract.event_context().get('id') or 'unknown'}; "
                           "the T100 Vancouver builder will not be reused across modes and "
                           "will not be reused across profiles")}
     start = start or config.local_today()
-    race = datetime.date.fromisoformat(config.RACE_DATE)
+    race = datetime.date.fromisoformat(config.race_date())
     if race < start:
         return {"error": "RACE_DATE is in the past"}
 
@@ -268,7 +269,7 @@ def reconcile_seeded_plan(start: datetime.date | None = None) -> dict[str, Any]:
 
     start = start or config.local_today()
     try:
-        race = datetime.date.fromisoformat(config.RACE_DATE)
+        race = datetime.date.fromisoformat(config.race_date())
     except ValueError:
         return {
             "reconciled": 0,
@@ -325,7 +326,7 @@ def reconcile_event_day() -> bool:
     """Refresh a generated race row without losing its Calendar placement."""
     if not config.supports_t100_features():
         return False
-    existing = db.get_plan_day(config.RACE_DATE)
+    existing = db.get_plan_day(config.race_date())
     if not existing or existing.get("source") != "seed":
         return False
     day = _race_day_workout()
