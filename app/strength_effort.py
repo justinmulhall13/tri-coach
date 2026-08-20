@@ -94,7 +94,11 @@ def decide(*, today: datetime.date, plan_days: Any, readiness: Any = None,
     reasoning rather than being handed a verdict.
     """
     reasons: list[str] = []
-    days = [d for d in (plan_days or []) if isinstance(d, dict)]
+    # `plan_days or []` is not enough: a truthy non-sequence (a number, True)
+    # survives the `or` and then fails on iteration.
+    if not isinstance(plan_days, (list, tuple)):
+        plan_days = []
+    days = [d for d in plan_days if isinstance(d, dict)]
     by_date = {}
     for day in days:
         date = _as_date(day.get("date"))

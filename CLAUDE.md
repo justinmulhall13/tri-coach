@@ -20,13 +20,6 @@ This file is the durable continuation point for the current Tri Coach work. Read
 
 ## Work still in progress at handoff creation
 
-- Fix event-profile namespace collisions: caller/model-controlled IDs or identical name/date
-  with materially different profiles must not share chat/plan state.
-- Tighten draft schema/date validation and ensure activation uses the exact stored draft
-  under concurrency.
-- Escape all model-derived schedule/plan fields before inserting them into `innerHTML`;
-  whitelist disciplines server-side. (The new strength card already escapes every field
-  and whitelists `pattern`; the older weekplan/adjustment cards still need the audit.)
 - Decide/implement exact-switch web discovery without weakening the explicit confirmation
   transaction.
 - Update README, rerun all checks, commit, push GitHub, deploy Fly, and smoke-test production.
@@ -134,3 +127,49 @@ Remaining for this feature:
 
 - A chat affordance for accepting a whole block at once (the API returns placements;
   each day is still attached individually).
+
+
+## Debugging pass 2026-08-20
+
+### Fixed: stored XSS in three render sinks
+`addWeekPlan`, `renderPlan` and `addAdjustment` interpolated model-generated
+`title`, `intensity` and `structure.main` straight into `innerHTML`. The API token
+lives in `localStorage.tc_token`, so this was token exfiltration, and a weekplan
+draft persists and re-renders in a fresh session. Three layers now:
+
+1. Every model-derived field goes through `esc()` at the sink.
+2. `esc()` also escapes quotes. `textContent` does not, and
+   `class="sport-${esc(...)}"` puts an escaped value inside an attribute.
+3. `_check_display_fields` rejects angle brackets and control characters in
+   weekplan and adjustment free text, so a payload never reaches storage.
+
+Quotes are deliberately NOT rejected server-side — `5' rest` and `3" spacing` are
+legitimate training text. Escaping at the sink is what makes them inert.
+
+Adjustments previously had no field validation at all: `_extract_adjustment` returned
+any dict and `coach_accept` only checked it was one. They now go through the same
+text guard and a discipline whitelist, raising `AdjustmentValidationError` (400).
+
+### Fixed: unbounded profile namespace
+A 5000-character event name produced a 5024-character `event_profile_id`, which is
+stored on every plan, draft, chat and strength row. The stem is now capped at
+`_MAX_PROFILE_STEM`; identity still comes from the digest. The T100 default returns
+early and is unaffected.
+
+### Fixed: crashes on hostile input
+- `strength_effort.decide` / `strength_block.build`: `plan_days or []` let a truthy
+  non-sequence through to iteration (`TypeError`). Both now type-check.
+- `POST /api/plan/strength-block`: `weeks` was unclamped and overflowed date
+  arithmetic. Capped at `main.MAX_BLOCK_WEEKS`.
+- `POST /api/completions` and `POST /api/constraints` raised `KeyError` (500) on a
+  missing field; both now return 400.
+
+### Verified correct, no change needed
+- Draft activation under concurrency: an 8-way simultaneous activation applies
+  exactly once, and creating a draft supersedes the previous one so a stale
+  activation is refused rather than interleaved (`test_plan_draft_concurrency.py`).
+- Event-profile namespace collisions: `_server_profile_id` hashes name, date,
+  distances, goal and mode, so same-name/date events with different demands do not
+  share state (`test_event_profile_namespace.py`).
+- Garmin-offline handling: every affected route returns a 502 naming the source;
+  `/api/plan/strength-effort` degrades to 200 with a null readiness score.

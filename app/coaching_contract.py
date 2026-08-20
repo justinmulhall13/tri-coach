@@ -212,6 +212,11 @@ def _slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", (value or "").lower()).strip("-")
 
 
+# Keeps a generated namespace short enough to index and read. Identity still
+# comes from the digest, never from the stem.
+_MAX_PROFILE_STEM = 64
+
+
 def _server_profile_id(record: dict[str, Any]) -> str:
     """Create a server-owned namespace from every identity-defining field."""
     identity = {
@@ -227,8 +232,11 @@ def _server_profile_id(record: dict[str, Any]) -> str:
         return str(DEFAULT_EVENT_PROFILE["id"])
     encoded = json.dumps(identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:12]
-    stem = _slug(f"{record.get('event_name')}-{record.get('event_date')}") or "event"
-    return f"{stem}-{digest}"
+    # The digest already guarantees uniqueness, so the readable stem is capped.
+    # Without this a long event name becomes a multi-kilobyte namespace that is
+    # then stored on every plan, draft, chat and strength row.
+    stem = (_slug(f"{record.get('event_name')}-{record.get('event_date')}") or "event")[:_MAX_PROFILE_STEM]
+    return f"{stem.strip('-') or 'event'}-{digest}"
 
 
 def _legacy_to_record(profile: dict[str, Any]) -> dict[str, Any]:

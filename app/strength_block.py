@@ -39,7 +39,10 @@ def _as_date(value: Any) -> datetime.date | None:
 
 def _index_plan(plan_days: Any) -> dict[datetime.date, dict[str, Any]]:
     indexed: dict[datetime.date, dict[str, Any]] = {}
-    for day in plan_days or []:
+    # A truthy non-sequence survives `or []`, so the type is checked directly.
+    if not isinstance(plan_days, (list, tuple)):
+        return indexed
+    for day in plan_days:
         if not isinstance(day, dict):
             continue
         date = _as_date(day.get("date"))
@@ -153,7 +156,8 @@ def build(*, start: datetime.date, weeks: int, sessions_per_week: int,
             if until is not None and date > until:
                 continue
             effort = strength_effort.decide(
-                today=date, plan_days=plan_days, readiness=readiness, strength=strength,
+                today=date, plan_days=plan_days if isinstance(plan_days, (list, tuple)) else [],
+                readiness=readiness, strength=strength,
             )
             placements.append({
                 **placement,

@@ -143,8 +143,6 @@ class VerificationTests(unittest.TestCase):
                 bad, self.history, claimed_weight_kg=self.ANCHOR_KG))
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class MachineStackTests(unittest.TestCase):
@@ -209,3 +207,7 @@ class MachineStackTests(unittest.TestCase):
             result["derivation"], history, claimed_weight_kg=self.ANCHOR_KG)
         self.assertIsNotNone(error)
         self.assertIn("does not match its own derivation", error)
+
+
+if __name__ == "__main__":
+    unittest.main()

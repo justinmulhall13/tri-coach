@@ -737,6 +737,10 @@ _VISIBLE_DATE_GATING_RE = re.compile(
 )
 
 
+class AdjustmentValidationError(ValueError):
+    """Raised when a proposed single-day adjustment carries unusable fields."""
+
+
 class WeekPlanValidationError(ValueError):
     """A fixed-date plan contains recovery-dependent activation language."""
 
@@ -874,6 +878,44 @@ _PLAN_DISCIPLINES = {
     "swim", "bike", "run", "brick", "strength", "recovery", "rest", "other",
 }
 
+# Model-authored display text is rendered into the app's DOM. Escaping at every
+# render site is the primary defence, but a single forgotten `esc()` would be an
+# XSS with the API token sitting in localStorage. Refusing markup here means the
+# payload never reaches storage in the first place, so a future render path
+# cannot resurrect the bug.
+_MARKUP_RE = re.compile(r"[<>]")
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_MAX_DISPLAY_TEXT = 2000
+
+
+def _clean_display_text(value: Any, field: str, error: type[Exception]) -> str:
+    """Return model-authored text, or raise when it carries markup."""
+    text = "" if value is None else str(value)
+    if len(text) > _MAX_DISPLAY_TEXT:
+        raise error(f"{field} is longer than {_MAX_DISPLAY_TEXT} characters")
+    if _MARKUP_RE.search(text):
+        raise error(f"{field} must not contain angle brackets")
+    if _CONTROL_RE.search(text):
+        raise error(f"{field} must not contain control characters")
+    return text
+
+
+def _check_display_fields(day: Any, label: str, error: type[Exception]) -> None:
+    """Reject markup in every free-text field of one plan-shaped object."""
+    if not isinstance(day, dict):
+        return
+    for field in ("title", "why", "intensity", "discipline", "phase", "notes"):
+        if day.get(field) is not None:
+            _clean_display_text(day[field], f"{label} {field}", error)
+    structure = day.get("structure")
+    if isinstance(structure, dict):
+        for key, value in structure.items():
+            if isinstance(value, str):
+                _clean_display_text(value, f"{label} structure.{key}", error)
+    elif isinstance(structure, str):
+        _clean_display_text(structure, f"{label} structure", error)
+
+
 
 def validate_weekplan(days: list[dict[str, Any]], *, require_not_past: bool = True) -> None:
     """Validate an actionable draft and reject conditional fixed dates.
@@ -905,6 +947,7 @@ def validate_weekplan(days: list[dict[str, Any]], *, require_not_past: bool = Tr
         title = day.get("title")
         if not isinstance(title, str) or not title.strip():
             raise WeekPlanValidationError(f"week plan row {date} needs a title")
+        _check_display_fields(day, f"week plan row {date}", WeekPlanValidationError)
         discipline = str(day.get("discipline") or "").lower()
         if discipline not in _PLAN_DISCIPLINES:
             raise WeekPlanValidationError(
@@ -1527,6 +1570,13 @@ def accept_adjustment(adjustment: dict[str, Any]) -> dict[str, Any] | None:
         date = d.isoformat() if d >= today else today.isoformat()
     except (ValueError, TypeError):
         date = today.isoformat()
+    # An adjustment reaches the plan and then the DOM with no schema behind it,
+    # so its free text is held to the same bar as a generated week.
+    _check_display_fields(adjustment, "adjustment", AdjustmentValidationError)
+    discipline = str(adjustment.get("discipline") or "").lower().strip()
+    if discipline and discipline not in _PLAN_DISCIPLINES:
+        raise AdjustmentValidationError(
+            f"adjustment has unsupported discipline {discipline}")
     fields = {k: adjustment[k] for k in
               ("title", "discipline", "duration_min", "intensity", "tsb_target", "structure", "why")
               if k in adjustment}

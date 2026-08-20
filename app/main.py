@@ -30,6 +30,10 @@ from . import (activity_detail, baselines, calendar_agent, calendar_source,
                push, rings, ring_detail, strength_block, strength_effort, suggest)
 
 app = FastAPI(title="Tri Coach")
+
+# A strength block longer than a year is not a training block; capping it
+# also keeps week arithmetic inside the date range.
+MAX_BLOCK_WEEKS = 52
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
@@ -569,7 +573,9 @@ def plan_strength_block(body: dict = Body(default={})) -> JSONResponse:
                  else config.local_today())
         until = (_dt.date.fromisoformat(str(body["until"])[:10])
                  if body.get("until") else None)
-        weeks = int(body.get("weeks") or 1)
+        # Both are clamped: an unclamped `weeks` overflows the date arithmetic
+        # in strength_block with an OverflowError rather than a 400.
+        weeks = max(1, min(int(body.get("weeks") or 1), MAX_BLOCK_WEEKS))
         sessions = int(body.get("sessions_per_week") or 4)
     except (KeyError, TypeError, ValueError) as exc:
         return JSONResponse({"error": f"invalid block request: {exc}"}, status_code=400)
@@ -644,7 +650,10 @@ def plan_revert(history_id: int) -> JSONResponse:
 # --- Completions / constraints ------------------------------------------------
 @app.post("/api/completions")
 def add_completion(body: dict = Body(...)) -> JSONResponse:
-    db.add_completion(body["date"], body.get("status", "done"),
+    date = str(body.get("date") or "").strip()
+    if not date:
+        return JSONResponse({"error": "date is required"}, status_code=400)
+    db.add_completion(date, body.get("status", "done"),
                       body.get("notes", ""), body.get("garmin_activity_id", ""))
     coach.invalidate_context_cache()
     return JSONResponse({"ok": True})
@@ -657,7 +666,10 @@ def list_completions(start: str | None = None, end: str | None = None) -> JSONRe
 
 @app.post("/api/constraints")
 def add_constraint(body: dict = Body(...)) -> JSONResponse:
-    db.add_constraint(body.get("date"), body["text"])
+    text = str(body.get("text") or "").strip()
+    if not text:
+        return JSONResponse({"error": "text is required"}, status_code=400)
+    db.add_constraint(body.get("date"), text)
     return JSONResponse({"ok": True})
 
 
@@ -869,7 +881,10 @@ def coach_accept(body: dict = Body(...)) -> JSONResponse:
     adj = body.get("adjustment")
     if not isinstance(adj, dict):
         return JSONResponse({"error": "adjustment object is required"}, status_code=400)
-    updated = coach.accept_adjustment(adj)
+    try:
+        updated = coach.accept_adjustment(adj)
+    except coach.AdjustmentValidationError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
     if not updated:
         return JSONResponse({"error": "no plan day for today to update"}, status_code=404)
     _bg_sync()

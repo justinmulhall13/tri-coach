@@ -134,8 +134,6 @@ class EffortTests(unittest.TestCase):
             self.assertEqual(len(block["placements"]), 4)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class AlternationTests(unittest.TestCase):
@@ -165,3 +163,19 @@ class AlternationTests(unittest.TestCase):
         for placement in block["placements"]:
             if placement["date"] == MONDAY.isoformat():
                 self.assertEqual(placement["slot"], "upper")
+
+
+class HostileInputTests(unittest.TestCase):
+    def test_a_truthy_non_sequence_plan_does_not_crash_placement(self) -> None:
+        for bad in (True, 1, -1, 3.7, float("inf"), "a string", object()):
+            block = sb.build(start=MONDAY, weeks=1, sessions_per_week=4, plan_days=bad)
+            self.assertEqual(len(block["placements"]), 4, repr(bad))
+
+    def test_days_that_are_not_objects_are_skipped_not_indexed(self) -> None:
+        block = sb.build(start=MONDAY, weeks=1, sessions_per_week=4,
+                         plan_days=[None, 42, "x", {"date": "nonsense"}, {}])
+        self.assertEqual(len(block["placements"]), 4)
+
+
+if __name__ == "__main__":
+    unittest.main()

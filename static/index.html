@@ -2546,8 +2546,8 @@ function renderPlan(p){
         <div class="cdate">${dt.getDate()}${isToday?'<span class="todaydot"></span>':''}</div>
       </div>
       <div class="cicon">${icon}</div>
-      <div class="ctitle">${d.title||disc}</div>
-      <div class="cmin">${min}</div>
+      <div class="ctitle">${esc(String(d.title||disc))}</div>
+      <div class="cmin">${esc(String(min))}</div>
     </div>`;
   }).join("")}</div>`;
   $("plan").querySelectorAll(".cday").forEach(c=>{
@@ -2680,7 +2680,11 @@ function renderBanners(h){
 // ---- Coach chat ----
 // Render Coach Steve's TL;DR + bullets as structured, scannable rows instead of
 // a pre-wrapped text blob.
-function esc(s){ const d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
+function esc(s){ const d=document.createElement("div"); d.textContent=s;
+  // textContent escapes & < > but NOT quotes, so an esc()'d value dropped into
+  // an attribute could still break out of it. Escape quotes too, which makes
+  // every call site safe in both element and attribute context.
+  return d.innerHTML.replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
 function coachHTML(text){
   const lines=String(text||"").split("\n");
   let html="", plain=[];
@@ -2760,9 +2764,9 @@ function addAdjustment(adj){
   const c=document.createElement("div"); c.className="adjcard";
   const st=adj.structure||{};
   const w=adjWhen(adj);
-  c.innerHTML=`<div class="t">Proposed change · ${w.label}: ${adj.title||adj.discipline}</div>
-    <div class="d">${adj.discipline||""} · ${fmt(adj.duration_min)} min · ${fmt(adj.intensity)} · race-day TSB ${adj.tsb_target!=null?(adj.tsb_target>0?"+":"")+adj.tsb_target:"+10"}<br>${fmt(st.main)}</div>
-    <button class="primary">${w.accept}</button>`;
+  c.innerHTML=`<div class="t">Proposed change · ${esc(String(w.label))}: ${esc(String(adj.title||adj.discipline||""))}</div>
+    <div class="d">${esc(String(adj.discipline||""))} · ${esc(String(fmt(adj.duration_min)))} min · ${esc(String(fmt(adj.intensity)))} · race-day TSB ${adj.tsb_target!=null?(adj.tsb_target>0?"+":"")+esc(String(adj.tsb_target)):"+10"}<br>${esc(String(fmt(st.main)))}</div>
+    <button class="primary">${esc(String(w.accept))}</button>`;
   c.querySelector("button").onclick=async()=>{
     const r=await j("/api/coach/accept",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({adjustment:adj})});
     const savedDate=r.ok&&r.updated_plan_day?r.updated_plan_day.date:null;
@@ -2805,9 +2809,9 @@ function addWeekPlan(days,planId=null,options={}){
     const dt=new Date((d.date||"")+"T00:00:00");
     const dow=isNaN(dt)?"":DOW[dt.getDay()];
     const disc=d.is_rest?"rest":(d.discipline||"");
-    return `<div class="wk-row"><span class="wk-day">${dow} ${(d.date||"").slice(5)}</span>
-      <span class="sport-${disc}">${d.title||disc}</span>
-      <span class="wk-dur">${d.is_rest?"—":fmt(d.duration_min)+" min"}</span></div>`;
+    return `<div class="wk-row"><span class="wk-day">${esc(dow)} ${esc((d.date||"").slice(5))}</span>
+      <span class="sport-${esc(String(disc))}">${esc(String(d.title||disc))}</span>
+      <span class="wk-dur">${d.is_rest?"—":esc(String(fmt(d.duration_min)))+" min"}</span></div>`;
   }).join("");
   const draftLabel=id?`Saved week draft #${fmt(id)}`:"Proposed week rebuild";
   c.innerHTML=`<div class="t">${draftLabel} · ${days.length} day${days.length>1?"s":""}</div>

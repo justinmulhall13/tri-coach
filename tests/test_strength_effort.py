@@ -147,5 +147,24 @@ class ExplanationTests(unittest.TestCase):
             self.assertIn(se.decide(today=TODAY, plan_days=bad)["level"], se.LEVELS)
 
 
+
+
+class HostileInputTests(unittest.TestCase):
+    """`plan_days or []` lets a truthy non-sequence through to iteration."""
+
+    NOT_SEQUENCES = (True, 1, -1, 3.7, float("inf"), float("nan"), object(), "a string")
+
+    def test_a_truthy_non_sequence_does_not_crash_the_decision(self) -> None:
+        for bad in self.NOT_SEQUENCES:
+            result = se.decide(today=TODAY, plan_days=bad)
+            self.assertIn(result["level"], se.LEVELS, repr(bad))
+
+    def test_hostile_readiness_and_strength_are_ignored_safely(self) -> None:
+        for bad in self.NOT_SEQUENCES:
+            result = se.decide(today=TODAY, plan_days=[], readiness=bad, strength=bad)
+            self.assertIn(result["level"], se.LEVELS, repr(bad))
+            self.assertIsNone(result["readiness_score"])
+
+
 if __name__ == "__main__":
     unittest.main()
