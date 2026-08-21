@@ -442,10 +442,13 @@
   .lf-setvals{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;}
   /* Split block: four days across on desktop, two-by-two on a phone. */
   .splitgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
-  @media (max-width:820px){ .splitgrid{grid-template-columns:repeat(2,1fr);} }
   .splitday{display:flex;flex-direction:column;gap:6px;padding:11px;border-radius:14px;
     background:rgba(var(--glow),.07);border:1px solid rgba(var(--glow),.2);
     cursor:pointer;text-align:left;font:inherit;color:inherit;
+    /* Grid items default to min-width:auto, so a long exercise name ("Half
+       Kneeling Landmine Press") sets a floor the column cannot shrink below and
+       the whole grid overflows the phone. min-width:0 lets the ellipsis work. */
+    min-width:0;
     transition:transform .15s var(--spring),border-color .15s,background .15s;}
   .splitday:hover{transform:translateY(-2px);border-color:rgba(var(--glow),.45);
     background:rgba(var(--glow),.12);}
@@ -453,13 +456,23 @@
   .splitday .sd-n{font-weight:700;font-size:13.5px;}
   .splitday .sd-f{color:var(--muted);font-size:11px;line-height:1.3;min-height:26px;}
   .splitday .sd-l{display:flex;flex-direction:column;gap:3px;margin-top:2px;}
-  .splitday .sd-e{display:flex;gap:6px;align-items:center;font-size:11.5px;}
+  .splitday .sd-e{display:flex;gap:6px;align-items:center;font-size:11.5px;min-width:0;}
   .splitday .sd-e i{flex:0 0 14px;width:14px;height:14px;color:var(--a1);opacity:.75;}
   .splitday .sd-e i svg{width:100%;height:100%;display:block;}
-  .splitday .sd-e span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .splitday .sd-e span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+  .splitday .sd-n,.splitday .sd-f{overflow-wrap:anywhere;}
   .splitday .sd-tag{align-self:flex-start;font-size:10px;font-weight:600;padding:2px 7px;
     border-radius:999px;background:rgba(var(--glow),.18);color:var(--a1);}
   .splitday.lower .sd-tag{background:rgba(15,157,110,.14);color:var(--good);}
+  @media (max-width:820px){
+    .splitgrid{grid-template-columns:repeat(2,1fr);}
+    /* Two columns leave ~150px per card, which truncates a third of the
+       exercise names. Wrapping to a second line keeps them readable; the
+       cards simply get taller, which costs nothing on a page that scrolls. */
+    .splitday .sd-e span{white-space:normal;text-overflow:clip;line-height:1.25;}
+    .splitday .sd-e{align-items:flex-start;}
+    .splitday .sd-e i{margin-top:1px;}
+  }
   .splitcov{margin-top:10px;color:var(--muted);font-size:11.5px;}
   .splitask{margin-top:16px;padding-top:13px;border-top:1px solid var(--line);}
   .splitask label{display:block;font-weight:650;font-size:12.5px;margin-bottom:6px;}

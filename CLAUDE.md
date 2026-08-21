@@ -363,3 +363,18 @@ The clean-editor half is the important one: `POST /api/lifting/split/{slot}/push
 reads the **stored** split, so offering the button mid-edit would ship the previous
 version of the day to Hevy while the athlete watched their unsaved changes on
 screen. Editing hides the button and says "save to send this day to Hevy".
+
+
+### Split grid clipped on a phone: two CSS bugs
+At 375px the page overflowed by 62px and the grid by 91px. Grid items default to
+`min-width:auto`, so `.splitday` could not shrink below its longest exercise name
+("Half Kneeling Landmine Press", 162px) and the columns were 204px each in a
+317px grid. `min-width:0` on `.splitday` and `.sd-e` restores shrinking.
+
+That alone left a third of the names ellipsised, so the phone breakpoint wraps
+them instead — but the first attempt did nothing, because **a media query carries
+no specificity**. `.splitday .sd-e span{white-space:nowrap}` was declared later
+and won. The breakpoint now sits after the base `.splitday` rules.
+
+Verified by measurement rather than eye: at 375px there are 2 columns, no page or
+grid overflow, and zero truncated names; at 1280px, 4 columns and the same.

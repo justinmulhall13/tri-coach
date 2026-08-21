@@ -89,7 +89,28 @@ class SplitUITests(unittest.TestCase):
 
     def test_it_is_four_across_on_desktop_and_two_by_two_on_a_phone(self) -> None:
         self.assertIn(".splitgrid{display:grid;grid-template-columns:repeat(4,1fr)", self.html)
-        self.assertIn("@media (max-width:820px){ .splitgrid{grid-template-columns:repeat(2,1fr);} }",
+        self.assertIn("@media (max-width:820px){", self.html)
+        self.assertIn(".splitgrid{grid-template-columns:repeat(2,1fr);}", self.html)
+
+    def test_a_day_card_can_shrink_below_its_longest_exercise_name(self) -> None:
+        # Grid items default to min-width:auto, so "Half Kneeling Landmine
+        # Press" set a floor the column could not shrink below and the grid
+        # overflowed a 375px phone by 91px.
+        card = self.html[self.html.index(".splitday{display:flex"):]
+        card = card[:card.index("}")]
+        self.assertIn("min-width:0", card)
+        self.assertIn(".splitday .sd-e{display:flex;gap:6px;align-items:center;"
+                      "font-size:11.5px;min-width:0;}", self.html)
+
+    def test_the_phone_overrides_come_after_the_rules_they_override(self) -> None:
+        # A media query adds no specificity, so an equal-specificity rule
+        # declared later silently wins. The wrap rule did nothing until moved.
+        nowrap = self.html.index(".splitday .sd-e span{overflow:hidden")
+        wrap = self.html.index(".splitday .sd-e span{white-space:normal")
+        self.assertGreater(wrap, nowrap)
+
+    def test_long_exercise_names_wrap_rather_than_truncate_on_a_phone(self) -> None:
+        self.assertIn(".splitday .sd-e span{white-space:normal;text-overflow:clip;",
                       self.html)
 
     def test_each_day_is_clickable_and_opens_its_own_sheet(self) -> None:
