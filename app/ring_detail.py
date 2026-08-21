@@ -322,12 +322,14 @@ def _strain_insight(strain, zones) -> str | None:
 
 
 # --- T100 readiness -----------------------------------------------------------
-def _t100() -> dict[str, Any]:
+def _event_ready() -> dict[str, Any]:
+    """Detail for the race-readiness ring, whatever event is active.
+
+    This used to be T100-only and returned an error for any other profile — so
+    switching to a marathon left the ring on screen but its detail sheet dead.
+    """
     if not config.supports_t100_features():
-        return {
-            "error": "T100 readiness is unavailable for the active event profile",
-            "available": False,
-        }
+        return _generic_event_ready()
     load14 = _safe(lambda: garmin_source.get_recent_load(14)) or {}
     tl = _safe(garmin_source.get_training_load) or {}
     rd = _safe(garmin_source.get_readiness) or {}
@@ -385,8 +387,89 @@ def _t100() -> dict[str, Any]:
     }
 
 
+
+def _generic_event_ready() -> dict[str, Any]:
+    """Race readiness for a non-T100 event, scored against its own distances."""
+    from . import event_readiness
+
+    load14 = _safe(lambda: garmin_source.get_recent_load(14)) or {}
+    long_load = _safe(lambda: garmin_source.get_recent_load(
+        event_readiness.LONG_RUN_WINDOW_DAYS)) or {}
+    tl = _safe(garmin_source.get_training_load) or {}
+    rd = _safe(garmin_source.get_readiness) or {}
+    tr_score = (rd.get("training_readiness") or {}).get("score")
+    race = config.race_phase()
+    profile = config.active_event_profile()
+    result = event_readiness.readiness(
+        load14=load14, training_load=tl, readiness_score=tr_score,
+        days_left=race.get("days_remaining", 0), profile=profile,
+        activities=(long_load or {}).get("activities"),
+    )
+    if not result.get("available"):
+        return {"error": result.get("reason") or "race readiness is unavailable",
+                "available": False}
+
+    comp = result.get("components", {})
+    icons = {"swim": "🏊", "bike": "🚴", "run": "🏃"}
+    contributors = []
+    for name in ("swim", "bike", "run"):
+        block = comp.get(name)
+        if not block:
+            continue
+        contributors.append(_contrib(
+            f"{name.title()} volume", icons[name], block.get("km_14d"), unit="km",
+            higher_better=True, pct=block.get("pct"),
+            fmt=f"target {block.get('target')} km / 14 d"
+                + ("  · lowest volume bucket"
+                   if name == result.get("lowest_volume_bucket") else "")))
+
+    long_run = comp.get("long_run")
+    if long_run:
+        contributors.append(_contrib(
+            "Longest run", "📏", long_run.get("longest_km"), unit="km",
+            higher_better=True, pct=long_run.get("pct"),
+            fmt=(f"this distance asks for {long_run.get('target')} km"
+                 if long_run.get("longest_km") is not None
+                 else "no run history available")))
+
+    load_block = comp.get("load_balance") or {}
+    contributors.append(_contrib("Load balance (ACWR)", "⚖", load_block.get("acwr"),
+                                 unit="", pct=load_block.get("pct"),
+                                 fmt="sweet spot 0.8-1.3"))
+    contributors.append(_contrib("Readiness", "✅", tr_score, unit="/100",
+                                 higher_better=True,
+                                 pct=tr_score if isinstance(tr_score, (int, float)) else None))
+
+    points = []
+    for name in ("swim", "bike", "run"):
+        block = comp.get(name)
+        if not block:
+            continue
+        points.append({"label": name.title(), "value": block.get("pct") or 0,
+                       "color": {"swim": "#22d3ee", "bike": "#f59e0b", "run": "#fb7185"}[name],
+                       "sub": f"{block.get('km_14d')}/{block.get('target')} km"})
+    if long_run and long_run.get("pct") is not None:
+        points.append({"label": "Long run", "value": long_run.get("pct") or 0,
+                       "color": "#c084fc",
+                       "sub": f"{long_run.get('longest_km')}/{long_run.get('target')} km"})
+    charts = [{"kind": "bars", "title": "Preparedness vs target", "unit": "%",
+               "max": 100, "points": points}] if points else []
+
+    label = result.get("event_label") or "Race"
+    return {
+        "name": "event_ready", "title": f"{label} readiness",
+        "score": result.get("score"), "unit": "/100", "color": "#c084fc",
+        "label": f"{result.get('label')} · {race.get('days_remaining','?')} days out",
+        "contributors": contributors, "stages": [], "charts": charts,
+        # The limiter is the most useful sentence on the sheet: it says why the
+        # number is what it is, rather than leaving the athlete to infer it.
+        "insight": result.get("limiter_note"),
+    }
+
 _BUILDERS = {"recovery": _recovery, "readiness": _recovery, "sleep": _sleep,
-             "strain": _strain, "t100": _t100}
+             "strain": _strain,
+             # "t100" is kept as an alias so an older client still resolves.
+             "t100": _event_ready, "event_ready": _event_ready}
 
 
 def get_detail(name: str) -> dict[str, Any]:

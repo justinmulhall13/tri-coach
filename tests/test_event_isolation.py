@@ -25,13 +25,25 @@ class EventProfileIsolationTests(unittest.TestCase):
             self.assertIsNone(config.event_distance_km("bike"))
             self.assertFalse(config.supports_t100_features())
 
-    def test_t100_model_and_detail_are_gated_outside_installed_profile(self) -> None:
+    def test_the_t100_model_is_gated_outside_its_installed_profile(self) -> None:
         with patch.dict(coaching_contract.EVENT_PROFILE, self._running_profile(), clear=True):
             readiness = rings.t100_readiness({}, {}, None, 20)
-            detail = ring_detail._t100()
         self.assertFalse(readiness["available"])
-        self.assertFalse(detail["available"])
         self.assertNotIn("components", readiness)
+
+    def test_the_readiness_detail_serves_the_active_event_rather_than_erroring(self) -> None:
+        # It used to return "T100 readiness is unavailable" for any other event,
+        # so switching to a marathon left the ring on screen with a dead sheet.
+        with patch.dict(coaching_contract.EVENT_PROFILE, self._running_profile(), clear=True):
+            with patch.object(ring_detail.garmin_source, "get_recent_load",
+                              return_value={"by_sport": {"run": {"km": 30.0}},
+                                            "activities": [{"sport": "run", "km": 12.0}]}), \
+                 patch.object(ring_detail.garmin_source, "get_training_load", return_value={}), \
+                 patch.object(ring_detail.garmin_source, "get_readiness", return_value={}):
+                detail = ring_detail._event_ready()
+        self.assertNotIn("error", detail)
+        self.assertIn("readiness", detail["title"].lower())
+        self.assertIsInstance(detail["score"], int)
 
     def test_t100_plan_is_not_reused_for_a_different_event_profile(self) -> None:
         with patch.dict(coaching_contract.EVENT_PROFILE, self._running_profile(), clear=True):

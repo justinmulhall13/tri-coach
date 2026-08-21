@@ -151,8 +151,13 @@ def get_rings() -> dict[str, Any]:
         payload["event_ready"] = {**payload["t100"], "available": True,
                                   "event_label": _event_readiness.event_label(profile)}
     else:
+        # The long run decides a running race, and 14 days is too short a window
+        # to find it. Without this the score falls back to "long run unknown".
+        long_load = _safe(lambda: garmin_source.get_recent_load(
+            _event_readiness.LONG_RUN_WINDOW_DAYS)) or {}
         payload["event_ready"] = _event_readiness.readiness(
             load14=load14, training_load=decision_tl, readiness_score=tr_score,
             days_left=days_left, profile=profile,
+            activities=long_load.get("activities"),
         )
     return payload

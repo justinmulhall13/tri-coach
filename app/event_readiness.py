@@ -15,15 +15,56 @@ from __future__ import annotations
 import re
 from typing import Any
 
-# Fortnightly training volume as a multiple of race distance. A marathoner
-# covers far more than one race distance in two weeks; a long-course swim leg
-# is a small fraction of the week's swimming. These are coaching rules of
-# thumb, not physiology, and are stated here so they can be argued with.
-VOLUME_MULTIPLE = {"swim": 4.0, "bike": 2.2, "run": 1.0}
+# Weekly running volume an amateur needs to arrive prepared, as a multiple of
+# race distance, anchored at real race distances. The multiple FALLS as the race
+# gets longer: a 5K runner covers many times race distance every week, while a
+# marathoner covers well under two. A single flat multiple is what produced
+# "93, race ready" off 21 km a week for a marathon.
+_WEEKLY_RUN_ANCHORS = ((5.0, 6.0), (10.0, 4.0), (21.1, 2.4), (42.2, 1.55))
+
+# The long run an amateur needs, as a fraction of race distance. Short races
+# demand a long run LONGER than the race; a marathon long run is capped well
+# below it because the cost of a 42 km training run outweighs the benefit.
+_LONG_RUN_ANCHORS = ((5.0, 2.0), (10.0, 1.3), (21.1, 0.85), (42.2, 0.75))
+
+# Swim and bike keep a simple fortnightly multiple: neither is the limiter for
+# this athlete, and neither has the long-run equivalent that decides a marathon.
+VOLUME_MULTIPLE = {"swim": 4.0, "bike": 2.2}
 
 # How much each discipline counts toward the score. Run is weighted hardest for
 # this athlete because it is the weakest discipline and the injury-limited one.
 DISCIPLINE_WEIGHT = {"swim": 0.18, "bike": 0.22, "run": 0.34}
+
+# Weeks of history searched for the longest run.
+LONG_RUN_WINDOW_DAYS = 42
+
+# Ceiling applied when the long run cannot be verified at all. High enough
+# to reflect real volume, low enough never to read as "race ready".
+UNVERIFIED_CEILING = 70
+
+
+def _interpolate(anchors: tuple[tuple[float, float], ...], race_km: float) -> float:
+    """Linear interpolation between anchors, flat outside their range."""
+    if race_km <= anchors[0][0]:
+        return anchors[0][1]
+    if race_km >= anchors[-1][0]:
+        return anchors[-1][1]
+    for (x0, y0), (x1, y1) in zip(anchors, anchors[1:]):
+        if x0 <= race_km <= x1:
+            span = (x1 - x0) or 1.0
+            return y0 + (y1 - y0) * ((race_km - x0) / span)
+    return anchors[-1][1]
+
+
+def weekly_run_target_km(race_km: float) -> float:
+    """Weekly running volume this race distance asks for."""
+    return float(race_km) * _interpolate(_WEEKLY_RUN_ANCHORS, float(race_km))
+
+
+def long_run_target_km(race_km: float) -> float:
+    """The long run that actually decides whether the distance is survivable."""
+    return float(race_km) * _interpolate(_LONG_RUN_ANCHORS, float(race_km))
+
 
 LOAD_WEIGHT = 0.16
 RECOVERY_WEIGHT = 0.10
@@ -97,9 +138,30 @@ def event_label(profile: Any) -> str:
     return name.split(",")[0][:18] or "Race"
 
 
+def longest_run_km(activities: Any) -> float | None:
+    """The longest single run on record, or ``None`` when nothing is known."""
+    if not isinstance(activities, (list, tuple)):
+        return None
+    best = None
+    for activity in activities:
+        if not isinstance(activity, dict) or activity.get("sport") != "run":
+            continue
+        km = activity.get("km")
+        if isinstance(km, bool) or not isinstance(km, (int, float)) or km <= 0:
+            continue
+        best = float(km) if best is None else max(best, float(km))
+    return best
+
+
 def readiness(*, load14: Any, training_load: Any, readiness_score: Any,
-              days_left: Any, profile: Any) -> dict[str, Any]:
-    """0-100 preparedness against the active event's own demands."""
+              days_left: Any, profile: Any, activities: Any = None) -> dict[str, Any]:
+    """0-100 preparedness against the active event's own demands.
+
+    ``activities`` supplies the longest run, which for a running race is the
+    single most informative number there is. Weekly volume accumulated in short
+    pieces does not make a marathon survivable, so for a run-only event the
+    long run also CAPS the score rather than merely contributing to it.
+    """
     distances = race_distances(profile)
     if not distances:
         return {"available": False,
@@ -111,7 +173,10 @@ def readiness(*, load14: Any, training_load: Any, readiness_score: Any,
     components: dict[str, Any] = {}
     coverage: dict[str, float] = {}
     for discipline, race_km in distances.items():
-        target = race_km * VOLUME_MULTIPLE.get(discipline, 1.0)
+        if discipline == "run":
+            target = weekly_run_target_km(race_km) * 2.0
+        else:
+            target = race_km * VOLUME_MULTIPLE.get(discipline, 1.0)
         actual = (by_sport.get(discipline) or {}).get("km") or 0
         ratio = min(1.0, actual / target) if target > 0 else 0.0
         coverage[discipline] = ratio
@@ -141,10 +206,54 @@ def readiness(*, load14: Any, training_load: Any, readiness_score: Any,
     )
     score = round(100 * (volume_score + LOAD_WEIGHT * load_c + RECOVERY_WEIGHT * recovery_c))
 
+    # The long run, for events that involve running.
+    long_run_note = None
+    capped_by = None
+    run_km = distances.get("run")
+    longest = longest_run_km(activities)
+    if run_km:
+        required = long_run_target_km(run_km)
+        if longest is None:
+            components["long_run"] = {
+                "pct": None, "longest_km": None, "target": round(required, 1),
+                "note": "No run history available, so the long run is unknown.",
+            }
+            # Absent evidence is not evidence of readiness. Without a known long
+            # run there is no basis for calling a run-only athlete race ready.
+            if not distances.get("bike") and not distances.get("swim") \
+                    and score > UNVERIFIED_CEILING:
+                capped_by = "long_run_unknown"
+                long_run_note = (
+                    f"Held to {UNVERIFIED_CEILING}: no run history is available, so the "
+                    f"long run that decides this distance is unknown."
+                )
+                score = UNVERIFIED_CEILING
+        else:
+            long_ratio = min(1.0, longest / required) if required > 0 else 0.0
+            components["long_run"] = {
+                "pct": round(long_ratio * 100), "longest_km": round(longest, 1),
+                "target": round(required, 1),
+            }
+            run_only = not distances.get("bike") and not distances.get("swim")
+            if run_only:
+                # Volume in short pieces does not make a marathon survivable.
+                # An 18 km longest run against a 32 km requirement is not a
+                # 90%-ready athlete however many easy kilometres surround it.
+                ceiling = round(100 * long_ratio)
+                if ceiling < score:
+                    capped_by = "long_run"
+                    long_run_note = (
+                        f"Held to {ceiling} by the long run: {longest:.1f} km against "
+                        f"the {required:.0f} km this distance asks for."
+                    )
+                    score = ceiling
+
     lowest = min(coverage.items(), key=lambda item: item[1])[0] if coverage else None
     return {
         "available": True,
         "score": score,
+        "capped_by": capped_by,
+        "limiter_note": long_run_note,
         "label": ("Race ready" if score >= 85 else "On track" if score >= 65 else
                   "Behind" if score >= 40 else "Way behind"),
         "event_label": event_label(profile),

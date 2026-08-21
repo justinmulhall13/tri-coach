@@ -378,3 +378,36 @@ and won. The breakpoint now sits after the base `.splitday` rules.
 
 Verified by measurement rather than eye: at 375px there are 2 columns, no page or
 grid overflow, and zero truncated names; at 1280px, 4 columns and the same.
+
+
+## Session 2026-08-21 — the readiness score was lying
+
+### "88% Marathon Ready" off 21 km a week
+`VOLUME_MULTIPLE["run"] = 1.0` made the 14-day target one race distance: 42 km per
+fortnight, i.e. 21 km/week, for a marathon. On the athlete's real numbers that
+scored **93, "Race ready"**. Targets now come from `weekly_run_target_km`, whose
+multiple FALLS with distance (5K needs ~6x race distance weekly, a marathon ~1.55x),
+giving 65 km/week for a marathon.
+
+### Volume was never the whole story
+Weekly kilometres accumulated in 5 km pieces do not make a marathon survivable, so
+the score now carries a **long run** component — and for a run-only event the long
+run also CAPS the score. An 18 km longest run against the 32 km a marathon asks for
+holds the score to 55 however high the volume, and says so:
+
+    Held to 55 by the long run: 17.5 km against the 32 km this distance asks for.
+
+A triathlon is deliberately NOT capped this way: swim and bike carry real
+information there, so the run leg alone must not govern.
+
+Absent evidence is not evidence of readiness either. With no run history at all a
+run-only event is held to `UNVERIFIED_CEILING` (70) rather than reading race ready.
+
+On the athlete's real data: **46, "Behind"**, long run 17.5 / 31.7 km.
+
+### The ring detail was still T100-only
+`ring_detail._t100` returned "T100 readiness is unavailable for the active event
+profile" for any other event, so after switching to the marathon the ring rendered
+but its sheet was dead. `_event_ready` now serves whatever event is active, with a
+long-run contributor and the limiter sentence as the insight. `"t100"` stays as an
+alias so an older client still resolves.

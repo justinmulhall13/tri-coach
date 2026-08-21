@@ -79,10 +79,42 @@ class ScoringTests(unittest.TestCase):
         self.assertNotIn("swim", result["components"])
 
     def test_a_run_only_event_can_still_reach_race_ready(self) -> None:
-        # 42.2 km of running per fortnight meets the derived target exactly.
-        result = self._score(MARATHON, _load(run=60), score=95, tl={"load_ratio": 1.0})
+        # Real marathon volume (~65 km/week) plus a long run at the required
+        # distance. Both are needed: either alone is not race ready.
+        result = er.readiness(load14=_load(run=140), training_load={"load_ratio": 1.0},
+                              readiness_score=95, days_left=30, profile=MARATHON,
+                              activities=[{"sport": "run", "km": 32.0}])
         self.assertGreaterEqual(result["score"], 85)
         self.assertEqual(result["label"], "Race ready")
+
+    def test_marathon_volume_is_scored_against_a_real_weekly_target(self) -> None:
+        # 21 km/week used to score 93 "race ready" for a marathon.
+        result = self._score(MARATHON, _load(run=42.2))
+        self.assertLess(result["components"]["run"]["pct"], 40)
+        self.assertGreater(result["components"]["run"]["target"], 100)
+
+    def test_a_short_long_run_caps_the_score_however_high_the_volume(self) -> None:
+        result = er.readiness(load14=_load(run=140), training_load={"load_ratio": 1.0},
+                              readiness_score=95, days_left=30, profile=MARATHON,
+                              activities=[{"sport": "run", "km": 17.5}])
+        self.assertEqual(result["capped_by"], "long_run")
+        self.assertLessEqual(result["score"], 60)
+        self.assertIn("17.5 km", result["limiter_note"])
+
+    def test_an_unknown_long_run_never_reads_as_race_ready(self) -> None:
+        result = er.readiness(load14=_load(run=140), training_load={"load_ratio": 1.0},
+                              readiness_score=95, days_left=30, profile=MARATHON,
+                              activities=[])
+        self.assertEqual(result["capped_by"], "long_run_unknown")
+        self.assertNotEqual(result["label"], "Race ready")
+
+    def test_a_triathlon_is_not_capped_by_its_run_leg_alone(self) -> None:
+        # Swim and bike carry real information, so the run long-run cap that
+        # governs a marathon must not govern a triathlon.
+        result = er.readiness(load14=_load(swim=8, bike=170, run=40),
+                              training_load={"load_ratio": 1.0}, readiness_score=90,
+                              days_left=30, profile=T100, activities=[])
+        self.assertIsNone(result["capped_by"])
 
     def test_the_target_comes_from_the_event_not_a_fixed_number(self) -> None:
         marathon = self._score(MARATHON, _load(run=20))["components"]["run"]["target"]
@@ -91,7 +123,9 @@ class ScoringTests(unittest.TestCase):
 
     def test_a_triathlon_scores_every_discipline(self) -> None:
         result = self._score(T100, _load(swim=8, bike=170, run=18))
-        self.assertEqual(set(result["components"]) - {"load_balance"},
+        # long_run is reported for any event with a run leg; it only CAPS a
+        # run-only event.
+        self.assertEqual(set(result["components"]) - {"load_balance", "long_run"},
                          {"swim", "bike", "run"})
 
     def test_the_weakest_discipline_is_reported(self) -> None:
