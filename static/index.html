@@ -3666,6 +3666,8 @@ function openSplitDay(slot){
         `<div class="lf-rule"><b>!</b><span>${esc(String(v.detail))}</span></div>`).join("")}</div>`
     : "";
   renderSplitEditor(day);
+  _splitIsDirty=false;
+  _splitSyncPush();
   _splitStatus("");
   $("split-overlay").classList.add("open");
 }
@@ -3688,6 +3690,22 @@ function _splitEditorRow(ex){
 function renderSplitEditor(day){
   const host=$("split-editor"); host.innerHTML="";
   (day.exercises||[]).forEach(ex=>host.appendChild(_splitEditorRow(ex)));
+  host.oninput=()=>_splitDirty(true);
+}
+
+// "Send to Hevy" only appears once a day actually differs from the shipped
+// default, and disappears again while edits are unsaved: the push reads the
+// STORED split, so offering it mid-edit would ship the previous version.
+let _splitIsDirty=false;
+function _splitDirty(dirty){
+  _splitIsDirty=!!dirty;
+  _splitSyncPush();
+  if(dirty) _splitStatus("Unsaved changes — save to send this day to Hevy.");
+}
+function _splitSyncPush(){
+  const day=((_splitData||{}).days||[]).find(x=>String(x.slot)===String(_splitOpenSlot));
+  const show=!!(day&&day.is_customised)&&!_splitIsDirty;
+  const btn=$("split-push"); if(btn) btn.style.display=show?"":"none";
 }
 function _splitStatus(text,bad){
   const el=$("split-status"); if(!el) return;
@@ -3732,7 +3750,7 @@ if($("split-save")) $("split-save").onclick=async()=>{
     const day=(saved.days||[]).find(x=>String(x.slot)===String(_splitOpenSlot));
     const issues=((day||{}).rule_status||{}).violations||[];
     renderLiftSplit();
-    if(day) openSplitDay(_splitOpenSlot);
+    if(day) openSplitDay(_splitOpenSlot);   // reopens with dirty cleared
     _splitStatus(issues.length
       ? `Saved. ${issues.length} rule ${issues.length===1?"issue":"issues"}: ${issues.map(v=>v.detail).join("; ")}`
       : "Saved. Rules still pass.", issues.length>0);

@@ -195,3 +195,58 @@ class SplitPushTests(unittest.TestCase):
     def test_unparseable_reps_fall_back_rather_than_raising(self) -> None:
         self.assertEqual(main._reps_to_sets({"reps": "as many as you like"}, 1)[0]["reps"], 10)
         self.assertEqual(main._reps_to_sets({}, 0)[0]["reps"], 10)
+
+
+class PushVisibilityTests(unittest.TestCase):
+    """Send to Hevy is only offered for a day the athlete has actually changed."""
+
+    def setUp(self) -> None:
+        self._old_path, self._old_local = db._DB_PATH, db._local
+        self._tmp = tempfile.TemporaryDirectory()
+        db._DB_PATH = pathlib.Path(self._tmp.name) / "vis.db"
+        db._local = threading.local()
+        self.client = TestClient(main.app)
+
+    def tearDown(self) -> None:
+        conn = getattr(db._local, "conn", None)
+        if conn is not None:
+            conn.close()
+        db._DB_PATH, db._local = self._old_path, self._old_local
+        self._tmp.cleanup()
+
+    def test_an_untouched_default_day_is_not_marked_customised(self) -> None:
+        for day in self.client.get("/api/lifting/split").json()["days"]:
+            self.assertFalse(day["is_customised"], day["name"])
+
+    def test_changing_one_day_marks_only_that_day(self) -> None:
+        from app import lifting_split
+        days = [dict(d) for d in lifting_split.DEFAULT_SPLIT]
+        days[0] = {**days[0], "exercises": list(days[0]["exercises"])[:5]}
+        saved = self.client.put("/api/lifting/split", json={"days": days}).json()
+        flags = {d["name"]: d["is_customised"] for d in saved["days"]}
+        self.assertTrue(flags["Upper 1"])
+        self.assertFalse(flags["Lower 1"])
+        self.assertFalse(flags["Upper 2"])
+
+    def test_a_changed_rep_scheme_counts_as_a_change(self) -> None:
+        from app import lifting_split
+        days = [dict(d) for d in lifting_split.DEFAULT_SPLIT]
+        first = [dict(e) for e in days[0]["exercises"]]
+        first[0] = {**first[0], "reps": "5-6"}
+        days[0] = {**days[0], "exercises": first}
+        saved = self.client.put("/api/lifting/split", json={"days": days}).json()
+        self.assertTrue(saved["days"][0]["is_customised"])
+
+    def test_saving_the_default_back_unchanged_is_not_a_change(self) -> None:
+        from app import lifting_split
+        days = [dict(d) for d in lifting_split.DEFAULT_SPLIT]
+        saved = self.client.put("/api/lifting/split", json={"days": days}).json()
+        self.assertFalse(any(d["is_customised"] for d in saved["days"]), saved["source"])
+
+    def test_the_button_is_hidden_by_default_and_while_edits_are_unsaved(self) -> None:
+        html = (main.STATIC_DIR / "index.html").read_text()
+        # Visibility is derived from is_customised AND a clean editor, because a
+        # push reads the stored split and would otherwise ship the old version.
+        self.assertIn("const show=!!(day&&day.is_customised)&&!_splitIsDirty;", html)
+        self.assertIn('btn.style.display=show?"":"none";', html)
+        self.assertIn("Unsaved changes — save to send this day to Hevy.", html)

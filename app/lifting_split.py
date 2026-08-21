@@ -145,6 +145,29 @@ DEFAULT_SPLIT: tuple[dict[str, Any], ...] = (
 REQUIRED_COVERAGE = ("push", "pull", "shoulder", "quad", "hinge", "calf", "core")
 
 
+def _comparable(day: Any) -> list[tuple[str, Any, Any]]:
+    """The parts of a day that decide whether it differs from the default."""
+    exercises = (day or {}).get("exercises") or []
+    return [(str((e or {}).get("title") or "").strip().casefold(),
+             (e or {}).get("sets"), str((e or {}).get("reps") or "").strip())
+            for e in exercises if isinstance(e, dict)]
+
+
+def _is_customised(day: dict[str, Any]) -> bool:
+    """True when this day no longer matches the shipped default.
+
+    Drives whether the tab offers to push the day to Hevy: an untouched default
+    is not something the athlete has decided to send anywhere.
+    """
+    default = next((d for d in DEFAULT_SPLIT
+                    if str(d.get("slot")) == str(day.get("slot"))), None)
+    if default is None:
+        return True
+    if str(day.get("name") or "") != str(default.get("name") or ""):
+        return True
+    return _comparable(day) != _comparable(default)
+
+
 def _day_summary(day: dict[str, Any]) -> dict[str, Any]:
     exercises = [dict(e) for e in day.get("exercises") or []]
     for exercise in exercises:
@@ -156,6 +179,7 @@ def _day_summary(day: dict[str, Any]) -> dict[str, Any]:
         "exercise_count": len(exercises),
         "rule_status": lifting_rules.summary(exercises),
         "is_lower": str(day.get("slot", "")).startswith("lower"),
+        "is_customised": _is_customised(day),
     }
 
 

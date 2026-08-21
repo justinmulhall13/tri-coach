@@ -352,3 +352,14 @@ A block rewrite deleted `_liftFig` and `_liftNum` while leaving eight call sites
 `ReferenceError` that would have broken the whole Lifting tab at runtime. `node --check`
 passes fine on that, since the syntax is valid. `test_lifting_split_routes` now asserts
 every helper the tab calls is actually defined.
+
+
+### Send to Hevy only appears for a day that changed
+`lifting_split.build()` marks each day `is_customised` by comparing its exercise
+titles, sets and reps against `DEFAULT_SPLIT`. The button is shown only when that
+flag is set AND the editor is clean.
+
+The clean-editor half is the important one: `POST /api/lifting/split/{slot}/push`
+reads the **stored** split, so offering the button mid-edit would ship the previous
+version of the day to Hevy while the athlete watched their unsaved changes on
+screen. Editing hides the button and says "save to send this day to Hevy".
