@@ -238,7 +238,7 @@ the very end of your reply (and only then). Set "date" to that day's date (YYYY-
 
 ```adjustment
 {"date": "YYYY-MM-DD", "title": "...", "discipline": "swim|bike|run|brick|strength|recovery|rest", \
-"duration_min": <int>, "intensity": "...", "tsb_target": <explicit race-day TSB number>, \
+"duration_min": <int>, "intensity": "...", "tsb_target": <projected RACE-DAY TSB +5 to +15>, \
 "structure": {"warmup": "...", "main": "...", "cooldown": "..."}, \
 "secondary_sessions": [{"title":"Upper 1","discipline":"strength","duration_min":45, \
 "intensity":"1-2 RIR","structure":{"warmup":"...","main":"...","cooldown":"..."}, \
@@ -264,7 +264,7 @@ abort instructions during a session are still allowed.
 
 ```weekplan
 [{"date": "YYYY-MM-DD", "title": "...", "discipline": "...", "duration_min": <int>, \
-"intensity": "...", "tsb_target": <explicit race-day TSB number>, \
+"intensity": "...", "tsb_target": <projected RACE-DAY TSB +5 to +15>, \
 "structure": {"warmup": "...", "main": "...", "cooldown": "..."}, \
 "secondary_sessions": [{"title":"Lower 1","discipline":"strength","duration_min":45, \
 "intensity":"2 RIR","structure":{"warmup":"...","main":"...","cooldown":"..."}, \
@@ -277,6 +277,10 @@ the top-level row is the cardio session and the lift goes in `secondary_sessions
 is not included in the cardio duration. Never call two workouts a brick. `brick` means only a \
 bike immediately followed by a run and therefore requires an explicit `structure.run` leg. A \
 bike plus a lift is bike plus strength, even when both happen on the same date.
+
+TSB FIELD: `tsb_target` is the ONE projected form target for the eventual race day, repeated on \
+each row so the plan stays auditable. It is NOT the expected TSB on that workout date. It must be \
+between +5 and +15; use +10 when no different race-day target has been agreed.
 
 LOGGING AN ACTIVITY: when the athlete tells you they DID a session that isn't in the Garmin \
 data yet ("I biked 30 km this morning", "just ran 5k easy", "did my lift"), record it by \
@@ -953,6 +957,26 @@ def _extract_weekplan(text: str) -> list[dict[str, Any]] | None:
     return days or None
 
 
+def _normalize_generated_weekplan(days: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Apply deterministic contract defaults to model-authored week rows.
+
+    ``validate_weekplan`` remains strict for API clients and edited drafts. The
+    model boundary is different: TSB is a bounded planning objective with an
+    explicit server-owned default, so rejecting an otherwise valid week because
+    the model confused today's form with race-day form only punishes the athlete.
+    """
+    normalized: list[dict[str, Any]] = []
+    for day in days:
+        if not isinstance(day, dict):
+            normalized.append(day)
+            continue
+        normalized.append({
+            **day,
+            "tsb_target": _normalized_tsb_target(day.get("tsb_target")),
+        })
+    return normalized
+
+
 _PLAN_DISCIPLINES = {
     "swim", "bike", "run", "brick", "strength", "recovery", "rest", "other",
 }
@@ -1403,6 +1427,8 @@ def _finish_chat(user_message: str, today: str, msg: Any, *,
     reply = web_lookup.text_with_citations(msg)
     adjustment = _extract_adjustment(reply)
     week = _extract_weekplan(reply)
+    if week:
+        week = _normalize_generated_weekplan(week)
     activities = _extract_activities(reply)
     event = _extract_event(reply)
     event_profile = _extract_event_profile(reply)
@@ -1510,6 +1536,29 @@ def _finish_chat(user_message: str, today: str, msg: Any, *,
     }
 
 
+def _public_chat_failure(error: Exception | None) -> dict[str, Any]:
+    """Map internal failures to actionable text without leaking implementation names."""
+    if isinstance(error, WeekPlanValidationError):
+        return {
+            "type": "error",
+            "error": "Steve could not save that generated week because a workout row was incomplete. Nothing changed.",
+            "hint": "Send the same request again; the invalid draft was not shown or activated.",
+            "source": "policy",
+        }
+    if isinstance(error, PlanDraftPersistenceError):
+        return {
+            "type": "error",
+            "error": "Steve built the week but could not save it, so nothing was shown or activated.",
+            "hint": "Try again after the storage connection recovers.",
+            "source": "database",
+        }
+    return {
+        "type": "error",
+        "error": f"{type(error).__name__}: {error}",
+        "source": "anthropic",
+    }
+
+
 def chat_events(user_message: str,
                 log_as_constraint: bool = False) -> Iterator[dict[str, Any]]:
     """Yield status/text/final events so the UI can render the answer immediately."""
@@ -1577,10 +1626,7 @@ def chat_events(user_message: str,
                 yield {"type": "status", "message": "Connection hiccup — retrying"}
                 continue
             break
-    source = ("database" if isinstance(last, PlanDraftPersistenceError)
-              else "policy" if isinstance(last, WeekPlanValidationError)
-              else "anthropic")
-    yield {"type": "error", "error": f"{type(last).__name__}: {last}", "source": source}
+    yield _public_chat_failure(last)
 
 
 def chat(user_message: str, log_as_constraint: bool = False) -> dict[str, Any]:

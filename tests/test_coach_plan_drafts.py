@@ -127,6 +127,37 @@ class CoachPlanDraftTests(unittest.TestCase):
                 coach._finish_chat("Build next week", _TODAY_ISO, _message(_schedule()))
         add_chat.assert_not_called()
 
+    def test_model_week_normalizes_current_day_tsb_to_the_race_day_default(self) -> None:
+        schedule = _schedule()
+        schedule[0] = {**schedule[0], "tsb_target": -5}
+        schedule[1] = {k: v for k, v in schedule[1].items() if k != "tsb_target"}
+
+        result = coach._finish_chat(
+            "Plan my week", _TODAY_ISO, _message(schedule),
+        )
+
+        self.assertEqual([day["tsb_target"] for day in result["proposed_week"]], [10, 10])
+        stored = db.get_plan_draft(result["plan_id"])
+        self.assertEqual([day["tsb_target"] for day in stored["schedule"]], [10, 10])
+
+    def test_strict_week_boundary_still_rejects_invalid_tsb_from_api_clients(self) -> None:
+        schedule = _schedule()
+        schedule[0] = {**schedule[0], "tsb_target": -5}
+        with self.assertRaisesRegex(coach.WeekPlanValidationError, "race-day target"):
+            coach.validate_weekplan(schedule)
+
+    def test_policy_failure_does_not_leak_internal_exception_into_chat(self) -> None:
+        event = coach._public_chat_failure(
+            coach.WeekPlanValidationError(
+                "week plan row 2026-08-23 tsb_target must be the race-day target +5 to +15"
+            )
+        )
+
+        self.assertEqual(event["source"], "policy")
+        self.assertNotIn("WeekPlanValidationError", event["error"])
+        self.assertNotIn("tsb_target", event["error"])
+        self.assertIn("Nothing changed", event["error"])
+
     def test_fixed_date_schedule_rejects_recovery_activation_language(self) -> None:
         bad = _schedule()
         bad[0] = {**bad[0], "why": "Run once feet normal."}

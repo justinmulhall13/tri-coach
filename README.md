@@ -90,8 +90,11 @@ TSB rules and lifting behavior separately from the active event profile. Ordinar
 questions cannot silently change sports or carry course assumptions into another
 event: only an exact `switch to [event]` command reaches the mode gate, and an
 unknown event leaves TRIATHLON active until a complete replacement profile exists.
-Every stored and Coach-proposed plan now carries an explicit projected race-day
-TSB target, defaulting to +10 inside the required +5 to +15 window.
+Every stored and Coach-proposed plan carries an explicit projected race-day TSB
+target. Missing or out-of-range model values normalize to +10 before the draft
+write, while edited drafts and API clients still face the strict +5 to +15
+boundary. A current-day form value therefore cannot discard an otherwise valid
+generated week or be mistaken for the eventual taper objective.
 
 Body mass is live rather than frozen. Coach and Fuel read the newest dated Garmin
 weight entry, including its date and the grams-to-kilograms arithmetic, and label
