@@ -89,15 +89,19 @@ CREATE TABLE IF NOT EXISTS lifting_split (
 );
 
 CREATE TABLE IF NOT EXISTS plan_strength (
-    -- A lift attached to a calendar day. plan_days is one row per date and the
-    -- whole app depends on that (reconciliation, calendar sync, activation), so
-    -- a lift that shares a day with a run lives here and renders beneath it
-    -- rather than competing for the same row.
+    -- A complete lift that happens to share a calendar date with plan_days.
+    -- It remains an independent, clickable workout rather than being folded
+    -- into the cardio structure or mislabelled as a brick.
     event_profile_id TEXT NOT NULL,
     date             TEXT NOT NULL,             -- ISO YYYY-MM-DD
     slot             TEXT NOT NULL,             -- upper | lower | full
     title            TEXT NOT NULL,
-    routine_json     TEXT NOT NULL,             -- validated Hevy routine template
+    routine_json     TEXT NOT NULL,             -- Hevy routine when one is available; null otherwise
+    duration_min     INTEGER,                   -- this lift only, not the day's total
+    intensity        TEXT,
+    structure        TEXT NOT NULL DEFAULT '{}',-- independent warmup/main/cooldown
+    why              TEXT,
+    start_time       TEXT,                      -- optional HH:MM, independent of cardio
     effort_level     TEXT,                      -- heavy | moderate | light | skip
     effort_cue       TEXT,
     hevy_routine_id  TEXT,                      -- set once actually created in Hevy
@@ -209,6 +213,11 @@ _MIGRATIONS = {
     "plan_history": [("event_profile_id", "TEXT")],
     "constraints_log": [("event_profile_id", "TEXT")],
     "chat_history": [("event_profile_id", "TEXT")],
+    # Strength used to be a decorative routine attached to a date. These fields
+    # make it a complete, independently openable workout record.
+    "plan_strength": [("duration_min", "INTEGER"), ("intensity", "TEXT"),
+                      ("structure", "TEXT NOT NULL DEFAULT '{}'"), ("why", "TEXT"),
+                      ("start_time", "TEXT")],
 }
 
 
@@ -764,9 +773,10 @@ def activate_plan_draft(plan_id: int | str) -> dict[str, Any]:
         # normalization operate on the same locked schedule written below.
         from . import coach
         coach.validate_weekplan(stored_schedule, require_not_past=True)
-        days, _ = coach._weekplan_for_activation(stored_schedule)
+        days, strength_sessions = coach._weekplan_for_activation(stored_schedule)
         if not days:
             raise ValueError("plan draft has no actionable dated rows")
+        strength_by_date = {str(session["date"]): session for session in strength_sessions}
 
         now = datetime.datetime.now().isoformat(timespec="seconds")
         today = config.local_today()
@@ -819,6 +829,17 @@ def activate_plan_draft(plan_id: int | str) -> dict[str, Any]:
                      day.get("tsb_target"), day.get("why"), int(bool(day.get("is_rest"))),
                      "coach", now),
                 )
+            strength = strength_by_date.get(date)
+            if strength is not None:
+                _write_plan_strength(c, profile_id, strength, now)
+            else:
+                # A changed draft row is the complete schedule for that date.
+                # Do not leave an old lift invisibly attached after the coach
+                # has rebuilt the day without one.
+                c.execute(
+                    "DELETE FROM plan_strength WHERE event_profile_id=? AND date=?",
+                    (profile_id, date),
+                )
             written_dates.append(date)
         changed = c.execute(
             """UPDATE plan_drafts SET status='active',activated_at=?,updated_at=?
@@ -839,7 +860,13 @@ def activate_plan_draft(plan_id: int | str) -> dict[str, Any]:
         (profile_id, *written_dates),
     ).fetchall()
     updated = [_row_to_day(row) for row in rows]
+    strength_rows = c.execute(
+        f"""SELECT * FROM plan_strength WHERE event_profile_id=? AND date IN ({placeholders})
+            ORDER BY date""",
+        (profile_id, *written_dates),
+    ).fetchall()
     return {"ok": True, "plan_id": value, "status": "active", "updated_days": updated,
+            "updated_strength_days": [_row_to_strength(row) for row in strength_rows],
             "count": len(updated), "skipped": []}
 
 
@@ -1061,21 +1088,21 @@ def clear_chat(since: str | None = None) -> int:
 
 def _row_to_strength(row: Any) -> dict[str, Any]:
     day = dict(row)
+    day["discipline"] = "strength"
     try:
         day["routine"] = json.loads(day.pop("routine_json") or "null")
     except (TypeError, ValueError):
         day["routine"] = None
+    try:
+        day["structure"] = json.loads(day.get("structure") or "{}")
+    except (TypeError, ValueError):
+        day["structure"] = {}
     return day
 
 
-def upsert_plan_strength(day: dict[str, Any]) -> dict[str, Any]:
-    """Attach (or replace) the lift on one calendar day.
-
-    The routine is stored verbatim so the session shown later is the session
-    that was agreed, not one regenerated from a prompt.
-    """
-    import datetime
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+def _write_plan_strength(connection: sqlite3.Connection, profile_id: str,
+                         day: dict[str, Any], now: str) -> None:
+    """Write one strength workout through an existing transaction."""
     date = str(day.get("date") or "")
     if not date:
         raise ValueError("a strength day needs a date")
@@ -1083,24 +1110,91 @@ def upsert_plan_strength(day: dict[str, Any]) -> dict[str, Any]:
     if slot not in {"upper", "lower", "full"}:
         raise ValueError(f"unsupported strength slot {slot!r}")
     routine_json = json.dumps(day.get("routine"), default=str)
-    with _conn() as conn:
-        conn.execute(
-            """INSERT INTO plan_strength (event_profile_id, date, slot, title,
-                   routine_json, effort_level, effort_cue, hevy_routine_id,
-                   source, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)
-               ON CONFLICT(event_profile_id, date) DO UPDATE SET
-                   slot=excluded.slot, title=excluded.title,
-                   routine_json=excluded.routine_json,
-                   effort_level=excluded.effort_level,
-                   effort_cue=excluded.effort_cue,
-                   hevy_routine_id=COALESCE(excluded.hevy_routine_id,
-                                            plan_strength.hevy_routine_id),
-                   source=excluded.source, updated_at=excluded.updated_at""",
-            (_active_profile_id(), date, slot, str(day.get("title") or "Strength"),
-             routine_json, day.get("effort_level"), day.get("effort_cue"),
-             day.get("hevy_routine_id"), str(day.get("source") or "coach"), now, now),
+    structure_json = json.dumps(day.get("structure") or {}, default=str)
+    connection.execute(
+        """INSERT INTO plan_strength (event_profile_id, date, slot, title,
+               routine_json, duration_min, intensity, structure, why, start_time,
+               effort_level, effort_cue, hevy_routine_id, source, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(event_profile_id, date) DO UPDATE SET
+               slot=excluded.slot, title=excluded.title,
+               routine_json=excluded.routine_json,
+               duration_min=excluded.duration_min,
+               intensity=excluded.intensity,
+               structure=excluded.structure,
+               why=excluded.why,
+               start_time=excluded.start_time,
+               effort_level=excluded.effort_level,
+               effort_cue=excluded.effort_cue,
+               hevy_routine_id=COALESCE(excluded.hevy_routine_id,
+                                        plan_strength.hevy_routine_id),
+               source=excluded.source, updated_at=excluded.updated_at""",
+        (profile_id, date, slot, str(day.get("title") or "Strength"),
+         routine_json, day.get("duration_min"), day.get("intensity"), structure_json,
+         day.get("why"), day.get("start_time"), day.get("effort_level"),
+         day.get("effort_cue"), day.get("hevy_routine_id"),
+         str(day.get("source") or "coach"), now, now),
+    )
+
+
+def edit_plan_day_with_strength(date: str, fields: dict[str, Any],
+                                strength: dict[str, Any], *,
+                                source: str = "coach") -> dict[str, Any] | None:
+    """Atomically patch the primary workout and attach its separate lift."""
+    import datetime
+    c = _conn()
+    profile_id = _active_profile_id(c)
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    try:
+        c.execute("BEGIN IMMEDIATE")
+        row = c.execute(
+            "SELECT * FROM plan_days WHERE event_profile_id=? AND date=?",
+            (profile_id, date),
+        ).fetchone()
+        if not row:
+            c.rollback()
+            return None
+        day = _row_to_day(row)
+        c.execute(
+            """INSERT INTO plan_history
+               (event_profile_id,date,prev,source,reason,created_at)
+               VALUES (?,?,?,?,?,?)""",
+            (profile_id, date, json.dumps(day, default=str), source,
+             "attached separate same-day strength workout", now),
         )
+        day.update({k: v for k, v in fields.items() if k in {
+            "discipline", "title", "structure", "duration_min", "intensity",
+            "tsb_target", "why", "is_rest", "phase", "start_time",
+            "gcal_event_id", "pos_updated_at",
+        }})
+        c.execute(
+            """UPDATE plan_days SET discipline=?,title=?,structure=?,duration_min=?,
+               intensity=?,tsb_target=?,why=?,is_rest=?,phase=?,start_time=?,
+               gcal_event_id=?,pos_updated_at=?,source=?,updated_at=?
+               WHERE event_profile_id=? AND date=?""",
+            (day.get("discipline"), day.get("title"),
+             json.dumps(day.get("structure") or {}, ensure_ascii=False,
+                        separators=(",", ":")),
+             day.get("duration_min"), day.get("intensity"), day.get("tsb_target"),
+             day.get("why"), int(bool(day.get("is_rest"))), day.get("phase"),
+             day.get("start_time"), day.get("gcal_event_id"),
+             day.get("pos_updated_at"), source, now, profile_id, date),
+        )
+        _write_plan_strength(c, profile_id, {**strength, "date": date}, now)
+        c.commit()
+    except Exception:
+        c.rollback()
+        raise
+    return get_plan_day(date)
+
+
+def upsert_plan_strength(day: dict[str, Any]) -> dict[str, Any]:
+    """Attach (or replace) a complete, independent lift on one calendar day."""
+    import datetime
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    date = str(day.get("date") or "")
+    with _conn() as conn:
+        _write_plan_strength(conn, _active_profile_id(conn), day, now)
     result = get_plan_strength(date)
     if result is None:  # pragma: no cover - only reachable if the row vanished
         raise RuntimeError("strength day was not stored")

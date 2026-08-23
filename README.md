@@ -13,10 +13,11 @@ glass interface and is deployed on Fly.io. Built solo, with Claude Code and
 OpenAI Codex doing most of the typing — see
 [Built with AI, deliberately](#built-with-ai-deliberately).
 
-Built for training toward **T100 Vancouver** (2.0 km swim / 80 km bike /
-18 km run). Athlete constants, universal coaching rules, and the active event are
-kept in three separate code blocks; changing events means replacing only the
-event profile after an explicit `switch to [event]` request.
+The active goal is a persisted event profile rather than a compile-time race.
+Athlete constants, universal coaching rules, and the current event remain
+separate; an explicit switch can move the same coach between marathon,
+triathlon, cycling, lifting, or another fully specified goal without recovering
+the choice from chat history.
 
 > Status: actively used daily by one athlete (me). It's a real tool, not a demo —
 > which is why the hosted instance is access-gated rather than a public link.
@@ -58,7 +59,7 @@ So the design goals came out of frustration, not features:
 
 ---
 
-## The five tabs
+## The six tabs
 
 ### Home
 ![Home tab](docs/screenshots/home.png)
@@ -146,9 +147,10 @@ versus what is just chatter. It also follows an explicit set of load rules: stat
 the TSB target, hold the race-day taper between +5 and +15, name the tradeoff
 when cutting volume, give easy sessions a hard ceiling rather than a range, and
 never raise run volume to hit a load target when the Achilles is the limiter.
-Lifting is never inserted on its own. When asked, Steve gives exercise order,
-sets, reps or duration, rest and effort while leaving unknown working weights
-unknown.
+The standing four-day split is preserved whenever Steve rebuilds a training
+week and placed around the key runs. Lifting prescriptions include exercise
+order, sets, reps or duration, rest and effort while leaving unknown working
+weights unknown.
 
 ### Calendar
 ![Calendar tab](docs/screenshots/calendar.png)
@@ -166,6 +168,25 @@ cannot accidentally rewrite the training plan. The command bar at the top takes
 plain English: "move my bike to Thursday 6am", "swap Tuesday and Friday", "add
 dentist Fri 2pm for 45 minutes". Timed personal events require an explicit start
 and duration; the app asks instead of inventing a missing duration.
+
+Cardio and lifting that share a date stay as two workout records, two duration
+budgets, and two clickable cards. A `brick` is reserved for one continuous bike
+session followed immediately by an explicit run leg; the presence of a second
+workout on the date is never enough to infer a brick.
+
+### Lifting
+
+The current Upper 1 / Lower 1 / Upper 2 / Lower 2 split comes first and can be
+edited in place or changed through Coach. Upper days enforce the athlete's
+shoulder constraints in code (one press per session, triceps isolation allowed),
+while lower days are programmed around the running load. A changed day can be
+sent to Hevy as a routine after explicit confirmation.
+
+The rest of the tab is evidence from completed Hevy workouts: recent sessions,
+exercise volume and frequency, estimated strength records, progression trends,
+muscle balance, consistency and stale-load calibration. Garmin strength
+activities establish that lifting happened when Hevy was not logged, but Hevy
+remains the source for exercises, sets and weights.
 
 ### Fuel
 ![Fuel tab](docs/screenshots/fuel.png)
@@ -281,7 +302,9 @@ app/
 
   coach.py           "Coach Steve" agent (chat, event briefs, private memory)
   coaching_contract.py fixed athlete/rules blocks + the one swappable event profile
-  hevy_connector.py  fail-closed boundary for future Hevy reads and confirmed writes
+  hevy_connector.py  official Hevy REST reads + confirmation-gated routine writes
+  hevy_actions.py    exercise resolution, weight provenance, non-retrying creates
+  hevy_exercises.py  full-catalogue matching + confirmed custom-template creation
   calendar_agent.py  natural-language calendar assistant
   nutrition.py       daily targets + transport-ceiling intra-session fuelling
 
@@ -358,6 +381,12 @@ A few problems here were more interesting than they first look:
   that last rule "Squat" resolves to *Squat (Band)*. Anything genuinely missing is
   created through the API rather than dropped.
 
+- **Two sessions are not a brick.** The plan's primary endurance session and a
+  same-day lift are persisted separately and activated in one transaction. Each
+  receives its own title, duration, structure and clickable detail. Generated
+  `brick` rows are rejected unless they contain an explicit run-off-bike leg,
+  and the browser defensively repairs the label on legacy malformed rows.
+
 - **Two sources that each hold half the truth.** Garmin records *that* a strength
   session happened — duration, heart rate — and never which exercises or weights.
   Hevy records exercises, sets and exact weights, but only for sessions logged
@@ -417,12 +446,12 @@ A few problems here were more interesting than they first look:
   and source travel with the number; missing data
   falls back to the labelled 86 kg self-report rather than a plausible estimate.
 
-- **Hevy without fake connectivity.** Lifting questions are first-class and keep
-  missing loads unknown. A typed integration boundary matches Hevy's recent-workout,
-  exercise-template, routine and completed-workout operations, while the deployed
-  runtime remains truthfully disconnected until a bridge is configured. Planned
-  work maps to a routine; a completed workout can only be written from exact
-  performed sets/times after confirmation, with no blind retry of additive writes.
+- **Hevy without fake connectivity.** The deployed app verifies its own Hevy Pro
+  API credential and reports the real connection state. Lifting questions keep
+  missing loads unknown. Routine proposals are read-only; only the athlete's Send
+  action may create a genuinely missing exercise template and then the routine.
+  Additive writes are never blindly retried, and a partial template write is
+  surfaced explicitly if the routine itself fails.
 
 - **Glass where it earns its keep.** Translucent, responsive glass is reserved
   for navigation and controls; dense training data keeps quieter, more opaque
@@ -440,7 +469,7 @@ A few problems here were more interesting than they first look:
 ## Tech stack
 
 Python · FastAPI · SQLite · [garminconnect](https://github.com/cyberjunky/python-garminconnect)
-· Anthropic Claude API · Google Calendar API · Web Push (VAPID) · vanilla
+· Anthropic Claude API · Hevy API · Google Calendar API · Web Push (VAPID) · vanilla
 JS/HTML/CSS PWA · Docker · Fly.io.
 
 ---

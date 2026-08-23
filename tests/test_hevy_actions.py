@@ -60,6 +60,91 @@ class HevyActionTests(unittest.TestCase):
         self.assertEqual(fake.created, 1)
         self.assertEqual(result["verified_template_ids"], ["DDCC3821"])
 
+    def test_missing_exercise_is_created_only_inside_confirmed_send(self) -> None:
+        class Fake:
+            def __init__(self):
+                self.templates_created = 0
+                self.routines_created = 0
+
+            def status(self):
+                return {"connected": True}
+
+            def all_exercise_templates(self):
+                return []
+
+            def search_exercise_templates(self, _query):
+                return []
+
+            def create_exercise_template(self, exercise, *, idempotency_key):
+                self.templates_created += 1
+                return {"id": "new-template", **exercise}
+
+            def get_exercise_template(self, template_id):
+                return {"id": template_id, "title": "Copenhagen Plank"}
+
+            def create_routine(self, routine, *, idempotency_key):
+                self.routines_created += 1
+                return {"id": "routine-1", **routine}
+
+        proposed = {"title": "Running legs", "exercises": [{
+            "title": "Copenhagen Plank", "sets": [{"type": "normal", "reps": 8}],
+        }]}
+        fake = Fake()
+        old = hevy_connector.connector()
+        try:
+            hevy_connector.configure(fake)
+            before = hevy_actions.create_confirmed_routine(
+                proposed, operation_id="new-exercise", confirmed=False,
+            )
+            self.assertFalse(before["created"])
+            self.assertEqual(fake.templates_created, 0)
+
+            after = hevy_actions.create_confirmed_routine(
+                proposed, operation_id="new-exercise", confirmed=True,
+            )
+        finally:
+            hevy_connector.configure(old)
+
+        self.assertTrue(after["created"])
+        self.assertEqual(fake.templates_created, 1)
+        self.assertEqual(fake.routines_created, 1)
+        self.assertEqual(after["created_exercises"], ["Copenhagen Plank"])
+
+    def test_partial_template_write_is_reported_if_routine_cannot_be_created(self) -> None:
+        class Fake:
+            def status(self):
+                return {"connected": True}
+
+            def all_exercise_templates(self):
+                return []
+
+            def search_exercise_templates(self, _query):
+                return []
+
+            def create_exercise_template(self, exercise, *, idempotency_key):
+                return {"id": "new-template", **exercise}
+
+            def get_exercise_template(self, _template_id):
+                raise hevy_connector.HevyAPIError("read failed after template create")
+
+        raw = {"title": "Running legs", "exercises": [{
+            "title": "Copenhagen Plank",
+            "sets": [{"type": "normal", "reps": 8}],
+        }]}
+        old = hevy_connector.connector()
+        try:
+            hevy_connector.configure(Fake())
+            result = hevy_actions.create_confirmed_routine(
+                raw, operation_id="partial-create", confirmed=True,
+            )
+        finally:
+            hevy_connector.configure(old)
+
+        self.assertFalse(result["created"])
+        self.assertTrue(result["partial_write"])
+        self.assertEqual(result["created_exercises"], ["Copenhagen Plank"])
+        self.assertIn("templates were created", result["instruction"])
+
     def test_custom_metric_survives_and_fractional_integer_is_rejected(self) -> None:
         routine = _routine()
         routine["exercises"][0]["sets"] = [{"type": "normal", "custom_metric": 2.5}]

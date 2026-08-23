@@ -58,6 +58,8 @@ _CAPABILITIES = {
     "get_workout": False,
     "get_exercise_template": False,
     "search_exercise_templates": False,
+    "all_exercise_templates": False,
+    "create_exercise_template": False,
     "create_routine": False,
     "create_workout": False,
 }
@@ -224,7 +226,9 @@ class HevyAPIConnector:
                 page = 1
                 while True:
                     result = self._request("GET", "exercise_templates", params={
-                        "page": page, "pageSize": 10,
+                        # Hevy allows 100 templates per page. The old value of
+                        # ten turned one proposal into eleven serial requests.
+                        "page": page, "pageSize": 100,
                     })
                     templates = result.get("exercise_templates") or []
                     catalog.extend(item for item in templates if isinstance(item, dict))

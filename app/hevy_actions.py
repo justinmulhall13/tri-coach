@@ -117,7 +117,8 @@ def resolve_routine_exercises(raw: dict[str, Any], *, create_missing: bool = Tru
     return {**raw, "exercises": resolved}, reports
 
 
-def validate_routine(raw: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
+def validate_routine(raw: dict[str, Any], *,
+                     allow_unresolved: bool = False) -> tuple[dict[str, Any] | None, list[str]]:
     """Return an API-safe routine or explicit validation errors.
 
     Working weights are accepted only when tied to an exact Hevy-history value.
@@ -142,7 +143,10 @@ def validate_routine(raw: dict[str, Any]) -> tuple[dict[str, Any] | None, list[s
             errors.append(f"exercise {index} must be an object")
             continue
         template_id = str(exercise.get("exercise_template_id") or "").strip()
-        if not template_id:
+        exercise_title = str(
+            exercise.get("title") or exercise.get("exercise_name") or ""
+        ).strip()
+        if not template_id and not (allow_unresolved and exercise_title):
             errors.append(f"exercise {index} is missing exercise_template_id")
             continue
         sets = exercise.get("sets")
@@ -189,6 +193,12 @@ def validate_routine(raw: dict[str, Any]) -> tuple[dict[str, Any] | None, list[s
                 continue
             weight = item.get("weight_kg")
             if weight is not None:
+                if not template_id:
+                    errors.append(
+                        f"exercise {index} set {set_index} needs an exact Hevy template "
+                        "before a working weight can be attached"
+                    )
+                    continue
                 parsed_weight = _number(weight)
                 if parsed_weight is None:
                     errors.append(f"exercise {index} set {set_index} has invalid weight")
@@ -222,10 +232,11 @@ def validate_routine(raw: dict[str, Any]) -> tuple[dict[str, Any] | None, list[s
             continue
         rest = (_integer(exercise.get("rest_seconds"))
                 if exercise.get("rest_seconds") is not None else None)
-        cleaned: dict[str, Any] = {
-            "exercise_template_id": template_id,
-            "sets": clean_sets,
-        }
+        cleaned: dict[str, Any] = {"sets": clean_sets}
+        if template_id:
+            cleaned["exercise_template_id"] = template_id
+        else:
+            cleaned["title"] = exercise_title
         if rest is not None:
             cleaned["rest_seconds"] = rest
         elif exercise.get("rest_seconds") is not None:
@@ -298,17 +309,51 @@ def _recent_hevy_weights(client: hevy_connector.HevyConnector, *,
 
 def create_confirmed_routine(raw: dict[str, Any], *, operation_id: str,
                              confirmed: bool) -> dict[str, Any]:
-    """Verify every template and perform one non-retrying Hevy create."""
+    """Resolve/create templates only after confirmation, then create once."""
     if not confirmed:
         return {"error": "explicit confirmation is required", "created": False}
-    routine, errors = validate_routine(raw)
-    if errors or routine is None:
-        return {"error": "invalid routine", "details": errors, "created": False}
+    proposal, proposal_errors = validate_routine(raw, allow_unresolved=True)
+    if proposal_errors or proposal is None:
+        return {
+            "error": "invalid routine", "details": proposal_errors, "created": False,
+        }
     state = hevy_connector.status()
     if not state.get("connected"):
         return {"error": state.get("reason") or "Hevy is not connected", "created": False}
     client = hevy_connector.connector()
+    reports: list[dict[str, Any]] = []
+    created_exercises: list[str] = []
     try:
+        resolved, reports = resolve_routine_exercises(
+            proposal, create_missing=True, connector=client,
+        )
+        created_exercises = [
+            str(report.get("title")) for report in reports if report.get("created")
+        ]
+        unresolved = [report for report in reports
+                      if not report.get("exercise_template_id")]
+        if unresolved:
+            return {
+                "error": "some exercises could not be matched or created in Hevy",
+                "details": unresolved,
+                "created": False,
+                "retry_safe": True,
+                "partial_write": bool(created_exercises),
+                "created_exercises": created_exercises,
+                "instruction": (
+                    "Some custom exercises were created, but the routine was not. "
+                    "Review Hevy before retrying."
+                    if created_exercises else
+                    "No Hevy write was attempted; restore the read connection and retry."
+                ),
+            }
+        routine, errors = validate_routine(resolved)
+        if errors or routine is None:
+            return {
+                "error": "invalid routine", "details": errors, "created": False,
+                "partial_write": bool(created_exercises),
+                "created_exercises": created_exercises,
+            }
         verified = []
         for exercise in routine["exercises"]:
             template_id = exercise["exercise_template_id"]
@@ -355,9 +400,13 @@ def create_confirmed_routine(raw: dict[str, Any], *, operation_id: str,
                     "details": problems,
                     "created": False,
                     "retry_safe": True,
+                    "partial_write": bool(created_exercises),
+                    "created_exercises": created_exercises,
                     "instruction": (
-                        "Remove the weight, use an exact recent Hevy value, or derive it "
-                        "from an anchor that appears in recent history."
+                        ("Custom exercise templates were created, but the routine was not. "
+                         "Review Hevy first. " if created_exercises else "")
+                        + "Remove the weight, use an exact recent Hevy value, or derive it "
+                          "from an anchor that appears in recent history."
                     ),
                 }
     except (hevy_connector.HevyAPIError, hevy_connector.HevyUnavailableError, ValueError) as exc:
@@ -365,7 +414,14 @@ def create_confirmed_routine(raw: dict[str, Any], *, operation_id: str,
             "error": str(exc),
             "created": False,
             "retry_safe": True,
-            "instruction": "No Hevy write was attempted; restore the read connection and retry.",
+            "partial_write": bool(created_exercises),
+            "created_exercises": created_exercises,
+            "instruction": (
+                "Custom exercise templates were created, but the routine was not. "
+                "Review Hevy before retrying."
+                if created_exercises else
+                "No Hevy write was attempted; restore the read connection and retry."
+            ),
         }
     payload = {
         **routine,
@@ -384,7 +440,15 @@ def create_confirmed_routine(raw: dict[str, Any], *, operation_id: str,
             "error": str(exc),
             "created": False,
             "retry_safe": False,
+            "partial_write": bool(created_exercises),
+            "created_exercises": created_exercises,
             "instruction": "Check Hevy before retrying because the create may already have arrived.",
         }
-    return {"ok": True, "created": True, "routine": result.get("routine") or result,
-            "verified_template_ids": verified}
+    return {
+        "ok": True,
+        "created": True,
+        "routine": result.get("routine") or result,
+        "verified_template_ids": verified,
+        "resolution": reports,
+        "created_exercises": created_exercises,
+    }

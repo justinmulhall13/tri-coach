@@ -191,11 +191,13 @@ class SplitPushTests(unittest.TestCase):
         from unittest.mock import patch
         # Half the exercises unresolvable: the day must be refused whole rather
         # than shipped with movements quietly missing.
-        with patch.object(main.hevy_actions, "resolve_routine_exercises",
-                          return_value=({"title": "Upper 1", "exercises": []},
-                                        [{"title": "Chest Fly",
-                                          "exercise_template_id": None,
-                                          "resolution": "failed"}])):
+        with (patch.object(main.hevy_connector, "status",
+                           return_value={"connected": True}),
+              patch.object(main.hevy_actions, "resolve_routine_exercises",
+                           return_value=({"title": "Upper 1", "exercises": []},
+                                         [{"title": "Chest Fly",
+                                           "exercise_template_id": None,
+                                           "resolution": "failed"}]))):
             response = self.client.post("/api/lifting/split/upper_1/push",
                                         json={"confirmed": True})
         self.assertEqual(response.status_code, 422)

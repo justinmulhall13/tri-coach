@@ -200,6 +200,58 @@ class CoachPlanDraftTests(unittest.TestCase):
         self.assertEqual([day["title"] for day in db.get_plan()], ["Easy swim", "Rest"])
         self.assertTrue(all(day["source"] == "coach" for day in db.get_plan()))
 
+    def test_bike_and_lift_activate_as_two_independent_workout_records(self) -> None:
+        schedule = [{
+            "date": "2026-08-18", "title": "Easy spin", "discipline": "bike",
+            "duration_min": 60, "intensity": "Z2", "tsb_target": 10,
+            "structure": {"warmup": "10 min easy", "main": "50 min Z2", "cooldown": ""},
+            "secondary_sessions": [{
+                "title": "Upper 2", "discipline": "strength", "duration_min": 40,
+                "intensity": "1-2 RIR",
+                "structure": {"warmup": "5 min mobility", "main": "Six exercises",
+                              "cooldown": "5 min easy"},
+                "why": "Maintain upper-body muscle without changing the ride.",
+            }],
+            "is_rest": 0, "why": "Keep aerobic work non-impact.",
+        }]
+        draft = db.create_plan_draft(schedule, source_message="two sessions")
+
+        result = coach.activate_weekplan(draft["plan_id"])
+
+        bike = db.get_plan_day("2026-08-18")
+        lift = db.get_plan_strength("2026-08-18")
+        self.assertEqual(bike["discipline"], "bike")
+        self.assertEqual(bike["duration_min"], 60)
+        self.assertEqual(lift["title"], "Upper 2")
+        self.assertEqual(lift["duration_min"], 40)
+        self.assertEqual(lift["structure"]["main"], "Six exercises")
+        self.assertEqual(result["updated_strength_days"][0]["date"], "2026-08-18")
+
+    def test_brick_requires_an_explicit_run_off_the_bike_leg(self) -> None:
+        bad = [{
+            "date": "2026-08-18", "title": "Bike + Upper", "discipline": "brick",
+            "duration_min": 100, "intensity": "AM bike; PM lift", "tsb_target": 10,
+            "structure": {"warmup": "10 min", "main": "AM bike; PM lift", "cooldown": ""},
+            "is_rest": 0, "why": "Two sessions today.",
+        }]
+        with self.assertRaisesRegex(coach.WeekPlanValidationError, "explicit structure.run"):
+            coach.validate_weekplan(bad)
+
+    def test_true_bike_run_brick_remains_one_brick_record(self) -> None:
+        brick = [{
+            "date": "2026-08-18", "title": "Bike to run", "discipline": "brick",
+            "duration_min": 80, "intensity": "easy", "tsb_target": 10,
+            "structure": {"warmup": "10 min bike", "main": "50 min bike",
+                          "run": "20 min run off the bike", "cooldown": ""},
+            "is_rest": 0, "why": "Practice the immediate transition.",
+        }]
+        draft = db.create_plan_draft(brick, source_message="real brick")
+
+        coach.activate_weekplan(draft["plan_id"])
+
+        self.assertEqual(db.get_plan_day("2026-08-18")["discipline"], "brick")
+        self.assertIsNone(db.get_plan_strength("2026-08-18"))
+
     def test_activation_rolls_back_every_day_and_status_on_write_failure(self) -> None:
         schedule = _schedule()
         for day in schedule:
@@ -222,6 +274,10 @@ class CoachPlanDraftTests(unittest.TestCase):
         self.assertIn("addWeekPlan(r.proposed_week,r.plan_id)", html)
         self.assertIn("{plan_id:Number(id)}", html)
         self.assertNotIn("thinking.textContent=visibleCoachDraft(draft)", html)
+        self.assertIn('class="cwork cprimary"', html)
+        self.assertIn("openStrengthDetail(d)", html)
+        self.assertIn("w.secondary_sessions", html)
+        self.assertNotIn("renderDayLift(planDay.date)", html)
 
 
 if __name__ == "__main__":

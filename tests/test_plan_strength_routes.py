@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import pathlib
 import tempfile
 import threading
@@ -8,7 +9,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from app import db, main
+from app import config, db, main, suggest
 
 
 ROUTINE = {
@@ -51,6 +52,48 @@ class PlanStrengthRouteTests(unittest.TestCase):
         self.assertEqual(days[0]["routine"]["exercises"], ROUTINE["exercises"])
         self.assertEqual(days[0]["routine"]["title"], ROUTINE["title"])
         self.assertEqual(days[0]["effort_cue"], "Leave 1-2 reps in the tank")
+
+    def test_plan_payload_returns_strength_as_a_second_workout_collection(self) -> None:
+        db.upsert_plan_day({
+            "date": "2026-08-24", "week_index": 0, "phase": "build",
+            "discipline": "bike", "title": "Easy spin", "duration_min": 45,
+            "intensity": "Z2", "structure": {}, "is_rest": 0, "source": "coach",
+            "tsb_target": 10, "why": "Aerobic maintenance.",
+        })
+        self._attach(duration_min=45, intensity="1-2 RIR",
+                     structure={"main": "Six exercises"})
+
+        payload = self.client.get("/api/plan", params={
+            "start": "2026-08-24", "end": "2026-08-24",
+        }).json()
+
+        self.assertEqual(payload["days"][0]["discipline"], "bike")
+        self.assertEqual(payload["strength_days"][0]["title"], "Lower A")
+        self.assertEqual(payload["strength_days"][0]["duration_min"], 45)
+
+    def test_todays_payload_keeps_cardio_and_lift_as_two_sessions(self) -> None:
+        db.upsert_plan_day({
+            "date": "2026-08-24", "week_index": 0, "phase": "build",
+            "discipline": "bike", "title": "Easy spin", "duration_min": 45,
+            "intensity": "Z2", "structure": {"main": "45 min Z2"},
+            "is_rest": 0, "source": "coach", "tsb_target": 10,
+            "why": "Aerobic maintenance.",
+        })
+        self._attach(duration_min=40, intensity="1-2 RIR",
+                     structure={"main": "Six exercises"})
+
+        with patch.object(config, "local_today",
+                          return_value=datetime.date(2026, 8, 24)):
+            payload = suggest.todays_suggestion(
+                readiness_data={}, recent_load={"activities": []},
+            )
+
+        self.assertEqual(payload["suggestion"]["discipline"], "bike")
+        sessions = payload["suggestion"]["secondary_sessions"]
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(sessions[0]["title"], "Lower A")
+        self.assertEqual(sessions[0]["discipline"], "strength")
+        self.assertEqual(sessions[0]["duration_min"], 40)
 
     def test_the_literal_path_is_not_parsed_as_a_date(self) -> None:
         # /api/plan/{date} is declared later; if ordering regressed this 404s

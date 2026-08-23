@@ -61,6 +61,29 @@ class CoachExternalToolTests(unittest.TestCase):
         # The reason is reported now rather than the proposal vanishing silently.
         self.assertTrue(any("exact Hevy value" in e for e in notes["errors"]))
 
+    def test_title_only_proposal_does_not_create_an_exercise_before_confirmation(self):
+        raw = (
+            '```hevy_routine\n'
+            '{"title":"Complete upper","exercises":[{"title":"Custom Rear Delt Fly",'
+            '"sets":[{"type":"normal","reps":12}]}]}'
+            '\n```'
+        )
+        unresolved = {
+            "title": "Complete upper",
+            "exercises": [{"title": "Custom Rear Delt Fly",
+                           "sets": [{"type": "normal", "reps": 12}]}],
+        }
+        with patch.object(
+            hevy_actions, "resolve_routine_exercises",
+            return_value=(unresolved, [{"title": "Custom Rear Delt Fly",
+                                        "resolution": "missing", "created": False}]),
+        ) as resolve:
+            routine, notes = coach._extract_hevy_routine(raw)
+
+        self.assertEqual(routine["exercises"][0]["title"], "Custom Rear Delt Fly")
+        self.assertFalse(notes["resolution"][0]["created"])
+        self.assertFalse(resolve.call_args.kwargs["create_missing"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -240,6 +240,9 @@ the very end of your reply (and only then). Set "date" to that day's date (YYYY-
 {"date": "YYYY-MM-DD", "title": "...", "discipline": "swim|bike|run|brick|strength|recovery|rest", \
 "duration_min": <int>, "intensity": "...", "tsb_target": <explicit race-day TSB number>, \
 "structure": {"warmup": "...", "main": "...", "cooldown": "..."}, \
+"secondary_sessions": [{"title":"Upper 1","discipline":"strength","duration_min":45, \
+"intensity":"1-2 RIR","structure":{"warmup":"...","main":"...","cooldown":"..."}, \
+"why":"why this separate lift belongs today"}], \
 "why": "one sentence on the tradeoff"}
 ```
 Only include the block when proposing an actual change; omit it for general questions.
@@ -263,8 +266,17 @@ abort instructions during a session are still allowed.
 [{"date": "YYYY-MM-DD", "title": "...", "discipline": "...", "duration_min": <int>, \
 "intensity": "...", "tsb_target": <explicit race-day TSB number>, \
 "structure": {"warmup": "...", "main": "...", "cooldown": "..."}, \
+"secondary_sessions": [{"title":"Lower 1","discipline":"strength","duration_min":45, \
+"intensity":"2 RIR","structure":{"warmup":"...","main":"...","cooldown":"..."}, \
+"why":"why this separate lift belongs today"}], \
 "is_rest": 0, "why": "..."}, ...]
 ```
+
+MULTIPLE WORKOUTS ON ONE DATE: they remain separate workout objects. For cardio plus lifting, \
+the top-level row is the cardio session and the lift goes in `secondary_sessions`; its duration \
+is not included in the cardio duration. Never call two workouts a brick. `brick` means only a \
+bike immediately followed by a run and therefore requires an explicit `structure.run` leg. A \
+bike plus a lift is bike plus strength, even when both happen on the same date.
 
 LOGGING AN ACTIVITY: when the athlete tells you they DID a session that isn't in the Garmin \
 data yet ("I biked 30 km this morning", "just ran 5k easy", "did my lift"), record it by \
@@ -855,7 +867,11 @@ def _extract_hevy_routine(text: str) -> tuple[dict[str, Any] | None, dict[str, A
     except json.JSONDecodeError:
         return None, notes
     try:
-        raw, reports = hevy_actions.resolve_routine_exercises(raw)
+        # Proposal rendering is read-only. A genuinely missing template is
+        # created only inside the later confirmed Send to Hevy action.
+        raw, reports = hevy_actions.resolve_routine_exercises(
+            raw, create_missing=False,
+        )
         notes["resolution"] = reports
     except Exception:  # noqa: BLE001 - a lookup failure must not lose the session
         notes["resolution"] = []
@@ -866,7 +882,7 @@ def _extract_hevy_routine(text: str) -> tuple[dict[str, Any] | None, dict[str, A
                                                if isinstance(raw, dict) else None)
     except Exception:  # noqa: BLE001
         notes["rules"] = None
-    routine, errors = hevy_actions.validate_routine(raw)
+    routine, errors = hevy_actions.validate_routine(raw, allow_unresolved=True)
     if errors or routine is None:
         notes["errors"] = errors
         return None, notes
@@ -979,6 +995,65 @@ def _check_display_fields(day: Any, label: str, error: type[Exception]) -> None:
         _clean_display_text(structure, f"{label} structure", error)
 
 
+def _strength_secondaries(day: dict[str, Any], *, label: str,
+                          error: type[Exception]) -> list[dict[str, Any]]:
+    """Validate and return independently stored strength sessions for a date."""
+    import math
+    raw = day.get("secondary_sessions", [])
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise error(f"{label} secondary_sessions must be an array")
+    if len(raw) > 1:
+        raise error(f"{label} supports one separate strength session")
+    sessions: list[dict[str, Any]] = []
+    for index, session in enumerate(raw, start=1):
+        item_label = f"{label} secondary session {index}"
+        if not isinstance(session, dict):
+            raise error(f"{item_label} must be an object")
+        _check_display_fields(session, item_label, error)
+        discipline = str(session.get("discipline") or "").lower().strip()
+        if discipline != "strength":
+            raise error(
+                f"{item_label} must be strength; a true bike-run brick uses structure.run"
+            )
+        if str(day.get("discipline") or "").lower() == "strength":
+            raise error(f"{label} cannot contain two strength sessions")
+        title = session.get("title")
+        if not isinstance(title, str) or not title.strip():
+            raise error(f"{item_label} needs a title")
+        duration = session.get("duration_min")
+        if (isinstance(duration, bool) or not isinstance(duration, (int, float))
+                or not math.isfinite(float(duration)) or float(duration) <= 0
+                or not float(duration).is_integer()):
+            raise error(f"{item_label} needs positive integer duration_min")
+        if not isinstance(session.get("structure"), dict):
+            raise error(f"{item_label} needs a structure object")
+        if not isinstance(session.get("intensity"), str) or not session["intensity"].strip():
+            raise error(f"{item_label} needs intensity")
+        if not isinstance(session.get("why"), str) or not session["why"].strip():
+            raise error(f"{item_label} needs a tradeoff reason")
+        sessions.append(session)
+    return sessions
+
+
+def _validate_multisession_shape(day: dict[str, Any], *, label: str,
+                                 error: type[Exception]) -> list[dict[str, Any]]:
+    """Keep same-day sessions separate and reserve brick for bike-to-run."""
+    structure = day.get("structure") if isinstance(day.get("structure"), dict) else {}
+    discipline = str(day.get("discipline") or "").lower().strip()
+    if discipline == "brick" and not str(structure.get("run") or "").strip():
+        raise error(
+            f"{label} labels a brick without an explicit structure.run leg; "
+            "same-day workouts must be separate"
+        )
+    if structure.get("strength") and not day.get("secondary_sessions"):
+        raise error(
+            f"{label} must store its lift in secondary_sessions, not structure.strength"
+        )
+    return _strength_secondaries(day, label=label, error=error)
+
+
 
 def validate_weekplan(days: list[dict[str, Any]], *, require_not_past: bool = True) -> None:
     """Validate an actionable draft and reject conditional fixed dates.
@@ -1028,6 +1103,9 @@ def validate_weekplan(days: list[dict[str, Any]], *, require_not_past: bool = Tr
             raise WeekPlanValidationError(f"week plan row {date} needs positive duration_min")
         if not isinstance(day.get("structure"), dict):
             raise WeekPlanValidationError(f"week plan row {date} needs a structure object")
+        _validate_multisession_shape(
+            day, label=f"week plan row {date}", error=WeekPlanValidationError,
+        )
         if not isinstance(day.get("intensity"), str) or not str(day.get("intensity")).strip():
             raise WeekPlanValidationError(f"week plan row {date} needs intensity")
         if not isinstance(day.get("why"), str) or not str(day.get("why")).strip():
@@ -1045,6 +1123,7 @@ def validate_weekplan(days: list[dict[str, Any]], *, require_not_past: bool = Tr
             "intensity": day.get("intensity"),
             "why": day.get("why"),
             "structure": day.get("structure"),
+            "secondary_sessions": day.get("secondary_sessions"),
         }
         prose = json.dumps(fields, ensure_ascii=False, default=str)
         for match in _CONDITIONAL_SCHEDULE_RE.finditer(prose):
@@ -1641,17 +1720,47 @@ def accept_adjustment(adjustment: dict[str, Any]) -> dict[str, Any] | None:
     if discipline and discipline not in _PLAN_DISCIPLINES:
         raise AdjustmentValidationError(
             f"adjustment has unsupported discipline {discipline}")
+    strength_sessions = _validate_multisession_shape(
+        adjustment, label="adjustment", error=AdjustmentValidationError,
+    )
     fields = {k: adjustment[k] for k in
               ("title", "discipline", "duration_min", "intensity", "tsb_target", "structure", "why")
               if k in adjustment}
     fields["tsb_target"] = _normalized_tsb_target(fields.get("tsb_target"))
+    if strength_sessions:
+        return db.edit_plan_day_with_strength(
+            date, fields, _prepared_strength_session(date, strength_sessions[0]),
+            source="coach",
+        )
     return db.edit_plan_day(date, fields, source="coach")
 
 
-def _weekplan_for_activation(days: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
-    """Validate dates and normalize the fields written during activation."""
+def _prepared_strength_session(date: str, session: dict[str, Any]) -> dict[str, Any]:
+    title = str(session.get("title") or "Strength")
+    slot = ("upper" if "upper" in title.lower() else
+            "lower" if "lower" in title.lower() else "full")
+    return {
+        "date": date,
+        "slot": slot,
+        "title": title,
+        "routine": session.get("routine"),
+        "duration_min": int(session["duration_min"]),
+        "intensity": session.get("intensity"),
+        "structure": session.get("structure") or {},
+        "why": session.get("why"),
+        "start_time": session.get("start_time"),
+        "effort_level": session.get("effort_level"),
+        "effort_cue": session.get("effort_cue") or session.get("intensity"),
+        "source": "coach",
+    }
+
+
+def _weekplan_for_activation(
+        days: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Normalize primary plan rows and their independent strength workouts."""
     validate_weekplan(days, require_not_past=True)
     prepared: list[dict[str, Any]] = []
+    strength_sessions: list[dict[str, Any]] = []
     for d in days or []:
         dt = datetime.date.fromisoformat(str(d["date"]))
         fields = {k: d[k] for k in
@@ -1659,7 +1768,10 @@ def _weekplan_for_activation(days: list[dict[str, Any]]) -> tuple[list[dict[str,
                   if k in d}
         fields["tsb_target"] = _normalized_tsb_target(fields.get("tsb_target"))
         prepared.append({"date": dt.isoformat(), **fields})
-    return prepared, []
+        for session in _strength_secondaries(
+                d, label=f"week plan row {dt.isoformat()}", error=WeekPlanValidationError):
+            strength_sessions.append(_prepared_strength_session(dt.isoformat(), session))
+    return prepared, strength_sessions
 
 
 def activate_weekplan(plan_id: int | str) -> dict[str, Any]:

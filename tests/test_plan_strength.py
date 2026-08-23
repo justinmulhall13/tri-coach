@@ -58,6 +58,17 @@ class PlanStrengthTests(unittest.TestCase):
         self.assertEqual(stored["effort_level"], "moderate")
         self.assertEqual(stored["effort_cue"], "Leave 1-2 reps in the tank")
 
+    def test_a_lift_is_a_complete_workout_not_only_a_routine_decoration(self) -> None:
+        stored = db.upsert_plan_strength(self._day(
+            duration_min=45, intensity="1-2 RIR", start_time="17:30",
+            structure={"warmup": "5 min", "main": "Six movements", "cooldown": "5 min"},
+            why="Keep muscle while the run plan builds.",
+        ))
+        self.assertEqual(stored["duration_min"], 45)
+        self.assertEqual(stored["start_time"], "17:30")
+        self.assertEqual(stored["structure"]["main"], "Six movements")
+        self.assertIn("Keep muscle", stored["why"])
+
     def test_reattaching_a_lift_replaces_it_rather_than_duplicating(self) -> None:
         db.upsert_plan_strength(self._day())
         db.upsert_plan_strength(self._day(title="Lower B", slot="lower"))

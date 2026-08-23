@@ -523,7 +523,12 @@ def morning(force: bool = False) -> JSONResponse:
 # --- Training plan ------------------------------------------------------------
 @app.get("/api/plan")
 def get_plan(start: str | None = None, end: str | None = None) -> JSONResponse:
-    return JSONResponse({"summary": db.plan_summary(), "days": db.get_plan(start, end)})
+    days = db.get_plan(start, end)
+    strength_days = (db.get_plan_strength_range(days[0]["date"], days[-1]["date"])
+                     if days else [])
+    return JSONResponse({
+        "summary": db.plan_summary(), "days": days, "strength_days": strength_days,
+    })
 
 
 # NOTE: must be declared BEFORE /api/plan/{date} or the literal segment is
@@ -555,6 +560,11 @@ def plan_strength_attach(body: dict = Body(default={})) -> JSONResponse:
             "slot": body.get("slot") or "full",
             "title": body.get("title") or routine.get("title") or "Strength",
             "routine": routine,
+            "duration_min": body.get("duration_min"),
+            "intensity": body.get("intensity"),
+            "structure": body.get("structure") or {},
+            "why": body.get("why"),
+            "start_time": body.get("start_time"),
             "effort_level": body.get("effort_level"),
             "effort_cue": body.get("effort_cue"),
             "hevy_routine_id": body.get("hevy_routine_id"),
@@ -700,25 +710,22 @@ def lifting_split_push(slot: str, body: dict = Body(default={})) -> JSONResponse
             "sets": _reps_to_sets(exercise, int(exercise.get("sets") or 3)),
         } for exercise in day.get("exercises") or []],
     }
-    try:
-        resolved, reports = hevy_actions.resolve_routine_exercises(raw)
-    except Exception as exc:  # noqa: BLE001
-        return JSONResponse({"error": f"could not resolve exercises: {exc}",
-                             "created": False}, status_code=502)
-    unresolved = [r["title"] for r in reports if not r.get("exercise_template_id")]
-    if unresolved:
-        return JSONResponse({
-            "error": "some exercises could not be matched or created in Hevy",
-            "unresolved": unresolved, "created": False, "retry_safe": True,
-        }, status_code=422)
-
     operation_id = str(body.get("operation_id") or
                        f"split-{slot}-{(stored or {}).get('updated_at') or 'default'}")
     result = hevy_actions.create_confirmed_routine(
-        resolved, operation_id=operation_id, confirmed=True)
-    result["resolution"] = reports
-    result["created_exercises"] = [r["title"] for r in reports if r.get("created")]
-    return JSONResponse(result)
+        raw, operation_id=operation_id, confirmed=True)
+    if result.get("created"):
+        return JSONResponse(result)
+    details = result.get("details") if isinstance(result.get("details"), list) else []
+    unresolved = [str(item.get("title")) for item in details
+                  if isinstance(item, dict) and item.get("title")]
+    if unresolved:
+        result["unresolved"] = unresolved
+        return JSONResponse(result, status_code=422)
+    status_code = 502 if result.get("retry_safe") is False else 400
+    if not hevy_connector.status().get("connected"):
+        status_code = 503
+    return JSONResponse(result, status_code=status_code)
 
 
 @app.get("/api/lifting/rules")

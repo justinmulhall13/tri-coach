@@ -114,7 +114,7 @@ class RenderEscapingTests(unittest.TestCase):
         self.html = (main.STATIC_DIR / "index.html").read_text()
 
     def test_the_plan_calendar_escapes_its_title(self) -> None:
-        self.assertIn('<div class="ctitle">${esc(String(d.title||disc))}</div>', self.html)
+        self.assertIn('<span class="ctitle">${esc(String(d.title||disc))}</span>', self.html)
 
     def test_the_week_proposal_escapes_title_and_the_sport_class(self) -> None:
         self.assertIn('<span class="sport-${esc(String(disc))}">${esc(String(d.title||disc))}</span>',

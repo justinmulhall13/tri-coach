@@ -318,7 +318,7 @@ class GarminWorkoutSafetyTests(unittest.TestCase):
 
     def test_race_push_control_is_hidden_in_workout_detail(self) -> None:
         html = (pathlib.Path(__file__).parents[1] / "static" / "index.html").read_text()
-        self.assertIn('["rest","race"].includes((x.disc||"").toLowerCase())', html)
+        self.assertIn('["rest","race","strength"].includes((x.disc||"").toLowerCase())', html)
 
 
 if __name__ == "__main__":
