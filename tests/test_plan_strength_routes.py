@@ -103,6 +103,11 @@ class PlanStrengthRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("days", response.json())
 
+    def test_strength_reps_are_not_labelled_as_swim_metres(self) -> None:
+        html = (main.STATIC_DIR / "index.html").read_text()
+        self.assertIn('(disc==="strength"&&repeat) ? `${repeat[1]} sets`', html)
+        self.assertIn('disc==="strength" ? intensity||"controlled"', html)
+
     def test_a_routine_that_could_never_be_created_is_refused(self) -> None:
         response = self._attach(routine={"title": "Bad", "exercises": [
             {"exercise_template_id": "", "sets": [{"type": "normal", "reps": 5}]}]})
