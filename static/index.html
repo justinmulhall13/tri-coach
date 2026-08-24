@@ -2455,12 +2455,15 @@ function splitSessions(s){
     primary=/bike|cycling|spin/.test(words)?"bike":/run|jog/.test(words)?"run":"other";
   }
   const out=[{kind:"main", disc:primary, title:w.title, dur:w.duration_min,
+    matchKey:"primary", startTime:w.start_time,
     intensity:w.intensity, is_rest:w.is_rest,
     structure:{warmup:st.warmup, main:st.main, cooldown:st.cooldown}, why:w.why}];
   (Array.isArray(w.secondary_sessions)?w.secondary_sessions:[]).forEach(session=>{
     if(!session||typeof session!=="object") return;
     const disc=String(session.discipline||"strength").toLowerCase();
-    out.push({kind:disc,disc,title:session.title||"Additional workout",dur:session.duration_min,
+    const matchKey=disc==="strength"?"strength":`secondary:${session.id}`;
+    out.push({kind:disc,disc,matchKey,startTime:session.start_time,
+      title:session.title||"Additional workout",dur:session.duration_min,
       intensity:session.intensity||session.effort_cue||session.effort_level,
       structure:_strengthStructure(session),why:session.why||session.effort_cue});
   });
@@ -2490,6 +2493,10 @@ function splitSessions(s){
 // a bike ride must not tick off a planned run/swim.
 function sessActs(sess, completed){
   const acts=(completed&&completed.activities)||[];
+  const matched=completed&&completed.session_matches;
+  if(matched&&sess.matchKey&&Object.prototype.hasOwnProperty.call(matched,sess.matchKey)){
+    return Array.isArray(matched[sess.matchKey])?matched[sess.matchKey]:[];
+  }
   if(sess.kind==="strength"||sess.disc==="strength") return acts.filter(a=>a.sport==="strength");
   if(sess.disc==="brick") return acts.filter(a=>a.sport==="bike"||a.sport==="run");
   if(sess.disc==="recovery"||sess.disc==="rest") return acts.filter(a=>a.sport!=="strength");

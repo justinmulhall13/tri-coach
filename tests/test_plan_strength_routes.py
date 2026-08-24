@@ -123,6 +123,70 @@ class PlanStrengthRouteTests(unittest.TestCase):
         self.assertEqual(sessions[0]["discipline"], "strength")
         self.assertEqual(sessions[0]["duration_min"], 40)
 
+    def _seed_two_commutes(self) -> None:
+        date = "2026-08-24"
+        db.upsert_plan_day({
+            "date": date, "week_index": 0, "phase": "build",
+            "discipline": "bike", "title": "Bike commute to work",
+            "duration_min": 75, "start_time": "07:15", "intensity": "easy Z2",
+            "structure": {"main": "30 km to work"}, "is_rest": 0,
+            "source": "coach", "tsb_target": 10, "why": "Outbound commute.",
+        })
+        db.edit_plan_day_with_sessions(date, {}, replace_strength=False,
+            secondary_sessions=[{
+                "discipline": "bike", "title": "Bike commute home",
+                "duration_min": 75, "start_time": "17:00", "intensity": "easy Z2",
+                "structure": {"main": "30 km home"}, "why": "Return commute.",
+            }])
+
+    def _today_with_rides(self, *starts: str) -> dict:
+        activities = [{
+            "activity_id": index + 100, "date": "2026-08-24", "sport": "bike",
+            "name": f"Ride {index + 1}", "start_local": f"2026-08-24T{start}:00",
+            "minutes": 75, "km": 30,
+        } for index, start in enumerate(starts)]
+        with patch.object(config, "local_today",
+                          return_value=datetime.date(2026, 8, 24)):
+            return suggest.todays_suggestion(
+                readiness_data={}, recent_load={"activities": activities},
+            )
+
+    def test_one_morning_ride_only_completes_the_outbound_commute(self) -> None:
+        self._seed_two_commutes()
+
+        completed = self._today_with_rides("07:40")["completed"]
+
+        self.assertEqual([a["activity_id"] for a in completed["session_matches"]["primary"]],
+                         [100])
+        secondary_key = next(k for k in completed["session_matches"]
+                             if k.startswith("secondary:"))
+        self.assertEqual(completed["session_matches"][secondary_key], [])
+        self.assertEqual(completed["activities"][0]["start_local"],
+                         "2026-08-24T07:40:00")
+
+    def test_outbound_and_return_rides_complete_distinct_commutes(self) -> None:
+        self._seed_two_commutes()
+
+        completed = self._today_with_rides("07:40", "17:20")["completed"]
+
+        secondary_key = next(k for k in completed["session_matches"]
+                             if k.startswith("secondary:"))
+        self.assertEqual([a["activity_id"] for a in completed["session_matches"]["primary"]],
+                         [100])
+        self.assertEqual([a["activity_id"] for a in completed["session_matches"][secondary_key]],
+                         [101])
+
+    def test_one_evening_ride_completes_the_return_not_the_outbound(self) -> None:
+        self._seed_two_commutes()
+
+        completed = self._today_with_rides("17:20")["completed"]
+
+        secondary_key = next(k for k in completed["session_matches"]
+                             if k.startswith("secondary:"))
+        self.assertEqual(completed["session_matches"]["primary"], [])
+        self.assertEqual([a["activity_id"] for a in completed["session_matches"][secondary_key]],
+                         [100])
+
     def test_the_literal_path_is_not_parsed_as_a_date(self) -> None:
         # /api/plan/{date} is declared later; if ordering regressed this 404s
         # or tries to read a plan day called "strength".
@@ -135,6 +199,12 @@ class PlanStrengthRouteTests(unittest.TestCase):
         html = (main.STATIC_DIR / "index.html").read_text()
         self.assertIn('(disc==="strength"&&repeat) ? `${repeat[1]} sets`', html)
         self.assertIn('disc==="strength" ? intensity||"controlled"', html)
+
+    def test_home_uses_the_api_one_to_one_completion_matches(self) -> None:
+        html = (main.STATIC_DIR / "index.html").read_text()
+        self.assertIn('matchKey:"primary"', html)
+        self.assertIn("completed&&completed.session_matches", html)
+        self.assertIn("Object.prototype.hasOwnProperty.call(matched,sess.matchKey)", html)
 
     def test_a_routine_that_could_never_be_created_is_refused(self) -> None:
         response = self._attach(routine={"title": "Bad", "exercises": [
