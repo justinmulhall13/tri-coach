@@ -58,9 +58,8 @@
     background:rgba(255,255,255,.86);backdrop-filter:blur(14px) saturate(140%);
     border-bottom:1px solid var(--line);}
   .brand{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
-  .emblem{filter:drop-shadow(0 0 6px rgba(var(--glow),.7));animation:spin 40s linear infinite;}
-  @keyframes spin{to{transform:rotate(360deg);}}
-  @media(prefers-reduced-motion:reduce){.emblem{animation:none;}}
+  .emblem{width:30px;height:30px;flex:none;display:grid;place-items:center;border-radius:9px;
+    background:var(--a1);color:#171916;font-size:10px;line-height:1;font-weight:900;letter-spacing:-.03em;}
   .brand .logo{font-family:var(--disp);font-weight:700;font-size:17px;letter-spacing:.3px;
     background:linear-gradient(90deg,var(--a1),var(--a2));-webkit-background-clip:text;background-clip:text;color:transparent;}
   .todaychip{display:flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;font-size:12px;font-weight:600;
@@ -1422,7 +1421,7 @@
   body{background:var(--bg);letter-spacing:0;}
   body::before,body::after,.home-hero::before,header::after{display:none!important;}
   header{background:var(--bg);backdrop-filter:none;-webkit-backdrop-filter:none;border-bottom:1px solid var(--line);box-shadow:none;}
-  .emblem{color:var(--a1);filter:none;animation:none;}
+  .emblem{background:var(--a1);color:#171916;filter:none;animation:none;}
   .brand .logo,.countdown .n{background:none;color:var(--ink);-webkit-text-fill-color:currentColor;letter-spacing:.08em;}
   .brand .logo{font-size:14px;font-weight:800;}
   .tabs{background:#e9e8e3;border-color:transparent;backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:none;}
@@ -1501,6 +1500,9 @@
     body,header,header.header-compact{background:var(--bg);}.card,#main .card,#main-fuel .card,#main-stats .card,.recipe-card{background:#181a17;border-color:var(--line);}
     .home-hero{background:#181a17;border-color:var(--line);}.tabs{background:#20221e;}.recipe-search input,.grocery-add input,.chatbar textarea,.chatbar textarea:focus{background:#242620;color:var(--ink);}
     .recipe-photo{background:#242620;}.fit-chip{background:#26382a;color:#a7d9b2;}.botnav{background:#181a17;border-color:var(--line);}.botnav::before{background:#292b26;}
+    .todaychip{background:#20221e;color:#f1f0ea;border-color:rgba(241,240,234,.18);}
+    .todaychip .dot{background:var(--a1);}
+    .coach-mic{background:#242620;color:#f1f0ea;border-color:rgba(241,240,234,.18);}
     .coach-compose,.coach-top{background:#181a17;border-color:var(--line);}.msg.user{background:#e7e5df;color:#151713;}.fring,.bigring,#workout>.wo-tile,.modrow{background:#20221e;}
   }
 </style>
@@ -1509,11 +1511,8 @@
 <div class="motif"></div>
 <header>
   <div class="brand">
-    <svg class="emblem" width="30" height="30" viewBox="0 0 40 40" aria-hidden="true">
-      <path d="M8 30c6-15 12-20 24-20M10 34h20" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
-      <circle cx="29" cy="10" r="4" fill="currentColor"/>
-    </svg>
-    <span class="logo">TRAINING</span>
+    <span class="emblem" aria-hidden="true">TC</span>
+    <span class="logo">TRI COACH</span>
     <span id="todaychip" class="todaychip" style="display:none"><span class="dot"></span><span id="todaychip-text"></span></span>
     <span id="phase" class="phasepill"></span>
     <nav class="tabs" id="tabs">
