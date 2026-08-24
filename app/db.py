@@ -7,6 +7,7 @@ across restarts and survive reseeds of untouched days.
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 import threading
 from pathlib import Path
@@ -131,6 +132,29 @@ CREATE TABLE IF NOT EXISTS constraints_log (
     text        TEXT NOT NULL,
     created_at  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS schedule_constraints (
+    -- Athlete-level life/scheduling facts. These intentionally survive an
+    -- event-mode switch: class hours, gym access and travel still matter when
+    -- the active goal changes from a triathlon to a marathon.
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope_key       TEXT UNIQUE NOT NULL,
+    kind            TEXT NOT NULL,       -- busy|available|facility_hours|recovery_risk|travel|buffer
+    label           TEXT NOT NULL,
+    start_date      TEXT NOT NULL,
+    end_date        TEXT NOT NULL,
+    days_json       TEXT NOT NULL DEFAULT '[]',
+    start_time      TEXT,
+    end_time        TEXT,
+    duration_min    INTEGER,
+    note            TEXT,
+    provenance      TEXT NOT NULL DEFAULT 'confirmed_by_user',
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_schedule_constraints_window
+    ON schedule_constraints (start_date, end_date, id);
 
 CREATE TABLE IF NOT EXISTS chat_history (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -786,6 +810,12 @@ def activate_plan_draft(plan_id: int | str) -> dict[str, Any]:
             phase = "build"
         for day in days:
             date = str(day["date"])
+            replace_position = "start_time" in day or bool(day.get("is_rest"))
+            planned_start = None if day.get("is_rest") else day.get("start_time")
+            position_updated_at = (
+                datetime.datetime.now(datetime.timezone.utc).isoformat()
+                if replace_position else None
+            )
             current = c.execute(
                 "SELECT * FROM plan_days WHERE event_profile_id=? AND date=?",
                 (profile_id, date),
@@ -804,12 +834,15 @@ def activate_plan_draft(plan_id: int | str) -> dict[str, Any]:
                 c.execute(
                     """UPDATE plan_days SET
                        discipline=?,title=?,structure=?,duration_min=?,intensity=?,
-                       tsb_target=?,why=?,is_rest=?,source='coach',updated_at=?
+                       tsb_target=?,why=?,is_rest=?,source='coach',updated_at=?,
+                       start_time=CASE WHEN ? THEN ? ELSE start_time END,
+                       pos_updated_at=CASE WHEN ? THEN ? ELSE pos_updated_at END
                        WHERE event_profile_id=? AND date=?""",
                     (day.get("discipline") or "rest", day.get("title") or "Planned session",
                      structure_json, day.get("duration_min"), day.get("intensity"),
                      day.get("tsb_target"), day.get("why"), int(bool(day.get("is_rest"))),
-                     now, profile_id, date),
+                     now, int(replace_position), planned_start,
+                     int(replace_position), position_updated_at, profile_id, date),
                 )
             else:
                 try:
@@ -822,12 +855,12 @@ def activate_plan_draft(plan_id: int | str) -> dict[str, Any]:
                        (event_profile_id,date,week_index,phase,discipline,title,structure,
                         duration_min,intensity,tsb_target,why,is_rest,source,updated_at,
                         start_time,gcal_event_id,pos_updated_at)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL,NULL)""",
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (profile_id, date, week_index, phase,
                      day.get("discipline") or "rest", day.get("title") or "Planned session",
                      structure_json, day.get("duration_min"), day.get("intensity"),
                      day.get("tsb_target"), day.get("why"), int(bool(day.get("is_rest"))),
-                     "coach", now),
+                     "coach", now, planned_start, None, position_updated_at),
                 )
             strength = strength_by_date.get(date)
             if strength is not None:
@@ -995,6 +1028,85 @@ def get_manual_activities(start: str | None = None, end: str | None = None) -> l
     else:
         rows = c.execute("SELECT * FROM manual_activity ORDER BY date DESC").fetchall()
     return [dict(r) for r in rows]
+
+
+# --- Structured schedule memory ---------------------------------------------
+def _schedule_scope_key(item: dict[str, Any]) -> str:
+    """Stable identity for one dated rule, excluding values the athlete may edit.
+
+    A correction such as "classes are 9 to 1, not 8 to 1" updates the existing
+    rule instead of leaving two contradictory busy blocks behind.
+    """
+    identity = {
+        "kind": item.get("kind"),
+        "label": str(item.get("label") or "").strip().casefold(),
+        "start_date": item.get("start_date"),
+        "end_date": item.get("end_date"),
+    }
+    encoded = json.dumps(identity, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def upsert_schedule_constraints(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Persist a validated set of athlete scheduling facts atomically."""
+    import datetime
+    if not isinstance(items, list) or not items:
+        return []
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    c = _conn()
+    keys: list[str] = []
+    try:
+        c.execute("BEGIN IMMEDIATE")
+        for item in items:
+            key = _schedule_scope_key(item)
+            keys.append(key)
+            c.execute(
+                """INSERT INTO schedule_constraints
+                   (scope_key,kind,label,start_date,end_date,days_json,start_time,
+                    end_time,duration_min,note,provenance,created_at,updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(scope_key) DO UPDATE SET
+                     days_json=excluded.days_json,start_time=excluded.start_time,end_time=excluded.end_time,
+                     duration_min=excluded.duration_min,note=excluded.note,
+                     provenance=excluded.provenance,updated_at=excluded.updated_at""",
+                (key, item["kind"], item["label"], item["start_date"],
+                 item["end_date"], json.dumps(item.get("days") or [], separators=(",", ":")),
+                 item.get("start_time"), item.get("end_time"), item.get("duration_min"),
+                 item.get("note"), item.get("provenance") or "confirmed_by_user",
+                 now, now),
+            )
+        c.commit()
+    except Exception:
+        c.rollback()
+        raise
+    placeholders = ",".join("?" for _ in keys)
+    rows = c.execute(
+        f"SELECT * FROM schedule_constraints WHERE scope_key IN ({placeholders}) ORDER BY id",
+        keys,
+    ).fetchall()
+    return [_row_to_schedule_constraint(row) for row in rows]
+
+
+def _row_to_schedule_constraint(row: sqlite3.Row) -> dict[str, Any]:
+    value = dict(row)
+    try:
+        value["days"] = json.loads(value.pop("days_json") or "[]")
+    except (json.JSONDecodeError, TypeError):
+        value["days"] = []
+    value.pop("scope_key", None)
+    return value
+
+
+def get_schedule_constraints(start: str, end: str,
+                             limit: int = 100) -> list[dict[str, Any]]:
+    """Return rules whose date window overlaps the requested planning window."""
+    rows = _conn().execute(
+        """SELECT * FROM schedule_constraints
+           WHERE end_date>=? AND start_date<=?
+           ORDER BY start_date,id LIMIT ?""",
+        (start, end, max(1, min(int(limit), 500))),
+    ).fetchall()
+    return [_row_to_schedule_constraint(row) for row in rows]
 
 
 def delete_manual_activity(entry_id: int) -> bool:

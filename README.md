@@ -129,6 +129,19 @@ finish-line celebration and then returns to its normal event-driven behavior.
 Replies stream into the conversation as Steve writes them. While fresh Garmin
 context is being assembled, a compact glowing-avatar and bouncing-dot state keeps
 the composer stable and makes the wait explicit without blocking the rest of the UI.
+The composer also has microphone dictation on browsers that expose the Web Speech
+API. Interim words appear in the normal message box, and the athlete reviews and
+sends the transcript explicitly; stopping dictation never auto-submits a coaching
+request.
+
+Availability is structured rather than left in one fragile chat turn. Statements
+such as "classes are 8–1 next week", "the gym opens at 6:30", "I need 30 minutes
+to shower", travel, and known late nights are stored as dated athlete-level
+schedule facts. They survive a fresh Coach session and an event-mode change,
+while live non-workout Google Calendar events are read into every planning turn as
+busy-time facts. Coach receives the existing plan and calendar for the next 14
+days, protects key goal-specific work before recovery-risk nights, and schedules a
+safer following morning without claiming a hangover is certain.
 
 Completed structured sessions are evaluated step by step. Garmin's recorded
 ACTIVE interval boundaries are joined to the timestamped HR trace, so Steve sees
@@ -176,6 +189,12 @@ Cardio and lifting that share a date stay as two workout records, two duration
 budgets, and two clickable cards. A `brick` is reserved for one continuous bike
 session followed immediately by an explicit run leg; the presence of a second
 workout on the date is never enough to infer a brick.
+
+Coach-generated drafts can carry an explicit start time for both the primary
+session and a separate same-day lift. Accepting the draft writes those positions
+before Google reconciliation; when Coach leaves a time open, the default placer
+still honors remembered busy/available windows, facility hours, and post-training
+shower or commute buffers.
 
 ### Lifting
 

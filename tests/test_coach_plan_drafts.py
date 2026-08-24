@@ -258,6 +258,36 @@ class CoachPlanDraftTests(unittest.TestCase):
         self.assertEqual(lift["structure"]["main"], "Six exercises")
         self.assertEqual(result["updated_strength_days"][0]["date"], "2026-08-18")
 
+    def test_calendar_aware_draft_persists_primary_and_lift_start_times(self) -> None:
+        day = {
+            **_schedule()[0],
+            "start_time": "06:30",
+            "secondary_sessions": [{
+                "title": "Upper 1", "discipline": "strength",
+                "duration_min": 45, "start_time": "14:00", "intensity": "2 RIR",
+                "structure": {"warmup": "5 min", "main": "Six exercises",
+                              "cooldown": "Easy mobility"},
+                "why": "Fits after classes without displacing the run.",
+            }],
+        }
+        draft = db.create_plan_draft([day], source_message="fit around classes")
+
+        result = coach.activate_weekplan(draft["plan_id"])
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(db.get_plan_day(day["date"])["start_time"], "06:30")
+        self.assertEqual(db.get_plan_strength(day["date"])["start_time"], "14:00")
+
+    def test_draft_without_a_time_preserves_a_calendar_position(self) -> None:
+        seeded = {**_seed_day(_schedule()[0]), "start_time": "07:15"}
+        db.upsert_plan_day(seeded)
+        draft = db.create_plan_draft([_schedule()[0]], source_message="change contents only")
+
+        result = coach.activate_weekplan(draft["plan_id"])
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(db.get_plan_day(seeded["date"])["start_time"], "07:15")
+
     def test_brick_requires_an_explicit_run_off_the_bike_leg(self) -> None:
         bad = [{
             "date": "2026-08-18", "title": "Bike + Upper", "discipline": "brick",

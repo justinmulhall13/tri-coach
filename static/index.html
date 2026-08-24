@@ -1210,6 +1210,15 @@
   .chatbar textarea:focus{background:rgba(255,255,255,.88);box-shadow:0 0 0 3px rgba(var(--glow),.12),inset 0 1px 2px rgba(16,18,22,.03);}
   .chatbar .primary{position:relative;flex:0 0 50px;width:50px;height:50px;padding:0;border-radius:50%;display:grid;place-items:center;}
   .chatbar .primary svg{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:2.1;stroke-linecap:round;stroke-linejoin:round;}
+  .coach-mic{position:relative;flex:0 0 50px;width:50px;height:50px;padding:0;border-radius:50%;display:grid;place-items:center;
+    color:var(--a1);background:rgba(var(--glow),.08);border:1px solid rgba(var(--glow),.18);}
+  .coach-mic svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;}
+  .coach-mic.listening{color:#fff;background:linear-gradient(135deg,#ef476f,#d62956);border-color:transparent;
+    box-shadow:0 0 0 5px rgba(239,71,111,.13),0 12px 28px -16px rgba(214,41,86,.9);animation:mic-pulse 1.35s ease-in-out infinite;}
+  .coach-mic:disabled{opacity:.42;}
+  .coach-voice-status{min-height:0;padding:0 10px;color:var(--muted);font-size:11px;line-height:1.35;transition:min-height .15s,padding .15s;}
+  .coach-voice-status:not(:empty){min-height:17px;padding:5px 10px 0;}
+  @keyframes mic-pulse{50%{box-shadow:0 0 0 9px rgba(239,71,111,.08),0 14px 30px -14px rgba(214,41,86,1);}}
   .send-label{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
   .coach-hint{display:none;}
 
@@ -1532,11 +1541,15 @@
       <div class="coach-compose">
         <div class="chatbar">
           <textarea id="chatinput" rows="1" aria-label="Message Coach Steve" placeholder="Message Steve…"></textarea>
+          <button id="coach-mic" class="coach-mic" type="button" aria-label="Dictate message" aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8.5" y="3" width="7" height="12" rx="3.5"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7"/></svg>
+          </button>
           <button id="send" class="primary" type="button" aria-label="Send message">
             <span class="send-label">Send</span>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></svg>
           </button>
         </div>
+        <div id="coach-voice-status" class="coach-voice-status" role="status" aria-live="polite"></div>
         <div class="coach-hint">He’ll make the call, explain the numbers that matter, and skip the noise. ⌘/Ctrl + Enter sends.</div>
       </div>
     </div>
@@ -2967,8 +2980,9 @@ function addAdjustment(adj){
   const c=document.createElement("div"); c.className="adjcard";
   const st=adj.structure||{};
   const w=adjWhen(adj);
+  const at=adj.start_time?`${_fmtClock(_toMin(adj.start_time))} · `:"";
   c.innerHTML=`<div class="t">Proposed change · ${esc(String(w.label))}: ${esc(String(adj.title||adj.discipline||""))}</div>
-    <div class="d">${esc(String(adj.discipline||""))} · ${esc(String(fmt(adj.duration_min)))} min · ${esc(String(fmt(adj.intensity)))} · race-day TSB ${adj.tsb_target!=null?(adj.tsb_target>0?"+":"")+esc(String(adj.tsb_target)):"+10"}<br>${esc(String(fmt(st.main)))}</div>
+    <div class="d">${esc(at)}${esc(String(adj.discipline||""))} · ${esc(String(fmt(adj.duration_min)))} min · ${esc(String(fmt(adj.intensity)))} · race-day TSB ${adj.tsb_target!=null?(adj.tsb_target>0?"+":"")+esc(String(adj.tsb_target)):"+10"}<br>${esc(String(fmt(st.main)))}</div>
     <button class="primary">${esc(String(w.accept))}</button>`;
   c.querySelector("button").onclick=async()=>{
     const r=await j("/api/coach/accept",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({adjustment:adj})});
@@ -3012,12 +3026,13 @@ function addWeekPlan(days,planId=null,options={}){
     const dt=new Date((d.date||"")+"T00:00:00");
     const dow=isNaN(dt)?"":DOW[dt.getDay()];
     const disc=d.is_rest?"rest":(d.discipline||"");
+    const primaryTime=d.start_time?`${_fmtClock(_toMin(d.start_time))} · `:"";
     const primary=`<div class="wk-row"><span class="wk-day">${esc(dow)} ${esc((d.date||"").slice(5))}</span>
       <span class="sport-${esc(String(disc))}">${esc(String(d.title||disc))}</span>
-      <span class="wk-dur">${d.is_rest?"—":esc(String(fmt(d.duration_min)))+" min"}</span></div>`;
-    const secondary=(d.secondary_sessions||[]).map(s=>`<div class="wk-row wk-secondary">
+      <span class="wk-dur">${d.is_rest?"—":esc(primaryTime)+esc(String(fmt(d.duration_min)))+" min"}</span></div>`;
+    const secondary=(d.secondary_sessions||[]).map(s=>{ const secondaryTime=s.start_time?`${_fmtClock(_toMin(s.start_time))} · `:""; return `<div class="wk-row wk-secondary">
       <span class="wk-day">↳ separate</span><span class="sport-strength">${esc(String(s.title||"Strength"))}</span>
-      <span class="wk-dur">${esc(String(fmt(s.duration_min)))} min</span></div>`);
+      <span class="wk-dur">${esc(secondaryTime)}${esc(String(fmt(s.duration_min)))} min</span></div>`; });
     return [primary,...secondary];
   }).join("");
   const draftLabel=id?`Saved week draft #${fmt(id)}`:"Proposed week rebuild";
@@ -3210,7 +3225,7 @@ function setCoachThinkingStatus(el,message){
   if(status) status.textContent=message||"Steve is thinking";
 }
 function visibleCoachDraft(text){
-  const cut=String(text||"").search(/(?:^|\n)```(?:adjustment|weekplan|logactivity|calendar_event|remember)\b/i);
+  const cut=String(text||"").search(/(?:^|\n)```(?:adjustment|weekplan|logactivity|calendar_event|remember|schedule_constraints)\b/i);
   return (cut<0?String(text||""):String(text||"").slice(0,cut)).trimStart();
 }
 async function streamCoachMessage(text,onEvent){
@@ -3249,9 +3264,81 @@ async function streamCoachMessage(text,onEvent){
   if(!result) throw new Error("Coach stream ended before the final response");
   return result;
 }
+let _coachRecognition=null, _coachVoiceListening=false, _coachVoiceBase="", _coachVoiceFinal="", _coachVoiceError="", _coachVoiceDiscard=false;
+function setCoachVoiceState(listening,message=""){
+  _coachVoiceListening=!!listening;
+  const button=$("coach-mic"), status=$("coach-voice-status");
+  if(button){
+    button.classList.toggle("listening",_coachVoiceListening);
+    button.setAttribute("aria-pressed",String(_coachVoiceListening));
+    button.setAttribute("aria-label",_coachVoiceListening?"Stop dictation":"Dictate message");
+  }
+  if(status) status.textContent=message;
+}
+function stopCoachVoice(discard=false){
+  _coachVoiceDiscard=!!discard;
+  if(_coachRecognition&&_coachVoiceListening){
+    try{ discard?_coachRecognition.abort():_coachRecognition.stop(); }catch(_e){}
+  }
+  setCoachVoiceState(false,"");
+}
+function setupCoachVoice(){
+  const button=$("coach-mic"), status=$("coach-voice-status");
+  if(!button) return;
+  const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!Recognition){
+    button.disabled=true;
+    button.title="Voice dictation is not supported in this browser";
+    if(status) status.textContent="Voice dictation is unavailable here; your keyboard's dictation still works.";
+    return;
+  }
+  _coachRecognition=new Recognition();
+  _coachRecognition.lang="en-CA";
+  _coachRecognition.continuous=true;
+  _coachRecognition.interimResults=true;
+  _coachRecognition.onstart=()=>setCoachVoiceState(true,"Listening… tap the microphone when you're done.");
+  _coachRecognition.onresult=event=>{
+    let interim="";
+    for(let i=event.resultIndex;i<event.results.length;i++){
+      const words=String(event.results[i][0]?.transcript||"").trim();
+      if(!words) continue;
+      if(event.results[i].isFinal) _coachVoiceFinal+=( _coachVoiceFinal?" ":"")+words;
+      else interim+=(interim?" ":"")+words;
+    }
+    const input=$("chatinput");
+    input.value=[_coachVoiceBase,_coachVoiceFinal,interim].filter(Boolean).join(" ");
+    resizeChatInput();
+  };
+  _coachRecognition.onerror=event=>{
+    const reason=event.error==="not-allowed"
+      ? "Microphone access was blocked. Allow it in browser settings and try again."
+      : event.error==="no-speech"?"I didn't hear anything. Tap the microphone to try again."
+      : "Voice dictation stopped. Your typed message is still here.";
+    _coachVoiceError=reason;
+    setCoachVoiceState(false,reason);
+  };
+  _coachRecognition.onend=()=>{
+    const input=$("chatinput");
+    if(!_coachVoiceDiscard&&_coachVoiceFinal) input.value=[_coachVoiceBase,_coachVoiceFinal].filter(Boolean).join(" ");
+    resizeChatInput();
+    const message=_coachVoiceDiscard?"":(_coachVoiceError||(_coachVoiceFinal?"Voice added. Review it, then send.":""));
+    _coachVoiceDiscard=false;
+    setCoachVoiceState(false,message);
+  };
+  button.onclick=()=>{
+    if(_coachVoiceListening){ stopCoachVoice(); return; }
+    const input=$("chatinput");
+    _coachVoiceBase=input.value.trim();
+    _coachVoiceFinal="";
+    _coachVoiceError="";
+    try{ _coachRecognition.start(); }
+    catch(_e){ setCoachVoiceState(false,"Voice dictation is already starting. Try again in a moment."); }
+  };
+}
 let _coachSessionEpoch=0, _coachInteractionEpoch=0, _coachBriefChecking=false, _coachHiddenAt=null;
 let _coachInbox=null, _currentView="dash";
 function resetCoachSessionView(clearSaved=true){
+  stopCoachVoice(true);
   _coachSessionEpoch++;
   _coachInteractionEpoch++;
   $("chatlog").innerHTML=`<div class="coach-empty">
@@ -3310,6 +3397,7 @@ function newCoachChat(){
 $("clearchat").onclick=newCoachChat;
 async function send(){
   const inp=$("chatinput"); const text=inp.value.trim(); if(!text) return;
+  stopCoachVoice(true);
   _coachInteractionEpoch++;
   const epoch=_coachSessionEpoch;
   addMsg("user",text); inp.value=""; resizeChatInput(); $("send").disabled=true;
@@ -4709,6 +4797,7 @@ async function enablePush(){
   }catch(e){ toast("Couldn't enable notifications: "+e.message); btn.disabled=false; }
 }
 initPush();
+setupCoachVoice();
 
 restoreCoachSessionView();
 loadDashboard().then(()=>maybeCoachEventBrief());

@@ -57,7 +57,10 @@ def reconcile(days: int = 21) -> dict[str, Any]:
     for day in upcoming:
         # Fill a default start-time once; user drags win thereafter.
         if not day.get("start_time") and not day.get("is_rest"):
-            st = schedule_time.default_start(day, existing)
+            st = schedule_time.default_start(
+                day, existing,
+                db.get_schedule_constraints(day["date"], day["date"]),
+            )
             if st:
                 day["start_time"] = st
                 db.edit_plan_day(day["date"], {"start_time": st, "pos_updated_at": _utcnow()},
@@ -116,7 +119,9 @@ def push_days(dates: list[str]) -> dict[str, Any]:
                                  source=day.get("source", "seed"), record_history=False)
             continue
         if not day.get("start_time"):
-            st = schedule_time.default_start(day, [])
+            st = schedule_time.default_start(
+                day, [], db.get_schedule_constraints(day["date"], day["date"]),
+            )
             if st:
                 day["start_time"] = st
                 db.edit_plan_day(date, {"start_time": st, "pos_updated_at": _utcnow()},

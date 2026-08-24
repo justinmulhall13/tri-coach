@@ -65,7 +65,37 @@ def _overlaps(start: int, dur: int, busy: list[tuple[int, int]]) -> bool:
     return any(start < b_end and end > b_start for b_start, b_end in busy)
 
 
-def default_start(day: dict[str, Any], existing_events: list[dict[str, Any]] | None = None) -> str | None:
+def _rules_for_date(rules: list[dict[str, Any]], date: datetime.date) -> list[dict[str, Any]]:
+    names = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+    day_name = names[date.weekday()]
+    result = []
+    for rule in rules or []:
+        if not isinstance(rule, dict):
+            continue
+        if not (str(rule.get("start_date") or "") <= date.isoformat()
+                <= str(rule.get("end_date") or "")):
+            continue
+        days = rule.get("days") or []
+        if days and day_name not in days:
+            continue
+        result.append(rule)
+    return result
+
+
+def _rule_range(rule: dict[str, Any]) -> tuple[int, int] | None:
+    start = _to_minutes(str(rule.get("start_time") or ""))
+    end = _to_minutes(str(rule.get("end_time") or ""))
+    if start is None and end is None:
+        return None
+    start = 0 if start is None else start
+    end = 24 * 60 if end is None else end
+    if end <= start:
+        end += 24 * 60
+    return start, end
+
+
+def default_start(day: dict[str, Any], existing_events: list[dict[str, Any]] | None = None,
+                  schedule_constraints: list[dict[str, Any]] | None = None) -> str | None:
     """Return HH:MM for this day, or None for a rest/all-day day."""
     if day.get("is_rest") or (day.get("discipline") in ("rest",)):
         return None
@@ -75,17 +105,64 @@ def default_start(day: dict[str, Any], existing_events: list[dict[str, Any]] | N
     except Exception:
         return _hhmm(WEEKEND_START)
     busy = _busy_ranges(existing_events or [], day["date"])
+    rules = _rules_for_date(schedule_constraints or [], d)
+    if any(rule.get("kind") in {"busy", "travel"} and _rule_range(rule) is None
+           for rule in rules):
+        return None
+    busy.extend(
+        window for rule in rules if rule.get("kind") in {"busy", "travel"}
+        for window in [_rule_range(rule)] if window is not None
+    )
+    buffer = max(
+        (int(rule.get("duration_min") or 0) for rule in rules
+         if rule.get("kind") == "buffer"),
+        default=0,
+    )
+    effective_duration = dur + buffer
+    facility_windows = [
+        window for rule in rules if rule.get("kind") == "facility_hours"
+        for window in [_rule_range(rule)] if window is not None
+    ]
+    facility_open = max((window[0] for window in facility_windows),
+                        default=MORNING_FLOOR)
+    facility_close = min((window[1] for window in facility_windows),
+                         default=24 * 60)
+    available = [
+        window for rule in rules if rule.get("kind") == "available"
+        for window in [_rule_range(rule)] if window is not None
+    ]
 
     if d.weekday() >= 5:  # Sat/Sun — no work
-        candidate = WEEKEND_START
+        candidate = max(WEEKEND_START, facility_open)
     else:
         # Try to finish PRE_WORK_BUFFER before work; floor at MORNING_FLOOR.
-        pre = WORK_START - PRE_WORK_BUFFER - dur
-        candidate = pre if pre >= MORNING_FLOOR else EVENING_START
+        pre = WORK_START - PRE_WORK_BUFFER - effective_duration
+        candidate = pre if pre >= facility_open else max(EVENING_START, facility_open)
 
-    # Nudge later in 30-min steps if it collides with an existing timed event.
-    for _ in range(12):
-        if not _overlaps(candidate, dur, busy):
-            break
-        candidate += 30
-    return _hhmm(candidate)
+    if available:
+        # Athlete-confirmed windows are hard bounds. Choose the first feasible
+        # slot nearest the normal preference, not a guessed time outside them.
+        candidates = []
+        for start, end in available:
+            earliest = max(start, facility_open)
+            latest = min(end, facility_close) - effective_duration
+            if earliest <= latest:
+                candidates.append(min(max(candidate, earliest), latest))
+        if not candidates:
+            return None
+        candidate = min(candidates, key=lambda value: abs(value - candidate))
+
+    # Nudge later in 15-min steps if it collides with a live or remembered busy
+    # block. The effective duration includes the athlete's shower/commute buffer.
+    for _ in range(96):
+        inside_available = (not available or any(
+            candidate >= start and candidate + effective_duration <= end
+            for start, end in available
+        ))
+        if (candidate >= facility_open
+                and candidate + effective_duration <= facility_close
+                and inside_available
+                and not _overlaps(candidate, effective_duration, busy)):
+            return _hhmm(candidate)
+        candidate += 15
+    return None

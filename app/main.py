@@ -845,6 +845,28 @@ def coach_history(limit: int = 50, all: bool = False) -> JSONResponse:
     return JSONResponse({"messages": db.get_chat(limit, since=since)})
 
 
+@app.get("/api/coach/schedule-context")
+def coach_schedule_context(start: str | None = None,
+                           end: str | None = None) -> JSONResponse:
+    """Structured availability carried across Coach conversations and goals."""
+    import datetime
+    today = config.local_today()
+    try:
+        start_date = datetime.date.fromisoformat(start) if start else today
+        end_date = (datetime.date.fromisoformat(end) if end else
+                    start_date + datetime.timedelta(days=14))
+    except ValueError:
+        return JSONResponse({"error": "start and end must be ISO dates"}, status_code=400)
+    if end_date < start_date or (end_date - start_date).days > 400:
+        return JSONResponse({"error": "invalid schedule context date range"}, status_code=400)
+    return JSONResponse({
+        "start": start_date.isoformat(),
+        "end": end_date.isoformat(),
+        "constraints": db.get_schedule_constraints(
+            start_date.isoformat(), end_date.isoformat()),
+    })
+
+
 def _training_signature() -> str:
     """Fingerprint only meaningful coaching events, not app opens or clock time.
 
