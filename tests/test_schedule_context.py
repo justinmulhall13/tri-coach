@@ -219,6 +219,38 @@ class ScheduleContextTests(unittest.TestCase):
         self.assertNotIn("_coachRecognition.onend=send", html)
         self.assertIn("schedule_constraints", html)
 
+    def test_coach_calendar_edit_is_a_confirmable_proposal_not_an_immediate_write(self) -> None:
+        message = SimpleNamespace(
+            content=[SimpleNamespace(type="text", text=(
+                "TL;DR: I can move that run after you confirm.\n"
+                "```calendar_command\n"
+                '{"text":"Move my run from 2026-08-24 to 2026-08-25 at 06:30"}\n'
+                "```"
+            ))],
+            model="test-model", stop_reason="end_turn",
+        )
+
+        result = coach._finish_chat(
+            "Move Monday's run to Tuesday at 6:30",
+            _TODAY.isoformat(), message,
+        )
+
+        self.assertEqual(result["proposed_calendar_command"], {
+            "text": "Move my run from 2026-08-24 to 2026-08-25 at 06:30",
+        })
+        self.assertNotIn("calendar_command", result["reply"])
+        self.assertIn("CALENDAR EDITS", coach._SYSTEM)
+
+    def test_calendar_ui_applies_coach_edits_and_auto_polls_google(self) -> None:
+        html = (pathlib.Path(__file__).parents[1] / "static" / "index.html").read_text()
+        self.assertIn("function addCalendarCommand(command)", html)
+        self.assertIn('if(r.proposed_calendar_command) addCalendarCommand', html)
+        self.assertIn('j("/api/calendar/command"', html)
+        self.assertIn('setInterval(()=>{ if(_currentView==="calendar"', html)
+        self.assertIn('window.addEventListener("focus"', html)
+        self.assertIn('data-session-kind="strength"', html)
+        self.assertIn('el.addEventListener("pointercancel",onCancel)', html)
+
 
 if __name__ == "__main__":
     unittest.main()

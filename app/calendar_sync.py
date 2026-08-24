@@ -22,6 +22,22 @@ from . import calendar_source, config, db, schedule_time
 def _utcnow() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
+
+def _valid_position(new_date: str | None, new_start: str | None) -> str | None:
+    if new_date is not None:
+        try:
+            datetime.date.fromisoformat(new_date)
+        except (TypeError, ValueError):
+            return "new_date must be YYYY-MM-DD"
+    if new_start is not None:
+        try:
+            hour, minute = new_start.split(":")
+            if len(new_start) != 5 or not (0 <= int(hour) <= 23 and 0 <= int(minute) <= 59):
+                raise ValueError
+        except (AttributeError, TypeError, ValueError):
+            return "new_start must be HH:MM in 24-hour time"
+    return None
+
 # Fields that make up "the session" — what moves/swaps between days.
 _SESSION_FIELDS = ("discipline", "title", "structure", "duration_min",
                    "intensity", "why", "is_rest")
@@ -38,6 +54,46 @@ def _upcoming(days: int) -> list[dict[str, Any]]:
     return [d for d in db.get_plan(today, end) if d["date"] >= today]
 
 
+def _upcoming_strength(days: int) -> list[dict[str, Any]]:
+    today = config.local_today().isoformat()
+    end = (config.local_today() + datetime.timedelta(days=days)).isoformat()
+    return db.get_plan_strength_range(today, end)
+
+
+def _planned_busy_event(day: dict[str, Any]) -> dict[str, Any] | None:
+    """Expose a planned workout as a busy block for same-day default placement."""
+    start = day.get("start_time")
+    if not start or day.get("is_rest"):
+        return None
+    try:
+        begun = datetime.datetime.fromisoformat(f"{day['date']}T{start}:00")
+        ended = begun + datetime.timedelta(minutes=int(day.get("duration_min") or 60))
+    except (TypeError, ValueError):
+        return None
+    return {
+        "start": begun.isoformat(), "end": ended.isoformat(), "all_day": False,
+        "summary": day.get("title") or "Workout",
+    }
+
+
+def _upsert_strength_event(day: dict[str, Any],
+                           existing: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    if not day.get("start_time"):
+        st = schedule_time.default_start(
+            day, existing or [],
+            db.get_schedule_constraints(day["date"], day["date"]),
+        )
+        if st:
+            day["start_time"] = st
+            db.set_plan_strength_calendar_fields(
+                day["date"], start_time=st, pos_updated_at=_utcnow())
+    res = calendar_source.upsert_workout_event(day, session_kind="strength")
+    eid = res.get("event_id")
+    if eid and eid != day.get("gcal_event_id"):
+        db.set_plan_strength_calendar_fields(day["date"], gcal_event_id=eid)
+    return res
+
+
 def reconcile(days: int = 21) -> dict[str, Any]:
     """Ensure every upcoming plan day has a matching, up-to-date Google event."""
     status = calendar_source._creds_status()
@@ -52,7 +108,7 @@ def reconcile(days: int = 21) -> dict[str, Any]:
     upcoming = _upcoming(days)
     synced = 0
     errors: list[str] = []
-    kept_by_date: dict[str, str] = {}   # date -> the ONE event id we keep
+    kept: dict[tuple[str, str], str] = {}
 
     for day in upcoming:
         # Fill a default start-time once; user drags win thereafter.
@@ -68,29 +124,54 @@ def reconcile(days: int = 21) -> dict[str, Any]:
         res = calendar_source.upsert_workout_event(day)
         if res.get("error"):
             errors.append(f"{day['date']}: {res['error']}")
+            if day.get("gcal_event_id"):
+                kept[(day["date"], "primary")] = day["gcal_event_id"]
             continue
         eid = res.get("event_id")
         if eid and eid != day.get("gcal_event_id"):
             db.edit_plan_day(day["date"], {"gcal_event_id": eid},
                              source=day.get("source", "seed"), record_history=False)
         if eid:
-            kept_by_date[day["date"]] = eid
+            kept[(day["date"], "primary")] = eid
         synced += 1
 
-    # Prune: delete every workout event that ISN'T the one we track for its day.
+    # A same-day lift is a separate session with a separate event identity.
+    planned_busy = [event for day in upcoming
+                    if (event := _planned_busy_event(day)) is not None]
+    strength_synced = 0
+    for strength in _upcoming_strength(days):
+        res = _upsert_strength_event(strength, existing + planned_busy)
+        if res.get("error"):
+            errors.append(f"{strength['date']} strength: {res['error']}")
+            if strength.get("gcal_event_id"):
+                kept[(strength["date"], "strength")] = strength["gcal_event_id"]
+            continue
+        eid = res.get("event_id")
+        if eid:
+            kept[(strength["date"], "strength")] = eid
+            strength_synced += 1
+
+    # Prune: delete every workout event that ISN'T the one we track for its
+    # date + session kind (one primary and one separate strength event).
     # This removes both stale (out-of-window/moved) events AND same-day duplicates
     # accumulated from earlier syncs — guaranteeing exactly one event per day.
     pruned = 0
     today = config.local_today().isoformat()
     for ev in calendar_source.fetch_workout_events(days=max(days, 60)).get("events", []):
         d, eid = ev.get("plan_date"), ev.get("id")
+        kind = ev.get("session_kind") or "primary"
         if not eid or not d or d < today:
             continue  # leave past-day (already-done) events untouched
-        if kept_by_date.get(d) != eid:
-            calendar_source.delete_workout_event(eid)
-            pruned += 1
+        if kept.get((d, kind)) != eid:
+            deleted = calendar_source.delete_workout_event(eid)
+            if deleted.get("ok"):
+                pruned += 1
+            elif deleted.get("error"):
+                errors.append(f"prune {d} {kind}: {deleted['error']}")
 
-    return {"connected": True, "synced": synced, "pruned": pruned,
+    return {"connected": True, "synced": synced + strength_synced,
+            "primary_synced": synced, "strength_synced": strength_synced,
+            "pruned": pruned,
             "errors": errors or None,
             "synced_at": datetime.datetime.now().isoformat(timespec="seconds")}
 
@@ -107,33 +188,46 @@ def push_days(dates: list[str]) -> dict[str, Any]:
     if not status.get("token_present") or not status.get("credentials_present"):
         return {"connected": False, "pushed": 0}
     pushed = 0
+    errors: list[str] = []
     for date in dict.fromkeys(d for d in dates if d):  # dedupe, keep order
         day = db.get_plan_day(date)
-        if not day:
-            continue
-        if day.get("is_rest"):
+        if day and day.get("is_rest"):
             # Day became rest → remove its timed workout event if we had one.
             if day.get("gcal_event_id"):
-                calendar_source.delete_workout_event(day["gcal_event_id"])
-                db.edit_plan_day(date, {"gcal_event_id": None},
+                deleted = calendar_source.delete_workout_event(day["gcal_event_id"])
+                if deleted.get("ok"):
+                    db.edit_plan_day(date, {"gcal_event_id": None},
+                                     source=day.get("source", "seed"), record_history=False)
+                elif deleted.get("error"):
+                    errors.append(f"{date}: {deleted['error']}")
+        elif day:
+            if not day.get("start_time"):
+                st = schedule_time.default_start(
+                    day, [], db.get_schedule_constraints(day["date"], day["date"]),
+                )
+                if st:
+                    day["start_time"] = st
+                    db.edit_plan_day(date, {"start_time": st, "pos_updated_at": _utcnow()},
+                                     source=day.get("source", "seed"), record_history=False)
+            res = calendar_source.upsert_workout_event(day)
+            if res.get("error"):
+                errors.append(f"{date}: {res['error']}")
+            eid = res.get("event_id")
+            if eid and eid != day.get("gcal_event_id"):
+                db.edit_plan_day(date, {"gcal_event_id": eid},
                                  source=day.get("source", "seed"), record_history=False)
-            continue
-        if not day.get("start_time"):
-            st = schedule_time.default_start(
-                day, [], db.get_schedule_constraints(day["date"], day["date"]),
-            )
-            if st:
-                day["start_time"] = st
-                db.edit_plan_day(date, {"start_time": st, "pos_updated_at": _utcnow()},
-                                 source=day.get("source", "seed"), record_history=False)
-        res = calendar_source.upsert_workout_event(day)
-        eid = res.get("event_id")
-        if eid and eid != day.get("gcal_event_id"):
-            db.edit_plan_day(date, {"gcal_event_id": eid},
-                             source=day.get("source", "seed"), record_history=False)
-        if eid:
-            pushed += 1
-    return {"connected": True, "pushed": pushed}
+            if eid:
+                pushed += 1
+        strength = db.get_plan_strength(date)
+        if strength:
+            busy = _planned_busy_event(day) if day else None
+            strength_res = _upsert_strength_event(
+                strength, [busy] if busy is not None else [])
+            if strength_res.get("error"):
+                errors.append(f"{date} strength: {strength_res['error']}")
+            elif strength_res.get("event_id"):
+                pushed += 1
+    return {"connected": True, "pushed": pushed, "errors": errors or None}
 
 
 def _parse_dt(iso: str | None):
@@ -165,7 +259,7 @@ def _event_local_datetime(ev: dict[str, Any]) -> tuple[str | None, str | None]:
 def pull_from_google(days: int = 40) -> dict[str, Any]:
     """Bring workout-event edits made in Google back into the plan. Most-recent
     wins: an event whose position changed and whose `updated` is newer than the
-    day's `pos_updated_at` is adopted. Time changes and moves onto an empty/rest
+    day's `pos_updated_at` is adopted. Time changes and moves onto a planned rest
     day are applied; a move onto an already-occupied day is left to the app side
     (reconcile will restore it), to avoid ambiguous swaps."""
     status = calendar_source._creds_status()
@@ -183,6 +277,38 @@ def pull_from_google(days: int = 40) -> dict[str, Any]:
         plan_date = ev.get("plan_date")
         if not plan_date:
             continue
+        kind = ev.get("session_kind") or "primary"
+        if kind == "strength":
+            strength = db.get_plan_strength(plan_date)
+            if not strength:
+                continue
+            if (strength.get("gcal_event_id")
+                    and ev.get("id") != strength.get("gcal_event_id")):
+                continue
+            ev_date, ev_time = _event_local_datetime(ev)
+            if not ev_date or ev_time is None:
+                continue
+            if ev_date == plan_date and ev_time == strength.get("start_time"):
+                continue
+            ev_upd = _parse_dt(ev.get("updated"))
+            pos_ts = _parse_dt(strength.get("pos_updated_at"))
+            if ev_upd and pos_ts and ev_upd <= pos_ts:
+                continue
+            moved = move_strength_session(
+                plan_date,
+                new_date=ev_date if ev_date != plan_date else None,
+                new_start=ev_time,
+                pos_ts=ev.get("updated"),
+                do_reconcile=False,
+            )
+            if not moved.get("error"):
+                changes.append({
+                    "date": plan_date, "session_kind": "strength",
+                    "kind": "day" if ev_date != plan_date else "time",
+                    "to": ev_date if ev_date != plan_date else ev_time,
+                    "at": ev_time,
+                })
+            continue
         day = db.get_plan_day(plan_date)
         if not day:
             continue
@@ -191,7 +317,7 @@ def pull_from_google(days: int = 40) -> dict[str, Any]:
             continue
 
         ev_date, ev_time = _event_local_datetime(ev)
-        if not ev_date:
+        if not ev_date or ev_time is None:
             continue
         plan_time = day.get("start_time")
         if ev_date == plan_date and ev_time == plan_time:
@@ -211,9 +337,12 @@ def pull_from_google(days: int = 40) -> dict[str, Any]:
             if dst and not dst.get("is_rest"):
                 skipped_occupied.append(f"{plan_date}→{ev_date}")
                 continue  # ambiguous swap — leave for the app / reconcile restore
-            move_session(plan_date, new_date=ev_date, new_start=ev_time,
-                         pos_ts=ev.get("updated"), do_reconcile=False)
-            changes.append({"date": plan_date, "kind": "day", "to": ev_date, "at": ev_time})
+            moved = move_session(plan_date, new_date=ev_date, new_start=ev_time,
+                                 pos_ts=ev.get("updated"), do_reconcile=False)
+            if moved.get("error"):
+                skipped_occupied.append(f"{plan_date}→{ev_date} ({moved['error']})")
+            else:
+                changes.append({"date": plan_date, "kind": "day", "to": ev_date, "at": ev_time})
 
     return {"connected": True, "pulled": len(changes), "changes": changes,
             "skipped_occupied": skipped_occupied or None}
@@ -236,9 +365,14 @@ def move_session(date: str, new_date: str | None = None,
     Cross-day onto an occupied day swaps the two days' sessions. `pos_ts` stamps
     when the position changed (defaults to now; the reverse-sync passes Google's
     event.updated so it wins consistently). `do_reconcile=False` skips the push."""
+    invalid = _valid_position(new_date, new_start)
+    if invalid:
+        return {"error": invalid}
     src = db.get_plan_day(date)
     if not src:
         return {"error": f"no plan day for {date}"}
+    if new_date and new_date != date and db.get_plan_day(new_date) is None:
+        return {"error": f"no plan day for {new_date}; ask Coach to add that date first"}
     pts = pos_ts or _utcnow()
     changed: list[str] = []
 
@@ -255,8 +389,8 @@ def move_session(date: str, new_date: str | None = None,
     else:
         dst = db.get_plan_day(new_date)
         src_sess = _session_fields(src)
-        if not dst or dst.get("is_rest"):
-            # Move into an empty/rest day; source becomes rest.
+        if dst.get("is_rest"):
+            # Move into a planned rest day; source becomes rest.
             move_fields = dict(src_sess)
             move_fields["start_time"] = new_start or src.get("start_time")
             move_fields["pos_updated_at"] = pts
@@ -284,3 +418,28 @@ def move_session(date: str, new_date: str | None = None,
     sync = reconcile() if do_reconcile else None
     return {"ok": True, "changed": changed,
             "days": [db.get_plan_day(d) for d in changed], "sync": sync}
+
+
+def move_strength_session(date: str, new_date: str | None = None,
+                          new_start: str | None = None,
+                          pos_ts: str | None = None,
+                          do_reconcile: bool = True) -> dict[str, Any]:
+    """Reschedule a lift without moving or swapping either date's run/ride."""
+    invalid = _valid_position(new_date, new_start)
+    if invalid:
+        return {"error": invalid}
+    try:
+        changed = db.move_plan_strength(
+            date, new_date=new_date, new_start=new_start,
+            pos_updated_at=pos_ts or _utcnow(),
+        )
+    except ValueError as exc:
+        return {"error": str(exc)}
+    sync = reconcile() if do_reconcile else None
+    return {
+        "ok": True,
+        "session_kind": "strength",
+        "changed": changed,
+        "days": [db.get_plan_strength(d) for d in changed],
+        "sync": sync,
+    }

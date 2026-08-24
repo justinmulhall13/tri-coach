@@ -572,12 +572,18 @@ def plan_strength_attach(body: dict = Body(default={})) -> JSONResponse:
         })
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
-    return JSONResponse({"ok": True, "day": stored})
+    google_sync = calendar_sync.push_days([date])
+    return JSONResponse({"ok": True, "day": stored, "google_sync": google_sync})
 
 
 @app.delete("/api/plan/strength/{date}")
 def plan_strength_remove(date: str) -> JSONResponse:
-    return JSONResponse({"ok": True, "removed": db.delete_plan_strength(date)})
+    existing = db.get_plan_strength(date)
+    removed = db.delete_plan_strength(date)
+    google_sync = None
+    if removed and existing and existing.get("gcal_event_id"):
+        google_sync = calendar_source.delete_workout_event(existing["gcal_event_id"])
+    return JSONResponse({"ok": True, "removed": removed, "google_sync": google_sync})
 
 
 @app.post("/api/plan/strength-block")
@@ -1231,18 +1237,25 @@ def workout_move(body: dict = Body(default={})) -> JSONResponse:
     """Reschedule a session from a calendar drag: change time and/or day only.
     Workout duration is a coaching prescription and can only be changed by Coach.
     A drop onto an occupied day swaps the two. Persists immediately and
-    pushes to Google in the BACKGROUND so the UI updates without a multi-second wait."""
+    pushes the changed session(s) to Google before reporting sync success."""
     date = body.get("date")
     if not date:
         return JSONResponse({"error": "date is required"}, status_code=400)
     if body.get("new_duration") is not None:
         return JSONResponse({"error": "Workout length is set by Coach Steve, not the calendar."}, status_code=400)
-    result = calendar_sync.move_session(
-        date, new_date=body.get("new_date"), new_start=body.get("new_start"), do_reconcile=False)
+    kind = str(body.get("session_kind") or "primary").lower()
+    if kind not in {"primary", "strength"}:
+        return JSONResponse({"error": "session_kind must be primary or strength"}, status_code=400)
+    mover = (calendar_sync.move_strength_session
+             if kind == "strength" else calendar_sync.move_session)
+    result = mover(
+        date, new_date=body.get("new_date"), new_start=body.get("new_start"),
+        do_reconcile=False)
     if not result.get("error"):
-        # Push ONLY the changed day(s) in the background — not a full 22-event sync.
+        # Synchronous push closes the stale-Google race: a reverse sync can no
+        # longer read the old event between the local save and this response.
         changed = result.get("changed") or [date]
-        threading.Thread(target=lambda: calendar_sync.push_days(changed), daemon=True).start()
+        result["google_sync"] = calendar_sync.push_days(changed)
     return JSONResponse(result, status_code=400 if result.get("error") else 200)
 
 

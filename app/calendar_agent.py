@@ -24,9 +24,10 @@ Output ONLY a JSON object, no prose around it:
 {"reply": "<one short sentence confirming what you did>", "actions": [ ... ]}
 
 Action types (use the exact date strings from CONTEXT; resolve "tomorrow/Friday/tonight" from `today`):
-- {"type":"move","date":"YYYY-MM-DD","new_date":"YYYY-MM-DD"(optional),"new_start":"HH:MM"(optional,24h)}
-    Reschedule a WORKOUT that currently sits on "date". Omit fields you aren't changing.
-    Moving onto a day that already has a workout SWAPS them.
+- {"type":"move","session_kind":"primary|strength","date":"YYYY-MM-DD","new_date":"YYYY-MM-DD"(optional),"new_start":"HH:MM"(optional,24h)}
+    Reschedule the matching PRIMARY workout or separate STRENGTH session currently on "date".
+    Omit fields you aren't changing. Moving onto a day with the same session_kind swaps those two;
+    a strength move never moves that date's primary run/ride.
 - {"type":"add_event","title":"...","date":"YYYY-MM-DD","start":"HH:MM","duration_min":<int>,"all_day":false}
     Add a timed personal event only when start and duration were explicitly provided. For an explicitly
     all-day event use all_day:true and omit start/duration. If either timed value is unknown, return no
@@ -52,6 +53,14 @@ def _context() -> str:
             lines.append(f"  {d['date']} {wd}: REST")
         else:
             lines.append(f"  {d['date']} {wd}: {d.get('discipline')} — {d.get('title')} "
+                         f"@ {d.get('start_time') or '?'} for {d.get('duration_min')}min")
+    strength = db.get_plan_strength_range(today.isoformat(), end)
+    if strength:
+        lines.append("")
+        lines.append("STRENGTH SESSIONS (separate from primary workouts):")
+        for d in strength:
+            wd = datetime.date.fromisoformat(d["date"]).strftime("%a")
+            lines.append(f"  {d['date']} {wd}: strength — {d.get('title')} "
                          f"@ {d.get('start_time') or '?'} for {d.get('duration_min')}min")
     ev = calendar_source.get_events(days=16)
     if ev.get("available") and ev.get("events"):
@@ -91,8 +100,30 @@ def command(text: str) -> dict[str, Any]:
         return {"reply": "I couldn't parse that — try rephrasing.", "actions": [], "applied": 0}
 
     actions = data.get("actions") or []
+    if not isinstance(actions, list) or any(not isinstance(a, dict) for a in actions):
+        return {"reply": "I couldn't safely parse that calendar change.",
+                "actions": [], "applied": 0}
+    allowed = {"move", "add_event", "delete_event", "rest"}
+    if any(a.get("type") not in allowed for a in actions):
+        return {"reply": "I couldn't safely parse that calendar change.",
+                "actions": [], "applied": 0}
+    for action in actions:
+        if action.get("type") in {"move", "rest"}:
+            try:
+                datetime.date.fromisoformat(str(action.get("date") or ""))
+            except ValueError:
+                return {"reply": "That workout date was invalid, so nothing changed.",
+                        "actions": [], "applied": 0}
+        if action.get("type") == "delete_event" and not str(action.get("match") or "").strip():
+            return {"reply": "Tell me which personal event to delete by name.",
+                    "actions": [], "applied": 0}
     if any(a.get("type") == "move" and a.get("new_duration") is not None for a in actions if isinstance(a, dict)):
         return {"reply": "Workout length stays fixed in Calendar — ask Coach Steve to change the session.",
+                "actions": [], "applied": 0}
+    if any(a.get("type") == "move"
+           and str(a.get("session_kind") or "primary").lower() not in {"primary", "strength"}
+           for a in actions if isinstance(a, dict)):
+        return {"reply": "I couldn't identify which workout type to move.",
                 "actions": [], "applied": 0}
     for action in actions:
         if not isinstance(action, dict) or action.get("type") != "add_event":
@@ -109,29 +140,35 @@ def command(text: str) -> dict[str, Any]:
                 "actions": [], "applied": 0,
             }
     done: list[str] = []
+    applied = 0
     touched: list[str] = []   # workout dates that need pushing to Google
     for a in actions:
         try:
             done.append(_apply(a, touched))
+            applied += 1
         except Exception as e:  # noqa: BLE001
             done.append(f"⚠ couldn't apply {a.get('type')}: {e}")
 
     # Push ONLY the workout days we changed (add/delete events already hit Google
     # directly) — no slow full reconcile.
-    if touched:
-        calendar_sync.push_days(touched)
+    google_sync = calendar_sync.push_days(touched) if touched else None
 
     return {"reply": data.get("reply") or "Done.", "actions": actions,
-            "applied": len(done), "details": done}
+            "applied": applied, "details": done, "google_sync": google_sync}
 
 
 def _apply(a: dict[str, Any], touched: list[str]) -> str:
     t = a.get("type")
     if t == "move":
-        r = calendar_sync.move_session(a["date"], new_date=a.get("new_date"),
-                                       new_start=a.get("new_start"), do_reconcile=False)
+        kind = str(a.get("session_kind") or "primary").lower()
+        mover = (calendar_sync.move_strength_session
+                 if kind == "strength" else calendar_sync.move_session)
+        r = mover(a["date"], new_date=a.get("new_date"),
+                  new_start=a.get("new_start"), do_reconcile=False)
+        if r.get("error"):
+            raise RuntimeError(r["error"])
         touched.extend(r.get("changed") or [a["date"]])
-        return f"moved {a['date']}"
+        return f"moved {kind} session {a['date']}"
     if t == "rest":
         from .calendar_sync import _REST, _utcnow
         rest = dict(_REST); rest["pos_updated_at"] = _utcnow()

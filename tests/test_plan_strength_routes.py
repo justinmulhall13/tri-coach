@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from app import config, db, main, suggest
+from app import calendar_sync, config, db, main, suggest
 
 
 ROUTINE = {
@@ -26,9 +26,15 @@ class PlanStrengthRouteTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         db._DB_PATH = pathlib.Path(self._tmp.name) / "routes.db"
         db._local = threading.local()
+        self._calendar_push = patch.object(
+            calendar_sync, "push_days",
+            return_value={"connected": False, "pushed": 0, "errors": None},
+        )
+        self._calendar_push.start()
         self.client = TestClient(main.app)
 
     def tearDown(self) -> None:
+        self._calendar_push.stop()
         connection = getattr(db._local, "conn", None)
         if connection is not None:
             connection.close()

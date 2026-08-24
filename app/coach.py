@@ -333,6 +333,17 @@ PROPOSAL — the athlete taps to confirm; don't claim it's added.
 {"title": "Driving range", "date": "YYYY-MM-DD", "start": "18:00", "duration_min": 90, "all_day": false}
 ```
 
+CALENDAR EDITS: when the athlete explicitly asks in Coach chat to move/reschedule an existing \
+workout, change its start time, make a date a rest day, or delete an existing personal event, \
+append the block below with a concise self-contained instruction. This is a PROPOSAL: the athlete \
+taps Apply before anything changes. Do not claim it already happened. Use this instead of an \
+`adjustment` when only date/time placement changes; workout contents still use adjustment/weekplan. \
+An add-new commitment with exact date/time/duration continues to use `calendar_event`, not both.
+
+```calendar_command
+{"text": "Move my easy run from 2026-08-25 to 2026-08-26 at 06:30"}
+```
+
 REMEMBER (decide yourself what matters): if the athlete shares a DURABLE, training-relevant fact — \
 availability ("only mornings this week"), fatigue/niggles ("left achilles a bit sore"), travel, \
 work constraints, equipment ("no pool access till Friday"), preferences — append the block below so \
@@ -830,6 +841,7 @@ _ADJ_RE = re.compile(r"```adjustment\s*(\{.*?\})\s*```", re.DOTALL)
 _WEEK_RE = re.compile(r"```weekplan\s*(\[.*?\])\s*```", re.DOTALL)
 _ACT_RE = re.compile(r"```logactivity\s*(\[.*?\]|\{.*?\})\s*```", re.DOTALL)
 _EVENT_RE = re.compile(r"```calendar_event\s*(\{.*?\})\s*```", re.DOTALL)
+_CAL_CMD_RE = re.compile(r"```calendar_command\s*(\{.*?\})\s*```", re.DOTALL)
 _REMEMBER_RE = re.compile(r"```remember\s*(\{.*?\})\s*```", re.DOTALL)
 _SCHEDULE_RE = re.compile(r"```schedule_constraints\s*(\[.*?\])\s*```", re.DOTALL)
 _PROFILE_RE = re.compile(r"```event_profile\s*(\{.*?\})\s*```", re.DOTALL)
@@ -1034,6 +1046,21 @@ def _extract_event(text: str) -> dict[str, Any] | None:
     elif ev.get("start"):
         return None
     return ev
+
+
+def _extract_calendar_command(text: str) -> dict[str, str] | None:
+    """Parse a confirm-before-write calendar edit proposed by Coach."""
+    match = _CAL_CMD_RE.search(text or "")
+    if not match:
+        return None
+    try:
+        payload = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    command = str(payload.get("text") or "").strip() if isinstance(payload, dict) else ""
+    if not command or len(command) > 500:
+        return None
+    return {"text": command}
 
 
 def _extract_event_profile(text: str) -> dict[str, Any] | None:
@@ -1637,6 +1664,7 @@ def _finish_chat(user_message: str, today: str, msg: Any, *,
         week = _normalize_generated_weekplan(week)
     activities = _extract_activities(reply)
     event = _extract_event(reply)
+    calendar_command = _extract_calendar_command(reply)
     event_profile = _extract_event_profile(reply)
     hevy_routine, hevy_notes = _extract_hevy_routine(reply)
     remember = _extract_remember(reply)
@@ -1679,7 +1707,7 @@ def _finish_chat(user_message: str, today: str, msg: Any, *,
     if remember:
         db.add_constraint(today, remember)
     # Strip the machine blocks from the human-facing reply.
-    reply_clean = _HEVY_RE.sub("", _PROFILE_RE.sub("", _SCHEDULE_RE.sub("", _REMEMBER_RE.sub("", _EVENT_RE.sub("", _ACT_RE.sub("", _WEEK_RE.sub("", _ADJ_RE.sub("", reply)))))))).strip()
+    reply_clean = _HEVY_RE.sub("", _PROFILE_RE.sub("", _SCHEDULE_RE.sub("", _REMEMBER_RE.sub("", _CAL_CMD_RE.sub("", _EVENT_RE.sub("", _ACT_RE.sub("", _WEEK_RE.sub("", _ADJ_RE.sub("", reply))))))))).strip()
     reply_clean = _sanitize_visible_reply(reply_clean)
 
     # Only the deterministic confirm path may say a switch is active. Model
@@ -1720,6 +1748,8 @@ def _finish_chat(user_message: str, today: str, msg: Any, *,
             reply_clean = "Reshaped your week — review and accept it below."
         elif event:
             reply_clean = "Want me to add that to your calendar? Confirm below."
+        elif calendar_command:
+            reply_clean = "I can make that calendar change after you confirm below."
         elif adjustment:
             reply_clean = "Here's the change — accept it below to lock it in."
         elif hevy_routine:
@@ -1743,6 +1773,7 @@ def _finish_chat(user_message: str, today: str, msg: Any, *,
         "plan_draft": plan_draft,
         "proposed_activities": activities,
         "proposed_event": event,
+        "proposed_calendar_command": calendar_command,
         "saved_schedule_constraints": saved_schedule_constraints,
         "schedule_constraints_saved": (
             None if schedule_constraints is None else schedule_error is None),

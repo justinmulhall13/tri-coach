@@ -106,6 +106,8 @@ CREATE TABLE IF NOT EXISTS plan_strength (
     effort_level     TEXT,                      -- heavy | moderate | light | skip
     effort_cue       TEXT,
     hevy_routine_id  TEXT,                      -- set once actually created in Hevy
+    gcal_event_id    TEXT,                      -- independent Google event for this lift
+    pos_updated_at   TEXT,                      -- most recent app/Google position change
     source           TEXT NOT NULL DEFAULT 'coach',
     created_at       TEXT NOT NULL,
     updated_at       TEXT NOT NULL,
@@ -241,7 +243,8 @@ _MIGRATIONS = {
     # make it a complete, independently openable workout record.
     "plan_strength": [("duration_min", "INTEGER"), ("intensity", "TEXT"),
                       ("structure", "TEXT NOT NULL DEFAULT '{}'"), ("why", "TEXT"),
-                      ("start_time", "TEXT")],
+                      ("start_time", "TEXT"), ("gcal_event_id", "TEXT"),
+                      ("pos_updated_at", "TEXT")],
 }
 
 
@@ -1226,8 +1229,9 @@ def _write_plan_strength(connection: sqlite3.Connection, profile_id: str,
     connection.execute(
         """INSERT INTO plan_strength (event_profile_id, date, slot, title,
                routine_json, duration_min, intensity, structure, why, start_time,
-               effort_level, effort_cue, hevy_routine_id, source, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               effort_level, effort_cue, hevy_routine_id, gcal_event_id,
+               pos_updated_at, source, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(event_profile_id, date) DO UPDATE SET
                slot=excluded.slot, title=excluded.title,
                routine_json=excluded.routine_json,
@@ -1240,11 +1244,16 @@ def _write_plan_strength(connection: sqlite3.Connection, profile_id: str,
                effort_cue=excluded.effort_cue,
                hevy_routine_id=COALESCE(excluded.hevy_routine_id,
                                         plan_strength.hevy_routine_id),
+               gcal_event_id=COALESCE(excluded.gcal_event_id,
+                                      plan_strength.gcal_event_id),
+               pos_updated_at=COALESCE(excluded.pos_updated_at,
+                                       plan_strength.pos_updated_at),
                source=excluded.source, updated_at=excluded.updated_at""",
         (profile_id, date, slot, str(day.get("title") or "Strength"),
          routine_json, day.get("duration_min"), day.get("intensity"), structure_json,
          day.get("why"), day.get("start_time"), day.get("effort_level"),
          day.get("effort_cue"), day.get("hevy_routine_id"),
+         day.get("gcal_event_id"), day.get("pos_updated_at"),
          str(day.get("source") or "coach"), now, now),
     )
 
@@ -1328,6 +1337,104 @@ def get_plan_strength_range(start: str, end: str) -> list[dict[str, Any]]:
         (_active_profile_id(), start, end),
     ).fetchall()
     return [_row_to_strength(r) for r in rows]
+
+
+def set_plan_strength_calendar_fields(date: str, *,
+                                      start_time: str | None = None,
+                                      gcal_event_id: str | None = None,
+                                      pos_updated_at: str | None = None,
+                                      clear_event_id: bool = False) -> dict[str, Any] | None:
+    """Update only calendar-owned fields without replacing the lift prescription."""
+    import datetime
+    fields: list[str] = []
+    values: list[Any] = []
+    if start_time is not None:
+        fields.append("start_time=?")
+        values.append(start_time)
+    if gcal_event_id is not None or clear_event_id:
+        fields.append("gcal_event_id=?")
+        values.append(gcal_event_id)
+    if pos_updated_at is not None:
+        fields.append("pos_updated_at=?")
+        values.append(pos_updated_at)
+    if not fields:
+        return get_plan_strength(date)
+    fields.append("updated_at=?")
+    values.append(datetime.datetime.now(datetime.timezone.utc).isoformat())
+    values.extend((_active_profile_id(), date))
+    with _conn() as conn:
+        conn.execute(
+            f"UPDATE plan_strength SET {', '.join(fields)} "
+            "WHERE event_profile_id=? AND date=?",
+            values,
+        )
+    return get_plan_strength(date)
+
+
+def move_plan_strength(date: str, new_date: str | None = None,
+                       new_start: str | None = None,
+                       pos_updated_at: str | None = None) -> list[str]:
+    """Move/swap a lift independently of the primary workout on either date."""
+    import datetime
+    c = _conn()
+    profile_id = _active_profile_id(c)
+    target = new_date or date
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    pts = pos_updated_at or now
+    try:
+        c.execute("BEGIN IMMEDIATE")
+        src_row = c.execute(
+            "SELECT * FROM plan_strength WHERE event_profile_id=? AND date=?",
+            (profile_id, date),
+        ).fetchone()
+        if not src_row:
+            c.rollback()
+            raise ValueError(f"no strength session for {date}")
+        src = _row_to_strength(src_row)
+        if target == date:
+            if new_start is not None:
+                c.execute(
+                    """UPDATE plan_strength SET start_time=?,pos_updated_at=?,
+                       source='edited',updated_at=? WHERE event_profile_id=? AND date=?""",
+                    (new_start, pts, now, profile_id, date),
+                )
+            c.commit()
+            return [date]
+
+        dst_row = c.execute(
+            "SELECT * FROM plan_strength WHERE event_profile_id=? AND date=?",
+            (profile_id, target),
+        ).fetchone()
+        dst = _row_to_strength(dst_row) if dst_row else None
+        if dst is None:
+            moved = {**src, "date": target, "start_time": new_start or src.get("start_time"),
+                     "pos_updated_at": pts, "source": "edited"}
+            _write_plan_strength(c, profile_id, moved, now)
+            c.execute(
+                "DELETE FROM plan_strength WHERE event_profile_id=? AND date=?",
+                (profile_id, date),
+            )
+        else:
+            # Calendar identity stays with each date; the lift prescriptions swap.
+            src_calendar = {
+                "date": date, "start_time": src.get("start_time"),
+                "gcal_event_id": src.get("gcal_event_id"),
+            }
+            dst_calendar = {
+                "date": target, "start_time": new_start or dst.get("start_time"),
+                "gcal_event_id": dst.get("gcal_event_id"),
+            }
+            _write_plan_strength(c, profile_id, {
+                **src, **dst_calendar, "pos_updated_at": pts, "source": "edited",
+            }, now)
+            _write_plan_strength(c, profile_id, {
+                **dst, **src_calendar, "pos_updated_at": pts, "source": "edited",
+            }, now)
+        c.commit()
+    except Exception:
+        c.rollback()
+        raise
+    return [date, target]
 
 
 def delete_plan_strength(date: str) -> bool:

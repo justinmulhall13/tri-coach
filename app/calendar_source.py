@@ -22,6 +22,7 @@ SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 # Marker keys on events we own.
 TRICOACH_KEY = "triCoach"
 TRICOACH_DATE_KEY = "triCoachDate"
+TRICOACH_KIND_KEY = "triCoachKind"
 TARGET_CALENDAR = "primary"
 
 _DISC_EMOJI = {"swim": "🏊", "bike": "🚴", "run": "👟", "brick": "🚴👟",
@@ -125,9 +126,9 @@ def todays_availability(events: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 # --- Write layer (workout events) --------------------------------------------
-def _event_body(day: dict[str, Any]) -> dict[str, Any]:
-    """Build a Google event body from a plan day."""
-    disc = day.get("discipline") or "other"
+def _event_body(day: dict[str, Any], session_kind: str = "primary") -> dict[str, Any]:
+    """Build one Google event body for a primary workout or separate lift."""
+    disc = "strength" if session_kind == "strength" else (day.get("discipline") or "other")
     emoji = _DISC_EMOJI.get(disc, "•")
     title = day.get("title") or disc
     summary = f"{emoji} {title}".strip()
@@ -146,7 +147,11 @@ def _event_body(day: dict[str, Any]) -> dict[str, Any]:
     body: dict[str, Any] = {
         "summary": summary,
         "description": description,
-        "extendedProperties": {"private": {TRICOACH_KEY: "1", TRICOACH_DATE_KEY: day["date"]}},
+        "extendedProperties": {"private": {
+            TRICOACH_KEY: "1",
+            TRICOACH_DATE_KEY: day["date"],
+            TRICOACH_KIND_KEY: session_kind,
+        }},
         "transparency": "transparent",  # doesn't block your free/busy
         "reminders": {"useDefault": False},
     }
@@ -171,13 +176,13 @@ def _event_body(day: dict[str, Any]) -> dict[str, Any]:
     return body
 
 
-def upsert_workout_event(day: dict[str, Any]) -> dict[str, Any]:
-    """Create or patch the Google event for a plan day. Returns {event_id} or {error}."""
+def upsert_workout_event(day: dict[str, Any], session_kind: str = "primary") -> dict[str, Any]:
+    """Create or patch one independently identifiable workout event."""
     try:
         service = _get_service()
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
-    body = _event_body(day)
+    body = _event_body(day, session_kind=session_kind)
     eid = day.get("gcal_event_id")
     try:
         if eid:
@@ -278,7 +283,8 @@ def list_workout_events(days: int = 60) -> dict[str, Any]:
         all_ids.append(eid)
         d = props.get(TRICOACH_DATE_KEY)
         if d:
-            by_date[d] = eid
+            kind = props.get(TRICOACH_KIND_KEY) or "primary"
+            by_date[f"{d}:{kind}"] = eid
     return {"by_date": by_date, "all": all_ids}
 
 
@@ -311,6 +317,7 @@ def fetch_workout_events(days: int = 40) -> dict[str, Any]:
                 events.append({
                     "id": ev.get("id"),
                     "plan_date": props.get(TRICOACH_DATE_KEY),
+                    "session_kind": props.get(TRICOACH_KIND_KEY) or "primary",
                     "start": s.get("dateTime") or s.get("date"),
                     "all_day": "date" in s,
                     "updated": ev.get("updated"),

@@ -3014,6 +3014,34 @@ function addCalendarEvent(ev){
   };
   $("chatlog").appendChild(c); $("chatlog").scrollTop=$("chatlog").scrollHeight;
 }
+function addCalendarCommand(command){
+  const text=String(command&&command.text||"").trim(); if(!text) return;
+  const c=document.createElement("div"); c.className="adjcard";
+  c.innerHTML=`<div class="t">📅 Proposed calendar edit</div>
+    <div class="d">${esc(text)}</div>
+    <div class="note cal-proposal-status"></div>
+    <button class="primary">Apply calendar change</button>`;
+  c.querySelector("button").onclick=async()=>{
+    const btn=c.querySelector("button"), status=c.querySelector(".cal-proposal-status");
+    btn.disabled=true; btn.textContent="Applying…"; status.textContent="";
+    try{
+      const r=await j("/api/calendar/command",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text})});
+      if(r.error){ btn.textContent="Try again"; btn.disabled=false; status.textContent=r.error; return; }
+      const sync=r.google_sync||{};
+      status.textContent=(r.reply||"Calendar updated.")+
+        (sync.connected===false?" Saved in Tri Coach; Google is not connected.":
+         (sync.errors&&sync.errors.length)?" Saved in Tri Coach; Google sync needs retry.":"");
+      if(r.applied){
+        btn.textContent="✓ Calendar updated";
+        loadDashboard();
+        if($("main-calendar").style.display!=="none") loadCalendar();
+      }else{
+        btn.textContent="Needs more detail";
+      }
+    }catch(e){ btn.textContent="Try again"; btn.disabled=false; status.textContent=e.message; }
+  };
+  $("chatlog").appendChild(c); $("chatlog").scrollTop=$("chatlog").scrollHeight;
+}
 function addWeekPlan(days,planId=null,options={}){
   if(!days||!days.length) return;
   const id=planId==null?null:String(planId);
@@ -3225,7 +3253,7 @@ function setCoachThinkingStatus(el,message){
   if(status) status.textContent=message||"Steve is thinking";
 }
 function visibleCoachDraft(text){
-  const cut=String(text||"").search(/(?:^|\n)```(?:adjustment|weekplan|logactivity|calendar_event|remember|schedule_constraints)\b/i);
+  const cut=String(text||"").search(/(?:^|\n)```(?:adjustment|weekplan|logactivity|calendar_event|calendar_command|remember|schedule_constraints)\b/i);
   return (cut<0?String(text||""):String(text||"").slice(0,cut)).trimStart();
 }
 async function streamCoachMessage(text,onEvent){
@@ -3427,6 +3455,7 @@ async function send(){
     if(r.proposed_hevy_routine) addHevyRoutine(r.proposed_hevy_routine,r.hevy_operation_id,r.hevy_routine_view);
     if(r.proposed_activities) addActivityLog(r.proposed_activities);
     if(r.proposed_event) addCalendarEvent(r.proposed_event);
+    if(r.proposed_calendar_command) addCalendarCommand(r.proposed_calendar_command);
   }catch(e){
     if(epoch===_coachSessionEpoch){ thinking.className="msg error"; thinking.textContent=e.message+(e.hint?("\n→ "+e.hint):""); }
   }finally{
@@ -4492,11 +4521,12 @@ function renderCalToolbar(){
 // in the background — the tab never blocks on the multi-second Google round-trip.
 function syncAndLoadCalendar(){
   loadCalendar();          // instant paint from /api/plan + /api/calendar
-  backgroundSync();        // pull Google edits + push, quietly, without blocking
+  backgroundSync(true);    // pull Google edits + push, quietly, without blocking
 }
-let _bgSyncing=false;
-async function backgroundSync(){
-  if(_bgSyncing) return; _bgSyncing=true;
+let _bgSyncing=false, _lastBgSyncAt=0;
+async function backgroundSync(force=false){
+  if(_bgSyncing||(!force&&Date.now()-_lastBgSyncAt<30000)) return;
+  _bgSyncing=true; _lastBgSyncAt=Date.now();
   setCalStatus("syncing…");
   try{
     const r=await j("/api/calendar/sync",{method:"POST"});
@@ -4505,13 +4535,25 @@ async function backgroundSync(){
       const pulled=r.pulled||0;
       setCalStatus(pulled? `pulled ${pulled} change${pulled===1?"":"s"} from Google` : "up to date with Google");
       if(pulled){ // only re-render if Google actually changed something
-        const [cal,plan]=await Promise.all([j("/api/calendar?days=7"), j("/api/plan")]);
+        const w=_calWindow();
+        const [cal,plan]=await Promise.all([
+          j(`/api/calendar?days=${w.days}&start=${w.start}`),
+          j(`/api/plan?start=${w.start}&end=${_addDays(w.start,w.days-1)}`)]);
         renderCalendar(cal, plan); renderPlan(plan);
       }
     }
   }catch(e){ setCalStatus("", false); }
   finally{ _bgSyncing=false; }
 }
+// Keep Google edits flowing back while Calendar is open, and catch up promptly
+// after the app returns from the background. Debouncing avoids duplicate pulls.
+setInterval(()=>{ if(_currentView==="calendar"&&!document.hidden) backgroundSync(); },60000);
+document.addEventListener("visibilitychange",()=>{
+  if(!document.hidden&&_currentView==="calendar") backgroundSync();
+});
+window.addEventListener("focus",()=>{
+  if(_currentView==="calendar") backgroundSync();
+});
 let _calCal=null, _calPlan=null, _calWorkouts={}, _calStrength={};
 function renderCalendar(cal, plan){
   const body=$("cal-body");
@@ -4586,14 +4628,14 @@ function renderCalendar(cal, plan){
       const sMin=_toMin(w.start_time)!=null?_toMin(w.start_time):_toMin(_fallbackStart(dt,w.duration_min));
       const dur=w.duration_min||60;
       const icons=dayIcons(w);
-      evs+=`<div class="cg-ev wo" data-date="${dt}" data-dur="${dur}" data-min="${sMin}" style="top:${topOf(sMin)}px;height:${Math.max(24,dur/60*CAL_HOURPX)}px">
+      evs+=`<div class="cg-ev wo" data-session-kind="primary" data-date="${dt}" data-dur="${dur}" data-min="${sMin}" style="top:${topOf(sMin)}px;height:${Math.max(24,dur/60*CAL_HOURPX)}px">
         <div class="evt">${icons} ${fmt(w.title)}</div><div class="evtime">${_fmtClock(sMin)} · ${dur}m</div></div>`;
     }
     const lift=strength[dt];
     if(lift){
       const liftMin=_toMin(lift.start_time)!=null?_toMin(lift.start_time):17*60;
       const liftDur=lift.duration_min||45;
-      evs+=`<div class="cg-ev strength-session" data-date="${dt}" style="top:${topOf(liftMin)}px;height:${Math.max(24,liftDur/60*CAL_HOURPX)}px">
+      evs+=`<div class="cg-ev wo strength-session" data-session-kind="strength" data-date="${dt}" data-dur="${liftDur}" data-min="${liftMin}" style="top:${topOf(liftMin)}px;height:${Math.max(24,liftDur/60*CAL_HOURPX)}px">
         <div class="evt">${DISC_ICON.strength} ${fmt(lift.title||"Strength")}</div><div class="evtime">${_fmtClock(liftMin)} · ${liftDur}m</div></div>`;
     }
     cols+=`<div class="cg-col" data-date="${dt}" style="height:${colH}px">${lines}${band}${evs}</div>`;
@@ -4602,9 +4644,6 @@ function renderCalendar(cal, plan){
   body.innerHTML=`<div class="calgrid-wrap"><div class="calgrid">${head}${lane}
     <div class="calgrid-body">${times}${cols}</div></div></div>`;
   _wireCalDrag();
-  body.querySelectorAll(".strength-session").forEach(el=>{
-    el.onclick=()=>openStrengthDetail(_calStrength[el.dataset.date]);
-  });
 }
 
 // --- Month grid (desktop "normal calendar") ---------------------------------
@@ -4679,7 +4718,24 @@ function renderCalAgenda(cal, plan){
 
 // Optimistically mirror a move in the local plan so the grid re-renders instantly.
 // Duration is deliberately immutable here; changing it also changes the prescription.
-function _applyMoveLocal(fromDate, toDate, newStart){
+function _applyMoveLocal(fromDate, toDate, newStart, sessionKind="primary"){
+  if(sessionKind==="strength"){
+    const days=(_calPlan&&_calPlan.strength_days)||[];
+    const src=days.find(d=>d.date===fromDate); if(!src) return;
+    if(!toDate||toDate===fromDate){ if(newStart) src.start_time=newStart; return; }
+    const dst=days.find(d=>d.date===toDate);
+    const sf=d=>({slot:d.slot,title:d.title,routine:d.routine,duration_min:d.duration_min,
+      intensity:d.intensity,structure:d.structure,why:d.why,effort_level:d.effort_level,
+      effort_cue:d.effort_cue,hevy_routine_id:d.hevy_routine_id,source:d.source,discipline:"strength"});
+    const srcSess=sf(src);
+    if(!dst){ src.date=toDate; src.start_time=newStart||src.start_time; }
+    else{
+      const dstSess=sf(dst);
+      Object.assign(dst,srcSess,{start_time:newStart||dst.start_time});
+      Object.assign(src,dstSess);
+    }
+    return;
+  }
   const days=(_calPlan&&_calPlan.days)||[];
   const src=days.find(d=>d.date===fromDate); if(!src) return;
   if(!toDate || toDate===fromDate){ if(newStart) src.start_time=newStart; return; }
@@ -4699,7 +4755,13 @@ async function _postMove(payload){
   try{
     const r=await j("/api/workout/move",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
     if(r.error){ setCalStatus("Couldn't save: "+r.error,true); loadCalendar(); }
-    else{ setCalStatus("Saved · syncing to Google"); j("/api/plan").then(p=>{ _calPlan=p; renderPlan(p); }); }
+    else{
+      const sync=r.google_sync||{};
+      if(sync.connected===false) setCalStatus("Saved in Tri Coach · Google is not connected",true);
+      else if(sync.errors&&sync.errors.length) setCalStatus("Saved in Tri Coach · Google sync needs retry",true);
+      else setCalStatus("Saved · synced to Google");
+      j("/api/plan").then(p=>{ _calPlan=p; renderPlan(p); });
+    }
   }catch(err){ setCalStatus("Error: "+err.message,true); loadCalendar(); }
 }
 // Pointer interactions on a workout block: drag to reschedule, tap to preview.
@@ -4708,10 +4770,12 @@ function _wireCalDrag(){
   document.querySelectorAll(".cg-ev.wo").forEach(el=>{
     el.addEventListener("pointerdown",(e)=>{
       e.preventDefault();
-      const fromDate=el.dataset.date, dur=+el.dataset.dur||60, sMin=+el.dataset.min||360;
+      const fromDate=el.dataset.date, sessionKind=el.dataset.sessionKind||"primary";
+      const dur=+el.dataset.dur||60, sMin=+el.dataset.min||360;
       const cols=[...document.querySelectorAll(".cg-col")].map(c=>{ const r=c.getBoundingClientRect();
         return {date:c.dataset.date, left:r.left, right:r.right, top:r.top}; });
       const startX=e.clientX, startY=e.clientY;
+      const grabOffsetY=e.clientY-el.getBoundingClientRect().top;
       let moved=false, curDate=fromDate, curMin=sMin;
       el.classList.add("dragging"); el.setPointerCapture(e.pointerId);
       const tt=el.querySelector(".evtime");
@@ -4721,27 +4785,38 @@ function _wireCalDrag(){
         el.style.transform=`translate(${dx}px,${dy}px)`;
         const col=cols.find(c=>ev.clientX>=c.left&&ev.clientX<c.right)||cols.find(c=>c.date===fromDate);
         curDate=col.date;
-        let min=CAL_START_H*60+Math.round(((ev.clientY-col.top)/CAL_HOURPX*60)/15)*15;
-        curMin=Math.max(CAL_START_H*60, Math.min(min, CAL_END_H*60-15));
+        let min=CAL_START_H*60+Math.round((((ev.clientY-grabOffsetY)-col.top)/CAL_HOURPX*60)/15)*15;
+        curMin=Math.max(CAL_START_H*60, Math.min(min, CAL_END_H*60-dur));
         if(tt) tt.textContent=`${_fmtClock(curMin)} · ${dur}m`;
       };
-      const onUp=(ev)=>{
-        el.releasePointerCapture(e.pointerId);
+      const cleanup=(ev)=>{
+        try{ if(el.hasPointerCapture(ev.pointerId)) el.releasePointerCapture(ev.pointerId); }catch(_e){}
         el.removeEventListener("pointermove",onMove);
         el.removeEventListener("pointerup",onUp);
+        el.removeEventListener("pointercancel",onCancel);
         el.classList.remove("dragging"); el.style.transform="";
+      };
+      const onCancel=(ev)=>{
+        cleanup(ev);
+        renderCalendar(_calCal,_calPlan);
+      };
+      const onUp=(ev)=>{
+        cleanup(ev);
         if(!moved){
           // A tap — open the same detail sheet as the Training cards.
-          openDayDetail(_calWorkouts[fromDate]);
+          if(sessionKind==="strength") openStrengthDetail(_calStrength[fromDate]);
+          else openDayDetail(_calWorkouts[fromDate]);
           return;
         }
         const newStart=_fmtMin(curMin), changedDay=curDate!==fromDate;
-        _applyMoveLocal(fromDate, changedDay?curDate:null, newStart);
+        _applyMoveLocal(fromDate, changedDay?curDate:null, newStart, sessionKind);
         renderCalendar(_calCal, _calPlan);   // instant, correct position — no glitch
-        _postMove({date:fromDate, new_date:changedDay?curDate:undefined, new_start:newStart});
+        _postMove({date:fromDate, session_kind:sessionKind,
+          new_date:changedDay?curDate:undefined, new_start:newStart});
       };
       el.addEventListener("pointermove",onMove);
       el.addEventListener("pointerup",onUp);
+      el.addEventListener("pointercancel",onCancel);
     });
   });
 }
@@ -4754,7 +4829,11 @@ async function runCalCommand(){
     const r=await j("/api/calendar/command",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:t})});
     if(r.error){ setCalStatus(r.error,true); }
     else{
-      setCalStatus((r.applied? "✓ ":"") + (r.reply||"done"));
+      const sync=r.google_sync||{};
+      const suffix=sync.connected===false?" · Google not connected":
+        (sync.errors&&sync.errors.length)?" · Google sync needs retry":"";
+      setCalStatus((r.applied? "✓ ":"") + (r.reply||"done") + suffix,
+        sync.connected===false||!!(sync.errors&&sync.errors.length));
       inp.value="";
       if(r.applied){ loadCalendar(); j("/api/plan").then(renderPlan); }
     }
