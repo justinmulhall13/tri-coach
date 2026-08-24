@@ -2461,7 +2461,7 @@ function splitSessions(s){
   (Array.isArray(w.secondary_sessions)?w.secondary_sessions:[]).forEach(session=>{
     if(!session||typeof session!=="object") return;
     const disc=String(session.discipline||"strength").toLowerCase();
-    out.push({kind:disc,disc,title:session.title||"Strength",dur:session.duration_min,
+    out.push({kind:disc,disc,title:session.title||"Additional workout",dur:session.duration_min,
       intensity:session.intensity||session.effort_cue||session.effort_level,
       structure:_strengthStructure(session),why:session.why||session.effort_cue});
   });
@@ -2560,7 +2560,8 @@ function closeWorkoutDetail(){ $("wo-overlay").classList.remove("open"); }
 function openDayDetail(planDay){
   if(!planDay) return;
   _woDay={ suggestion: planDay, completed:null, notes:[],
-           _planDate: planDay.date, _startTime: planDay.start_time, _durMin: planDay.duration_min };
+           _planDate: planDay.date, _startTime: planDay.start_time,
+           _durMin: planDay.duration_min, _sessionKind:"primary" };
   _woSessions=splitSessions(_woDay);
   openWorkoutDetail(0);
 }
@@ -2581,7 +2582,19 @@ function openStrengthDetail(lift){
   const x={kind:"strength",disc:"strength",title:lift.title||"Strength",
     dur:lift.duration_min,intensity:lift.intensity||lift.effort_cue||lift.effort_level||"strength",
     structure:_strengthStructure(lift),why:lift.why||lift.effort_cue};
-  _woDay={suggestion:x,completed:null,notes:[],_planDate:lift.date};
+  _woDay={suggestion:x,completed:null,notes:[],_planDate:lift.date,
+          _startTime:lift.start_time,_durMin:lift.duration_min,_sessionKind:"strength"};
+  _woSessions=[x];
+  openWorkoutDetail(0);
+}
+function openSecondaryDetail(session){
+  if(!session) return;
+  const x={kind:"secondary",disc:session.discipline||"other",
+    title:session.title||"Additional workout",dur:session.duration_min,
+    intensity:session.intensity,structure:session.structure||{},why:session.why};
+  _woDay={suggestion:x,completed:null,notes:[],_planDate:session.date,
+    _startTime:session.start_time,_durMin:session.duration_min,
+    _sessionKind:"secondary",_sessionId:session.id};
   _woSessions=[x];
   openWorkoutDetail(0);
 }
@@ -2592,11 +2605,14 @@ async function _schedChange(){
   $("wo-sched-status").textContent="saving…"; $("wo-sched-status").className="note";
   try{
     const r=await j("/api/workout/move",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({date, new_start:ns, new_date:(nd&&nd!==date)?nd:undefined})});
+      body:JSON.stringify({date, session_kind:_woDay._sessionKind||"primary",
+        session_id:_woDay._sessionId, new_start:ns,
+        new_date:(nd&&nd!==date)?nd:undefined})});
     if(r.error){ $("wo-sched-status").textContent="couldn't save"; $("wo-sched-status").className="note flag"; return; }
     $("wo-sched-status").textContent="✓ saved · syncing to Google";
     // Keep the sheet's notion of the day current (day may have moved).
-    const moved=(r.days||[]).find(d=>d.date===(nd||date))||(r.days||[])[0];
+    const records=r.sessions||r.days||[];
+    const moved=records.find(d=>d&&d.date===(nd||date))||records[0];
     if(moved){ _woDay._planDate=moved.date; _woDay._startTime=moved.start_time; }
     refreshPlanEverywhere();
   }catch(e){ $("wo-sched-status").textContent="error"; $("wo-sched-status").className="note flag"; }
@@ -2845,6 +2861,8 @@ function renderPlan(p){
   _planDays={}; days.forEach(d=>_planDays[d.date]=d);
   _planStrength={};
   (p.strength_days||[]).forEach(d=>{ _planStrength[d.date]=d; });
+  _planSecondary={};
+  (p.secondary_sessions||[]).forEach(s=>{ _planSecondary[s.id]=s; });
   $("plan").innerHTML=`<div class="cal">${days.map(d=>{
     const disc=dayDiscList(d)[0]||"other", icon=(DISC_ICON[disc]||DISC_ICON.other);
     const dt=new Date(d.date+"T00:00:00"), isToday=d.date===today;
@@ -2868,6 +2886,7 @@ function renderPlan(p){
   $("plan").querySelectorAll(".cday .cprimary").forEach(button=>{
     button.onclick=()=>{ const c=button.closest(".cday"),d=_planDays[c.dataset.date]; if(d) openDayDetail(d); else openPlanPreview(c.dataset.date); };
   });
+  renderPlanSecondary(p.secondary_sessions||[]);
   if(Array.isArray(p.strength_days)) renderPlanStrength();
   else decoratePlanStrength(days);
 }
@@ -2876,6 +2895,22 @@ function renderPlan(p){
 // row per date; a lift that shares a day with a run is stored alongside it and
 // drawn underneath rather than competing for the same tile.
 let _planStrength={};
+let _planSecondary={};
+function renderPlanSecondary(sessions){
+  (sessions||[]).forEach(s=>{
+    const cell=$("plan").querySelector(`.cday[data-date="${CSS.escape(s.date)}"]`);
+    const host=cell&&cell.querySelector(".csecondaries");
+    if(!host||host.querySelector(`[data-secondary-id="${CSS.escape(String(s.id))}"]`)) return;
+    const time=s.start_time?`${_fmtClock(_toMin(s.start_time))} · `:"";
+    const el=document.createElement("button");
+    el.type="button"; el.className="clift csecondary"; el.dataset.secondaryId=s.id;
+    el.innerHTML=`<span class="cicon">${DISC_ICON[s.discipline]||DISC_ICON.other}</span>`+
+      `<span class="clifttxt">${esc(String(s.title||"Additional workout"))}</span>`+
+      `<span class="cliftmeta">${esc(time+String(s.duration_min||""))} min</span>`;
+    el.onclick=()=>openSecondaryDetail(s);
+    host.appendChild(el);
+  });
+}
 async function decoratePlanStrength(days){
   if(!days||!days.length) return;
   const start=days[0].date, end=days[days.length-1].date;
@@ -2890,7 +2925,7 @@ function renderPlanStrength(){
   Object.values(_planStrength).forEach(d=>{
     const cell=$("plan").querySelector(`.cday[data-date="${CSS.escape(d.date)}"]`);
     const host=cell&&cell.querySelector(".csecondaries");
-    if(!host||host.querySelector(".clift")) return;
+    if(!host||host.querySelector(".clift:not(.csecondary)")) return;
     const slot=String(d.slot||"full");
     const level=String(d.effort_level||"");
     const time=d.start_time?`${_fmtClock(_toMin(d.start_time))} · `:"";
@@ -3171,7 +3206,7 @@ function addWeekPlan(days,planId=null,options={}){
       <span class="sport-${esc(String(disc))}">${esc(String(d.title||disc))}</span>
       <span class="wk-dur">${d.is_rest?"—":esc(primaryTime)+esc(String(fmt(d.duration_min)))+" min"}</span></div>`;
     const secondary=(d.secondary_sessions||[]).map(s=>{ const secondaryTime=s.start_time?`${_fmtClock(_toMin(s.start_time))} · `:""; return `<div class="wk-row wk-secondary">
-      <span class="wk-day">↳ separate</span><span class="sport-strength">${esc(String(s.title||"Strength"))}</span>
+      <span class="wk-day">↳ separate</span><span class="sport-${esc(String(s.discipline||"other"))}">${esc(String(s.title||"Additional workout"))}</span>
       <span class="wk-dur">${esc(secondaryTime)}${esc(String(fmt(s.duration_min)))} min</span></div>`; });
     return [primary,...secondary];
   }).join("");
@@ -4778,7 +4813,7 @@ document.addEventListener("visibilitychange",()=>{
 window.addEventListener("focus",()=>{
   if(_currentView==="calendar") backgroundSync();
 });
-let _calCal=null, _calPlan=null, _calWorkouts={}, _calStrength={};
+let _calCal=null, _calPlan=null, _calWorkouts={}, _calStrength={}, _calSecondary={};
 function renderCalendar(cal, plan){
   const body=$("cal-body");
   if(!cal || cal.connected===false){
@@ -4786,7 +4821,7 @@ function renderCalendar(cal, plan){
     body.innerHTML=`<div class="card"><h2>Connect Google Calendar</h2><div class="note flag">${msg}</div></div>`;
     return;
   }
-  _calCal=cal; _calPlan=plan; _calWorkouts={}; _calStrength={};
+  _calCal=cal; _calPlan=plan; _calWorkouts={}; _calStrength={}; _calSecondary={};
   if(_calMode==="month"){ renderCalMonth(cal, plan); return; }
   if(_calMode==="agenda"){ renderCalAgenda(cal, plan); return; }
   // 7 day columns starting today.
@@ -4795,11 +4830,14 @@ function renderCalendar(cal, plan){
   const today=localToday();
 
   // Bucket google events + workouts by date.
-  const gcal={}, allday={}, workouts={}, strength={};
-  dates.forEach(dt=>{ gcal[dt]=[]; allday[dt]=[]; });
+  const gcal={}, allday={}, workouts={}, strength={}, secondary={};
+  dates.forEach(dt=>{ gcal[dt]=[]; allday[dt]=[]; secondary[dt]=[]; });
   (cal.events||[]).forEach(e=>{ if(!(e.date in gcal)) return; (e.all_day?allday:gcal)[e.date].push(e); });
   (plan&&plan.days||[]).forEach(d=>{ if(d.date in gcal) workouts[d.date]=d; });
   (plan&&plan.strength_days||[]).forEach(d=>{ if(d.date in gcal){ strength[d.date]=d; _calStrength[d.date]=d; } });
+  (plan&&plan.secondary_sessions||[]).forEach(s=>{
+    if(s.date in gcal){ secondary[s.date].push(s); _calSecondary[s.id]=s; }
+  });
 
   const H=CAL_END_H-CAL_START_H;
   const topOf=(min)=>(min-CAL_START_H*60)/60*CAL_HOURPX;
@@ -4862,6 +4900,12 @@ function renderCalendar(cal, plan){
       evs+=`<div class="cg-ev wo strength-session" data-session-kind="strength" data-date="${dt}" data-dur="${liftDur}" data-min="${liftMin}" style="top:${topOf(liftMin)}px;height:${Math.max(24,liftDur/60*CAL_HOURPX)}px">
         <div class="evt">${DISC_ICON.strength} ${fmt(lift.title||"Strength")}</div><div class="evtime">${_fmtClock(liftMin)} · ${liftDur}m</div></div>`;
     }
+    secondary[dt].forEach(session=>{
+      const sessionMin=_toMin(session.start_time)!=null?_toMin(session.start_time):_toMin(_fallbackStart(dt,session.duration_min));
+      const sessionDur=session.duration_min||60;
+      evs+=`<div class="cg-ev wo secondary-session" data-session-kind="secondary" data-session-id="${session.id}" data-date="${dt}" data-dur="${sessionDur}" data-min="${sessionMin}" style="top:${topOf(sessionMin)}px;height:${Math.max(24,sessionDur/60*CAL_HOURPX)}px">
+        <div class="evt">${DISC_ICON[session.discipline]||DISC_ICON.other} ${fmt(session.title||"Additional workout")}</div><div class="evtime">${_fmtClock(sessionMin)} · ${sessionDur}m</div></div>`;
+    });
     cols+=`<div class="cg-col" data-date="${dt}" style="height:${colH}px">${lines}${band}${evs}</div>`;
   });
 
@@ -4878,6 +4922,7 @@ function renderCalMonth(cal, plan){
   (cal.events||[]).forEach(e=>{ (byDay[e.date]=byDay[e.date]||[]).push(e); });
   (plan&&plan.days||[]).forEach(d=>{ workouts[d.date]=d; _calWorkouts[d.date]=d; });
   (plan&&plan.strength_days||[]).forEach(d=>{ _calStrength[d.date]=d; });
+  (plan&&plan.secondary_sessions||[]).forEach(s=>{ _calSecondary[s.id]=s; });
   let cells="";
   for(let i=0;i<w.days;i++){
     const dt=_addDays(w.start,i), d=new Date(dt+"T00:00:00");
@@ -4891,17 +4936,23 @@ function renderCalMonth(cal, plan){
     const lift=_calStrength[dt];
     const liftChip=lift?`<div class="mc-wo mc-strength" data-date="${dt}">${DISC_ICON.strength} <span>${fmt(lift.title||"Strength")}</span>
       <em>${lift.start_time?_fmtClock(_toMin(lift.start_time)):""} ${lift.duration_min||""}m</em></div>`:"";
+    const secondaryChips=(plan&&plan.secondary_sessions||[]).filter(s=>s.date===dt).map(s=>
+      `<div class="mc-wo mc-secondary" data-session-id="${s.id}">${DISC_ICON[s.discipline]||DISC_ICON.other} <span>${fmt(s.title||"Additional workout")}</span>
+       <em>${s.start_time?_fmtClock(_toMin(s.start_time)):""} ${s.duration_min||""}m</em></div>`).join("");
     cells+=`<div class="mcell${off?" off":""}${isToday?" today":""}">
-      <div class="mc-day">${d.getDate()}</div>${woChip}${liftChip}${chips}</div>`;
+      <div class="mc-day">${d.getDate()}</div>${woChip}${liftChip}${secondaryChips}${chips}</div>`;
   }
   $("cal-body").innerHTML=`<div class="calmonth">
     <div class="mhead">${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(x=>`<div>${x}</div>`).join("")}</div>
     <div class="mgrid">${cells}</div></div>`;
-  $("cal-body").querySelectorAll(".mc-wo:not(.mc-strength)").forEach(el=>{
+  $("cal-body").querySelectorAll(".mc-wo:not(.mc-strength):not(.mc-secondary)").forEach(el=>{
     el.onclick=()=>openDayDetail(_calWorkouts[el.dataset.date]);
   });
   $("cal-body").querySelectorAll(".mc-strength").forEach(el=>{
     el.onclick=()=>openStrengthDetail(_calStrength[el.dataset.date]);
+  });
+  $("cal-body").querySelectorAll(".mc-secondary").forEach(el=>{
+    el.onclick=()=>openSecondaryDetail(_calSecondary[el.dataset.sessionId]);
   });
 }
 // --- Agenda list (mobile: just scroll down through the days) ------------------
@@ -4911,11 +4962,13 @@ function renderCalAgenda(cal, plan){
   (cal.events||[]).forEach(e=>{ (byDay[e.date]=byDay[e.date]||[]).push(e); });
   (plan&&plan.days||[]).forEach(d=>{ workouts[d.date]=d; _calWorkouts[d.date]=d; });
   (plan&&plan.strength_days||[]).forEach(d=>{ _calStrength[d.date]=d; });
+  (plan&&plan.secondary_sessions||[]).forEach(s=>{ _calSecondary[s.id]=s; });
   let out="";
   for(let i=0;i<w.days;i++){
     const dt=_addDays(w.start,i), d=new Date(dt+"T00:00:00");
     const wo=workouts[dt], lift=_calStrength[dt], evs=byDay[dt]||[];
-    if(!wo && !lift && !evs.length) continue;
+    const secondary=(plan&&plan.secondary_sessions||[]).filter(s=>s.date===dt);
+    if(!wo && !lift && !secondary.length && !evs.length) continue;
     out+=`<div class="ag-day${dt===today?" today":""}">
       <div class="ag-date"><b>${d.getDate()}</b><span>${DOW[d.getDay()]}</span></div>
       <div class="ag-items">
@@ -4928,6 +4981,10 @@ function renderCalAgenda(cal, plan){
             <div class="ag-t">${DISC_ICON.strength} ${fmt(lift.title||"Strength")}</div>
             <div class="ag-m">${lift.start_time?_fmtClock(_toMin(lift.start_time))+" · ":""}${lift.duration_min||"?"} min · ${fmt(lift.intensity||lift.effort_cue)}</div>
           </div>`:""}
+        ${secondary.map(s=>`<div class="ag-wo ag-secondary" data-session-id="${s.id}">
+            <div class="ag-t">${DISC_ICON[s.discipline]||DISC_ICON.other} ${fmt(s.title||"Additional workout")}</div>
+            <div class="ag-m">${s.start_time?_fmtClock(_toMin(s.start_time))+" · ":""}${s.duration_min||"?"} min · ${fmt(s.intensity)}</div>
+          </div>`).join("")}
         ${evs.map(e=>`<div class="ag-ev">${e.all_day?"All day":new Date(e.start).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})} · ${fmt(e.title)}</div>`).join("")}
       </div></div>`;
   }
@@ -4938,11 +4995,25 @@ function renderCalAgenda(cal, plan){
   $("cal-body").querySelectorAll(".ag-strength").forEach(el=>{
     el.onclick=()=>openStrengthDetail(_calStrength[el.dataset.date]);
   });
+  $("cal-body").querySelectorAll(".ag-secondary").forEach(el=>{
+    el.onclick=()=>openSecondaryDetail(_calSecondary[el.dataset.sessionId]);
+  });
 }
 
 // Optimistically mirror a move in the local plan so the grid re-renders instantly.
 // Duration is deliberately immutable here; changing it also changes the prescription.
-function _applyMoveLocal(fromDate, toDate, newStart, sessionKind="primary"){
+function _applyMoveLocal(fromDate, toDate, newStart, sessionKind="primary", sessionId=null){
+  if(sessionKind==="secondary"){
+    const sessions=(_calPlan&&_calPlan.secondary_sessions)||[];
+    const session=sessions.find(s=>String(s.id)===String(sessionId)); if(!session) return;
+    if(toDate) session.date=toDate;
+    if(newStart) session.start_time=newStart;
+    const oldDay=(_calPlan.days||[]).find(d=>d.date===fromDate);
+    const newDay=(_calPlan.days||[]).find(d=>d.date===session.date);
+    if(oldDay) oldDay.secondary_sessions=sessions.filter(s=>s.date===oldDay.date);
+    if(newDay) newDay.secondary_sessions=sessions.filter(s=>s.date===newDay.date);
+    return;
+  }
   if(sessionKind==="strength"){
     const days=(_calPlan&&_calPlan.strength_days)||[];
     const src=days.find(d=>d.date===fromDate); if(!src) return;
@@ -4995,6 +5066,7 @@ function _wireCalDrag(){
     el.addEventListener("pointerdown",(e)=>{
       e.preventDefault();
       const fromDate=el.dataset.date, sessionKind=el.dataset.sessionKind||"primary";
+      const sessionId=el.dataset.sessionId||null;
       const dur=+el.dataset.dur||60, sMin=+el.dataset.min||360;
       const cols=[...document.querySelectorAll(".cg-col")].map(c=>{ const r=c.getBoundingClientRect();
         return {date:c.dataset.date, left:r.left, right:r.right, top:r.top}; });
@@ -5029,14 +5101,15 @@ function _wireCalDrag(){
         if(!moved){
           // A tap — open the same detail sheet as the Training cards.
           if(sessionKind==="strength") openStrengthDetail(_calStrength[fromDate]);
+          else if(sessionKind==="secondary") openSecondaryDetail(_calSecondary[sessionId]);
           else openDayDetail(_calWorkouts[fromDate]);
           return;
         }
         const newStart=_fmtMin(curMin), changedDay=curDate!==fromDate;
-        _applyMoveLocal(fromDate, changedDay?curDate:null, newStart, sessionKind);
+        _applyMoveLocal(fromDate, changedDay?curDate:null, newStart, sessionKind, sessionId);
         renderCalendar(_calCal, _calPlan);   // instant, correct position — no glitch
         _postMove({date:fromDate, session_kind:sessionKind,
-          new_date:changedDay?curDate:undefined, new_start:newStart});
+          session_id:sessionId, new_date:changedDay?curDate:undefined, new_start:newStart});
       };
       el.addEventListener("pointermove",onMove);
       el.addEventListener("pointerup",onUp);

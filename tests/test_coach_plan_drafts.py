@@ -278,6 +278,63 @@ class CoachPlanDraftTests(unittest.TestCase):
         self.assertEqual(db.get_plan_day(day["date"])["start_time"], "06:30")
         self.assertEqual(db.get_plan_strength(day["date"])["start_time"], "14:00")
 
+    def test_round_trip_commute_persists_as_two_75_minute_rides(self) -> None:
+        commute = [{
+            "date": "2026-08-18", "title": "Bike commute to work",
+            "discipline": "bike", "duration_min": 75, "start_time": "07:15",
+            "intensity": "easy Z2", "tsb_target": 10,
+            "structure": {"warmup": "Easy start", "main": "30 km to work",
+                          "cooldown": "Easy finish"},
+            "secondary_sessions": [{
+                "title": "Bike commute home", "discipline": "bike",
+                "duration_min": 75, "start_time": "17:00", "intensity": "easy Z2",
+                "structure": {"warmup": "Easy start", "main": "30 km home",
+                              "cooldown": "Easy finish"},
+                "why": "Return commute is a separate ride later in the day.",
+            }],
+            "is_rest": 0, "why": "Two easy rides provide aerobic volume without intervals.",
+        }]
+        draft = db.create_plan_draft(commute, source_message="commute each way")
+
+        result = coach.activate_weekplan(draft["plan_id"])
+
+        self.assertTrue(result["ok"])
+        outbound = db.get_plan_day("2026-08-18")
+        returns = db.get_plan_secondary("2026-08-18")
+        self.assertEqual(outbound["duration_min"], 75)
+        self.assertEqual(outbound["title"], "Bike commute to work")
+        self.assertEqual(len(returns), 1)
+        self.assertEqual(returns[0]["duration_min"], 75)
+        self.assertEqual(returns[0]["title"], "Bike commute home")
+        self.assertNotEqual(outbound["discipline"], "brick")
+        self.assertEqual(len(result["updated_secondary_sessions"]), 1)
+
+        self._new_connection()
+        stored = db.get_plan_secondary("2026-08-18")
+        self.assertEqual([(s["title"], s["duration_min"]) for s in stored],
+                         [("Bike commute home", 75)])
+
+    def test_accepted_adjustment_can_split_two_same_day_rides(self) -> None:
+        date = "2026-08-18"
+        db.upsert_plan_day(_seed_day(_schedule()[0]))
+        adjustment = {
+            "date": date, "title": "Bike commute to work", "discipline": "bike",
+            "duration_min": 75, "start_time": "07:15", "intensity": "easy Z2",
+            "structure": {"warmup": "Easy", "main": "30 km out", "cooldown": "Easy"},
+            "secondary_sessions": [{
+                "title": "Bike commute home", "discipline": "bike",
+                "duration_min": 75, "start_time": "17:00", "intensity": "easy Z2",
+                "structure": {"warmup": "Easy", "main": "30 km back", "cooldown": "Easy"},
+                "why": "This is the independent return trip.",
+            }],
+            "why": "Split the commute into its actual rides.",
+        }
+
+        coach.accept_adjustment(adjustment)
+
+        self.assertEqual(db.get_plan_day(date)["duration_min"], 75)
+        self.assertEqual(db.get_plan_secondary(date)[0]["duration_min"], 75)
+
     def test_draft_without_a_time_preserves_a_calendar_position(self) -> None:
         seeded = {**_seed_day(_schedule()[0]), "start_time": "07:15"}
         db.upsert_plan_day(seeded)
@@ -318,12 +375,11 @@ class CoachPlanDraftTests(unittest.TestCase):
         for day in schedule:
             db.upsert_plan_day(_seed_day(day))
         draft = db.create_plan_draft(schedule, source_message="transaction test")
-        prepared, skipped = coach._weekplan_for_activation(schedule)
-        prepared[0]["title"] = "Must roll back"
-        prepared[1]["structure"] = {"not_json": object()}
-
-        with self.assertRaises(TypeError):
-            db.activate_plan_draft(draft["plan_id"], prepared, skipped=skipped)
+        with (
+            patch.object(db, "_replace_plan_secondary", side_effect=TypeError("write failed")),
+            self.assertRaises(TypeError),
+        ):
+            db.activate_plan_draft(draft["plan_id"])
 
         self.assertEqual(db.get_plan_day("2026-08-18")["title"], "Easy swim")
         self.assertEqual(db.get_plan_draft(draft["plan_id"])["status"], "draft")
@@ -337,6 +393,8 @@ class CoachPlanDraftTests(unittest.TestCase):
         self.assertNotIn("thinking.textContent=visibleCoachDraft(draft)", html)
         self.assertIn('class="cwork cprimary"', html)
         self.assertIn("openStrengthDetail(d)", html)
+        self.assertIn("openSecondaryDetail(s)", html)
+        self.assertIn('data-session-kind="secondary"', html)
         self.assertIn("w.secondary_sessions", html)
         self.assertNotIn("renderDayLift(planDay.date)", html)
 

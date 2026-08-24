@@ -106,6 +106,7 @@ def todays_suggestion(readiness_data: dict[str, Any] | None = None,
     today = config.local_today().isoformat()
     plan_day = db.get_plan_day(today)
     strength_day = db.get_plan_strength(today)
+    additional_sessions = db.get_plan_secondary(today)
 
     # Pull live inputs (best effort).
     if readiness_data is not None:
@@ -139,7 +140,8 @@ def todays_suggestion(readiness_data: dict[str, Any] | None = None,
         # A same-day lift is a separate workout object. Keeping it alongside
         # the primary suggestion gives Home the same two clickable sessions as
         # the week and calendar views without adding its minutes to cardio.
-        "secondary_sessions": [strength_day] if strength_day else [],
+        "secondary_sessions": [*additional_sessions,
+                               *([strength_day] if strength_day else [])],
     }
 
     # The plan is authoritative for what today's session IS — readiness never

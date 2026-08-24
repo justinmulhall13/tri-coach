@@ -526,8 +526,16 @@ def get_plan(start: str | None = None, end: str | None = None) -> JSONResponse:
     days = db.get_plan(start, end)
     strength_days = (db.get_plan_strength_range(days[0]["date"], days[-1]["date"])
                      if days else [])
+    secondary_sessions = (db.get_plan_secondary_range(days[0]["date"], days[-1]["date"])
+                          if days else [])
+    by_date: dict[str, list[dict]] = {}
+    for session in secondary_sessions:
+        by_date.setdefault(session["date"], []).append(session)
+    for day in days:
+        day["secondary_sessions"] = by_date.get(day["date"], [])
     return JSONResponse({
         "summary": db.plan_summary(), "days": days, "strength_days": strength_days,
+        "secondary_sessions": secondary_sessions,
     })
 
 
@@ -1322,13 +1330,25 @@ def workout_move(body: dict = Body(default={})) -> JSONResponse:
     if body.get("new_duration") is not None:
         return JSONResponse({"error": "Workout length is set by Coach Steve, not the calendar."}, status_code=400)
     kind = str(body.get("session_kind") or "primary").lower()
-    if kind not in {"primary", "strength"}:
-        return JSONResponse({"error": "session_kind must be primary or strength"}, status_code=400)
-    mover = (calendar_sync.move_strength_session
-             if kind == "strength" else calendar_sync.move_session)
-    result = mover(
-        date, new_date=body.get("new_date"), new_start=body.get("new_start"),
-        do_reconcile=False)
+    if kind not in {"primary", "strength", "secondary"}:
+        return JSONResponse(
+            {"error": "session_kind must be primary, strength, or secondary"},
+            status_code=400,
+        )
+    if kind == "secondary":
+        if body.get("session_id") is None:
+            return JSONResponse({"error": "session_id is required for a secondary workout"},
+                                status_code=400)
+        result = calendar_sync.move_secondary_session(
+            body["session_id"], new_date=body.get("new_date"),
+            new_start=body.get("new_start"), do_reconcile=False,
+        )
+    else:
+        mover = (calendar_sync.move_strength_session
+                 if kind == "strength" else calendar_sync.move_session)
+        result = mover(
+            date, new_date=body.get("new_date"), new_start=body.get("new_start"),
+            do_reconcile=False)
     if not result.get("error"):
         # Synchronous push closes the stale-Google race: a reverse sync can no
         # longer read the old event between the local save and this response.

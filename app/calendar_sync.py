@@ -60,6 +60,12 @@ def _upcoming_strength(days: int) -> list[dict[str, Any]]:
     return db.get_plan_strength_range(today, end)
 
 
+def _upcoming_secondary(days: int) -> list[dict[str, Any]]:
+    today = config.local_today().isoformat()
+    end = (config.local_today() + datetime.timedelta(days=days)).isoformat()
+    return db.get_plan_secondary_range(today, end)
+
+
 def _planned_busy_event(day: dict[str, Any]) -> dict[str, Any] | None:
     """Expose a planned workout as a busy block for same-day default placement."""
     start = day.get("start_time")
@@ -92,6 +98,26 @@ def _upsert_strength_event(day: dict[str, Any],
     if eid and eid != day.get("gcal_event_id"):
         db.set_plan_strength_calendar_fields(day["date"], gcal_event_id=eid)
     return res
+
+
+def _upsert_secondary_event(session: dict[str, Any],
+                            existing: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Create/update one independently tagged non-primary workout event."""
+    if not session.get("start_time"):
+        start = schedule_time.default_start(
+            session, existing or [],
+            db.get_schedule_constraints(session["date"], session["date"]),
+        )
+        if start:
+            session["start_time"] = start
+            db.set_plan_secondary_calendar_fields(
+                session["id"], start_time=start, pos_updated_at=_utcnow())
+    kind = f"secondary:{session['id']}"
+    result = calendar_source.upsert_workout_event(session, session_kind=kind)
+    event_id = result.get("event_id")
+    if event_id and event_id != session.get("gcal_event_id"):
+        db.set_plan_secondary_calendar_fields(session["id"], gcal_event_id=event_id)
+    return result
 
 
 def reconcile(days: int = 21) -> dict[str, Any]:
@@ -135,7 +161,7 @@ def reconcile(days: int = 21) -> dict[str, Any]:
             kept[(day["date"], "primary")] = eid
         synced += 1
 
-    # A same-day lift is a separate session with a separate event identity.
+    # Every same-day workout has a separate event identity.
     planned_busy = [event for day in upcoming
                     if (event := _planned_busy_event(day)) is not None]
     strength_synced = 0
@@ -150,11 +176,28 @@ def reconcile(days: int = 21) -> dict[str, Any]:
         if eid:
             kept[(strength["date"], "strength")] = eid
             strength_synced += 1
+            if event := _planned_busy_event(strength):
+                planned_busy.append(event)
+
+    secondary_synced = 0
+    for session in _upcoming_secondary(days):
+        res = _upsert_secondary_event(session, existing + planned_busy)
+        kind = f"secondary:{session['id']}"
+        if res.get("error"):
+            errors.append(f"{session['date']} {session['title']}: {res['error']}")
+            if session.get("gcal_event_id"):
+                kept[(session["date"], kind)] = session["gcal_event_id"]
+            continue
+        eid = res.get("event_id")
+        if eid:
+            kept[(session["date"], kind)] = eid
+            secondary_synced += 1
+            if event := _planned_busy_event(session):
+                planned_busy.append(event)
 
     # Prune: delete every workout event that ISN'T the one we track for its
-    # date + session kind (one primary and one separate strength event).
-    # This removes both stale (out-of-window/moved) events AND same-day duplicates
-    # accumulated from earlier syncs — guaranteeing exactly one event per day.
+    # date + session identity. This removes stale/out-of-window events and true
+    # duplicates without deleting a legitimate second ride on the same date.
     pruned = 0
     today = config.local_today().isoformat()
     for ev in calendar_source.fetch_workout_events(days=max(days, 60)).get("events", []):
@@ -169,8 +212,9 @@ def reconcile(days: int = 21) -> dict[str, Any]:
             elif deleted.get("error"):
                 errors.append(f"prune {d} {kind}: {deleted['error']}")
 
-    return {"connected": True, "synced": synced + strength_synced,
+    return {"connected": True, "synced": synced + strength_synced + secondary_synced,
             "primary_synced": synced, "strength_synced": strength_synced,
+            "secondary_synced": secondary_synced,
             "pruned": pruned,
             "errors": errors or None,
             "synced_at": datetime.datetime.now().isoformat(timespec="seconds")}
@@ -227,6 +271,18 @@ def push_days(dates: list[str]) -> dict[str, Any]:
                 errors.append(f"{date} strength: {strength_res['error']}")
             elif strength_res.get("event_id"):
                 pushed += 1
+        busy_workouts: list[dict[str, Any]] = []
+        for workout in (day, strength):
+            if workout and (event := _planned_busy_event(workout)) is not None:
+                busy_workouts.append(event)
+        for session in db.get_plan_secondary(date):
+            secondary_res = _upsert_secondary_event(session, busy_workouts)
+            if secondary_res.get("error"):
+                errors.append(f"{date} {session['title']}: {secondary_res['error']}")
+            elif secondary_res.get("event_id"):
+                pushed += 1
+                if event := _planned_busy_event(session):
+                    busy_workouts.append(event)
     return {"connected": True, "pushed": pushed, "errors": errors or None}
 
 
@@ -278,6 +334,39 @@ def pull_from_google(days: int = 40) -> dict[str, Any]:
         if not plan_date:
             continue
         kind = ev.get("session_kind") or "primary"
+        if kind.startswith("secondary:"):
+            session_id = kind.partition(":")[2]
+            session = db.get_plan_secondary_by_id(session_id)
+            if not session or session.get("date") != plan_date:
+                continue
+            if (session.get("gcal_event_id")
+                    and ev.get("id") != session.get("gcal_event_id")):
+                continue
+            ev_date, ev_time = _event_local_datetime(ev)
+            if not ev_date or ev_time is None:
+                continue
+            if ev_date == plan_date and ev_time == session.get("start_time"):
+                continue
+            ev_upd = _parse_dt(ev.get("updated"))
+            pos_ts = _parse_dt(session.get("pos_updated_at"))
+            if ev_upd and pos_ts and ev_upd <= pos_ts:
+                continue
+            moved = move_secondary_session(
+                session["id"],
+                new_date=ev_date if ev_date != plan_date else None,
+                new_start=ev_time,
+                pos_ts=ev.get("updated"),
+                do_reconcile=False,
+            )
+            if not moved.get("error"):
+                changes.append({
+                    "date": plan_date, "session_kind": "secondary",
+                    "session_id": session["id"],
+                    "kind": "day" if ev_date != plan_date else "time",
+                    "to": ev_date if ev_date != plan_date else ev_time,
+                    "at": ev_time,
+                })
+            continue
         if kind == "strength":
             strength = db.get_plan_strength(plan_date)
             if not strength:
@@ -441,5 +530,31 @@ def move_strength_session(date: str, new_date: str | None = None,
         "session_kind": "strength",
         "changed": changed,
         "days": [db.get_plan_strength(d) for d in changed],
+        "sync": sync,
+    }
+
+
+def move_secondary_session(session_id: int | str, new_date: str | None = None,
+                           new_start: str | None = None,
+                           pos_ts: str | None = None,
+                           do_reconcile: bool = True) -> dict[str, Any]:
+    """Reschedule one additional workout without touching either day's peers."""
+    invalid = _valid_position(new_date, new_start)
+    if invalid:
+        return {"error": invalid}
+    try:
+        changed = db.move_plan_secondary(
+            session_id, new_date=new_date, new_start=new_start,
+            pos_updated_at=pos_ts or _utcnow(),
+        )
+    except ValueError as exc:
+        return {"error": str(exc)}
+    sync = reconcile() if do_reconcile else None
+    return {
+        "ok": True,
+        "session_kind": "secondary",
+        "session_id": int(session_id),
+        "changed": changed,
+        "sessions": [db.get_plan_secondary_by_id(session_id)],
         "sync": sync,
     }

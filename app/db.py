@@ -118,6 +118,32 @@ CREATE TABLE IF NOT EXISTS plan_strength (
 CREATE INDEX IF NOT EXISTS idx_plan_strength_profile_date
     ON plan_strength (event_profile_id, date);
 
+CREATE TABLE IF NOT EXISTS plan_secondary (
+    -- Any additional same-day workout that is not the primary plan_days row or
+    -- the dedicated plan_strength row.  A commute out and commute home are two
+    -- records here/plan_days, never one summed duration and never a brick.
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_profile_id TEXT NOT NULL,
+    date             TEXT NOT NULL,             -- ISO YYYY-MM-DD
+    session_order    INTEGER NOT NULL DEFAULT 1,
+    discipline       TEXT NOT NULL,
+    title            TEXT NOT NULL,
+    structure        TEXT NOT NULL DEFAULT '{}',
+    duration_min     INTEGER NOT NULL,
+    intensity        TEXT,
+    why              TEXT,
+    start_time       TEXT,
+    gcal_event_id    TEXT,
+    pos_updated_at   TEXT,
+    source           TEXT NOT NULL DEFAULT 'coach',
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    UNIQUE (event_profile_id, date, session_order)
+);
+
+CREATE INDEX IF NOT EXISTS idx_plan_secondary_profile_date
+    ON plan_secondary (event_profile_id, date, session_order);
+
 CREATE TABLE IF NOT EXISTS completions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     event_profile_id TEXT NOT NULL,
@@ -813,7 +839,8 @@ def activate_plan_draft(plan_id: int | str) -> dict[str, Any]:
         if draft["status"] == "active":
             c.rollback()
             return {"ok": True, "plan_id": value, "status": "active", "already_active": True,
-                    "updated_days": [], "count": 0, "skipped": []}
+                    "updated_days": [], "updated_strength_days": [],
+                    "updated_secondary_sessions": [], "count": 0, "skipped": []}
         if draft["status"] != "draft":
             c.rollback()
             return {"ok": False, "error": "plan draft is no longer active for review",
@@ -826,10 +853,14 @@ def activate_plan_draft(plan_id: int | str) -> dict[str, Any]:
         # normalization operate on the same locked schedule written below.
         from . import coach
         coach.validate_weekplan(stored_schedule, require_not_past=True)
-        days, strength_sessions = coach._weekplan_for_activation(stored_schedule)
+        days, strength_sessions, secondary_sessions = coach._weekplan_for_activation(
+            stored_schedule)
         if not days:
             raise ValueError("plan draft has no actionable dated rows")
         strength_by_date = {str(session["date"]): session for session in strength_sessions}
+        secondary_by_date: dict[str, list[dict[str, Any]]] = {}
+        for session in secondary_sessions:
+            secondary_by_date.setdefault(str(session["date"]), []).append(session)
 
         now = datetime.datetime.now().isoformat(timespec="seconds")
         today = config.local_today()
@@ -902,6 +933,9 @@ def activate_plan_draft(plan_id: int | str) -> dict[str, Any]:
                     "DELETE FROM plan_strength WHERE event_profile_id=? AND date=?",
                     (profile_id, date),
                 )
+            _replace_plan_secondary(
+                c, profile_id, date, secondary_by_date.get(date, []), now,
+            )
             written_dates.append(date)
         changed = c.execute(
             """UPDATE plan_drafts SET status='active',activated_at=?,updated_at=?
@@ -927,8 +961,17 @@ def activate_plan_draft(plan_id: int | str) -> dict[str, Any]:
             ORDER BY date""",
         (profile_id, *written_dates),
     ).fetchall()
+    secondary_rows = c.execute(
+        f"""SELECT * FROM plan_secondary
+            WHERE event_profile_id=? AND date IN ({placeholders})
+            ORDER BY date,session_order,id""",
+        (profile_id, *written_dates),
+    ).fetchall()
     return {"ok": True, "plan_id": value, "status": "active", "updated_days": updated,
             "updated_strength_days": [_row_to_strength(row) for row in strength_rows],
+            "updated_secondary_sessions": [
+                _row_to_secondary(row) for row in secondary_rows
+            ],
             "count": len(updated), "skipped": []}
 
 
@@ -1443,10 +1486,13 @@ def _write_plan_strength(connection: sqlite3.Connection, profile_id: str,
     )
 
 
-def edit_plan_day_with_strength(date: str, fields: dict[str, Any],
-                                strength: dict[str, Any], *,
+def edit_plan_day_with_sessions(date: str, fields: dict[str, Any], *,
+                                strength: dict[str, Any] | None = None,
+                                secondary_sessions: list[dict[str, Any]] | None = None,
+                                replace_strength: bool = True,
+                                replace_secondary: bool = True,
                                 source: str = "coach") -> dict[str, Any] | None:
-    """Atomically patch the primary workout and attach its separate lift."""
+    """Atomically patch a primary and its complete same-day session set."""
     import datetime
     c = _conn()
     profile_id = _active_profile_id(c)
@@ -1466,7 +1512,7 @@ def edit_plan_day_with_strength(date: str, fields: dict[str, Any],
                (event_profile_id,date,prev,source,reason,created_at)
                VALUES (?,?,?,?,?,?)""",
             (profile_id, date, json.dumps(day, default=str), source,
-             "attached separate same-day strength workout", now),
+             "updated independent same-day workouts", now),
         )
         day.update({k: v for k, v in fields.items() if k in {
             "discipline", "title", "structure", "duration_min", "intensity",
@@ -1486,12 +1532,33 @@ def edit_plan_day_with_strength(date: str, fields: dict[str, Any],
              day.get("start_time"), day.get("gcal_event_id"),
              day.get("pos_updated_at"), source, now, profile_id, date),
         )
-        _write_plan_strength(c, profile_id, {**strength, "date": date}, now)
+        if replace_strength:
+            if strength is not None:
+                _write_plan_strength(c, profile_id, {**strength, "date": date}, now)
+            else:
+                c.execute(
+                    "DELETE FROM plan_strength WHERE event_profile_id=? AND date=?",
+                    (profile_id, date),
+                )
+        if replace_secondary:
+            _replace_plan_secondary(
+                c, profile_id, date, secondary_sessions or [], now,
+            )
         c.commit()
     except Exception:
         c.rollback()
         raise
     return get_plan_day(date)
+
+
+def edit_plan_day_with_strength(date: str, fields: dict[str, Any],
+                                strength: dict[str, Any], *,
+                                source: str = "coach") -> dict[str, Any] | None:
+    """Backward-compatible wrapper for attaching a separate same-day lift."""
+    return edit_plan_day_with_sessions(
+        date, fields, strength=strength, replace_strength=True,
+        replace_secondary=False, source=source,
+    )
 
 
 def upsert_plan_strength(day: dict[str, Any]) -> dict[str, Any]:
@@ -1629,6 +1696,172 @@ def delete_plan_strength(date: str) -> bool:
             (date, _active_profile_id()),
         )
     return cursor.rowcount > 0
+
+
+# ----------------------------------------------------- additional plan sessions
+
+def _row_to_secondary(row: Any) -> dict[str, Any]:
+    session = dict(row)
+    try:
+        session["structure"] = json.loads(session.get("structure") or "{}")
+    except (TypeError, ValueError):
+        session["structure"] = {}
+    return session
+
+
+def _replace_plan_secondary(connection: sqlite3.Connection, profile_id: str,
+                            date: str, sessions: list[dict[str, Any]], now: str) -> None:
+    """Replace a date's non-strength secondary workouts inside a transaction.
+
+    Slots are stable across edits, which preserves each Google event id. Extra
+    old slots are removed because a coach adjustment/draft describes the full
+    set of additional workouts for that date.
+    """
+    kept_orders: list[int] = []
+    for order, session in enumerate(sessions, start=1):
+        structure = json.dumps(session.get("structure") or {}, ensure_ascii=False,
+                               separators=(",", ":"))
+        connection.execute(
+            """INSERT INTO plan_secondary
+               (event_profile_id,date,session_order,discipline,title,structure,
+                duration_min,intensity,why,start_time,gcal_event_id,pos_updated_at,
+                source,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(event_profile_id,date,session_order) DO UPDATE SET
+                 discipline=excluded.discipline,title=excluded.title,
+                 structure=excluded.structure,duration_min=excluded.duration_min,
+                 intensity=excluded.intensity,why=excluded.why,
+                 start_time=excluded.start_time,
+                 gcal_event_id=COALESCE(excluded.gcal_event_id,
+                                        plan_secondary.gcal_event_id),
+                 pos_updated_at=COALESCE(excluded.pos_updated_at,
+                                         plan_secondary.pos_updated_at),
+                 source=excluded.source,updated_at=excluded.updated_at""",
+            (profile_id, date, order, session.get("discipline") or "other",
+             session.get("title") or "Additional workout", structure,
+             session.get("duration_min"), session.get("intensity"), session.get("why"),
+             session.get("start_time"), session.get("gcal_event_id"),
+             session.get("pos_updated_at"), session.get("source") or "coach", now, now),
+        )
+        kept_orders.append(order)
+    if kept_orders:
+        placeholders = ",".join("?" for _ in kept_orders)
+        connection.execute(
+            f"""DELETE FROM plan_secondary
+                WHERE event_profile_id=? AND date=?
+                  AND session_order NOT IN ({placeholders})""",
+            (profile_id, date, *kept_orders),
+        )
+    else:
+        connection.execute(
+            "DELETE FROM plan_secondary WHERE event_profile_id=? AND date=?",
+            (profile_id, date),
+        )
+
+
+def get_plan_secondary(date: str) -> list[dict[str, Any]]:
+    rows = _conn().execute(
+        """SELECT * FROM plan_secondary
+           WHERE event_profile_id=? AND date=? ORDER BY session_order,id""",
+        (_active_profile_id(), date),
+    ).fetchall()
+    return [_row_to_secondary(row) for row in rows]
+
+
+def get_plan_secondary_range(start: str, end: str) -> list[dict[str, Any]]:
+    rows = _conn().execute(
+        """SELECT * FROM plan_secondary
+           WHERE event_profile_id=? AND date BETWEEN ? AND ?
+           ORDER BY date,session_order,id""",
+        (_active_profile_id(), start, end),
+    ).fetchall()
+    return [_row_to_secondary(row) for row in rows]
+
+
+def get_plan_secondary_by_id(session_id: int | str) -> dict[str, Any] | None:
+    try:
+        value = int(session_id)
+    except (TypeError, ValueError):
+        return None
+    row = _conn().execute(
+        "SELECT * FROM plan_secondary WHERE event_profile_id=? AND id=?",
+        (_active_profile_id(), value),
+    ).fetchone()
+    return _row_to_secondary(row) if row else None
+
+
+def set_plan_secondary_calendar_fields(session_id: int | str, *,
+                                       start_time: str | None = None,
+                                       gcal_event_id: str | None = None,
+                                       pos_updated_at: str | None = None,
+                                       clear_event_id: bool = False) -> dict[str, Any] | None:
+    """Update calendar-owned fields without replacing the prescription."""
+    import datetime
+    session = get_plan_secondary_by_id(session_id)
+    if not session:
+        return None
+    fields: list[str] = []
+    values: list[Any] = []
+    if start_time is not None:
+        fields.append("start_time=?")
+        values.append(start_time)
+    if gcal_event_id is not None or clear_event_id:
+        fields.append("gcal_event_id=?")
+        values.append(gcal_event_id)
+    if pos_updated_at is not None:
+        fields.append("pos_updated_at=?")
+        values.append(pos_updated_at)
+    if not fields:
+        return session
+    fields.append("updated_at=?")
+    values.append(datetime.datetime.now(datetime.timezone.utc).isoformat())
+    values.extend((_active_profile_id(), int(session["id"])))
+    with _conn() as connection:
+        connection.execute(
+            f"UPDATE plan_secondary SET {', '.join(fields)} "
+            "WHERE event_profile_id=? AND id=?",
+            values,
+        )
+    return get_plan_secondary_by_id(session["id"])
+
+
+def move_plan_secondary(session_id: int | str, *, new_date: str | None = None,
+                        new_start: str | None = None,
+                        pos_updated_at: str | None = None) -> list[str]:
+    """Move one additional workout without merging/swapping other sessions."""
+    import datetime
+    session = get_plan_secondary_by_id(session_id)
+    if not session:
+        raise ValueError(f"no additional workout with id {session_id}")
+    source_date = str(session["date"])
+    target_date = new_date or source_date
+    if not get_plan_day(target_date):
+        raise ValueError(f"no plan day for {target_date}; ask Coach to add that date first")
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    pts = pos_updated_at or now
+    connection = _conn()
+    profile_id = _active_profile_id(connection)
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        order = int(session.get("session_order") or 1)
+        if target_date != source_date:
+            row = connection.execute(
+                """SELECT COALESCE(MAX(session_order),0)+1 AS next_order
+                   FROM plan_secondary WHERE event_profile_id=? AND date=?""",
+                (profile_id, target_date),
+            ).fetchone()
+            order = int(row["next_order"])
+        connection.execute(
+            """UPDATE plan_secondary SET date=?,session_order=?,
+               start_time=COALESCE(?,start_time),pos_updated_at=?,source='edited',updated_at=?
+               WHERE event_profile_id=? AND id=?""",
+            (target_date, order, new_start, pts, now, profile_id, int(session["id"])),
+        )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    return [source_date] if target_date == source_date else [source_date, target_date]
 
 
 # ---------------------------------------------------------------- lifting split

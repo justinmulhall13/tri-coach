@@ -77,6 +77,28 @@ class PlanStrengthRouteTests(unittest.TestCase):
         self.assertEqual(payload["strength_days"][0]["title"], "Lower A")
         self.assertEqual(payload["strength_days"][0]["duration_min"], 45)
 
+    def test_plan_payload_keeps_two_same_day_rides_separate(self) -> None:
+        date = "2026-08-24"
+        db.upsert_plan_day({
+            "date": date, "week_index": 0, "phase": "build",
+            "discipline": "bike", "title": "Bike commute to work",
+            "duration_min": 75, "start_time": "07:15", "intensity": "easy Z2",
+            "structure": {"main": "30 km to work"}, "is_rest": 0,
+            "source": "coach", "tsb_target": 10, "why": "Outbound commute.",
+        })
+        db.edit_plan_day_with_sessions(date, {}, replace_strength=False,
+            secondary_sessions=[{
+                "discipline": "bike", "title": "Bike commute home",
+                "duration_min": 75, "start_time": "17:00", "intensity": "easy Z2",
+                "structure": {"main": "30 km home"}, "why": "Return commute.",
+            }])
+
+        payload = self.client.get("/api/plan", params={"start": date, "end": date}).json()
+
+        self.assertEqual(payload["days"][0]["duration_min"], 75)
+        self.assertEqual(payload["days"][0]["secondary_sessions"][0]["duration_min"], 75)
+        self.assertEqual(payload["secondary_sessions"][0]["title"], "Bike commute home")
+
     def test_todays_payload_keeps_cardio_and_lift_as_two_sessions(self) -> None:
         db.upsert_plan_day({
             "date": "2026-08-24", "week_index": 0, "phase": "build",

@@ -293,7 +293,12 @@ MULTIPLE WORKOUTS ON ONE DATE: they remain separate workout objects. For cardio 
 the top-level row is the cardio session and the lift goes in `secondary_sessions`; its duration \
 is not included in the cardio duration. Never call two workouts a brick. `brick` means only a \
 bike immediately followed by a run and therefore requires an explicit `structure.run` leg. A \
-bike plus a lift is bike plus strength, even when both happen on the same date.
+bike plus a lift is bike plus strength, even when both happen on the same date. This applies to \
+ANY disciplines, not only lifting: two rides, two runs, or a morning workout plus an evening \
+workout use one top-level workout plus one object per additional workout in `secondary_sessions`. \
+Never add their durations together. A round-trip commute described as 75 minutes each way must \
+be stored as two separately titled 75-minute bike workouts (outbound and return), each with its \
+own start_time when the athlete or calendar context supplies one. Do not emit one 150-minute ride.
 
 TSB FIELD: `tsb_target` is the ONE projected form target for the eventual race day, repeated on \
 each row so the plan stays auditable. It is NOT the expected TSB on that workout date. It must be \
@@ -1244,29 +1249,30 @@ def _check_display_fields(day: Any, label: str, error: type[Exception]) -> None:
         _clean_display_text(structure, f"{label} structure", error)
 
 
-def _strength_secondaries(day: dict[str, Any], *, label: str,
-                          error: type[Exception]) -> list[dict[str, Any]]:
-    """Validate and return independently stored strength sessions for a date."""
+def _secondary_sessions(day: dict[str, Any], *, label: str,
+                        error: type[Exception]) -> list[dict[str, Any]]:
+    """Validate independently persisted additional workouts for one date."""
     import math
     raw = day.get("secondary_sessions", [])
     if raw is None:
         return []
     if not isinstance(raw, list):
         raise error(f"{label} secondary_sessions must be an array")
-    if len(raw) > 1:
-        raise error(f"{label} supports one separate strength session")
+    if len(raw) > 4:
+        raise error(f"{label} supports at most four additional workouts")
     sessions: list[dict[str, Any]] = []
+    strength_count = 0
     for index, session in enumerate(raw, start=1):
         item_label = f"{label} secondary session {index}"
         if not isinstance(session, dict):
             raise error(f"{item_label} must be an object")
         _check_display_fields(session, item_label, error)
         discipline = str(session.get("discipline") or "").lower().strip()
-        if discipline != "strength":
-            raise error(
-                f"{item_label} must be strength; a true bike-run brick uses structure.run"
-            )
-        if str(day.get("discipline") or "").lower() == "strength":
+        if discipline not in _PLAN_DISCIPLINES or discipline == "rest":
+            raise error(f"{item_label} has unsupported discipline {discipline or 'unknown'}")
+        if discipline == "strength":
+            strength_count += 1
+        if discipline == "strength" and str(day.get("discipline") or "").lower() == "strength":
             raise error(f"{label} cannot contain two strength sessions")
         title = session.get("title")
         if not isinstance(title, str) or not title.strip():
@@ -1278,13 +1284,24 @@ def _strength_secondaries(day: dict[str, Any], *, label: str,
             raise error(f"{item_label} needs positive integer duration_min")
         if not isinstance(session.get("structure"), dict):
             raise error(f"{item_label} needs a structure object")
+        if discipline == "brick" and not str(session["structure"].get("run") or "").strip():
+            raise error(f"{item_label} labels a brick without an explicit structure.run leg")
         if not isinstance(session.get("intensity"), str) or not session["intensity"].strip():
             raise error(f"{item_label} needs intensity")
         if not isinstance(session.get("why"), str) or not session["why"].strip():
             raise error(f"{item_label} needs a tradeoff reason")
         _validate_optional_start_time(session.get("start_time"), item_label, error)
         sessions.append(session)
+    if strength_count > 1:
+        raise error(f"{label} supports one separate strength session")
     return sessions
+
+
+def _strength_secondaries(day: dict[str, Any], *, label: str,
+                          error: type[Exception]) -> list[dict[str, Any]]:
+    """Compatibility helper returning the validated strength subset."""
+    return [session for session in _secondary_sessions(day, label=label, error=error)
+            if str(session.get("discipline") or "").lower().strip() == "strength"]
 
 
 def _validate_multisession_shape(day: dict[str, Any], *, label: str,
@@ -1301,7 +1318,7 @@ def _validate_multisession_shape(day: dict[str, Any], *, label: str,
         raise error(
             f"{label} must store its lift in secondary_sessions, not structure.strength"
         )
-    return _strength_secondaries(day, label=label, error=error)
+    return _secondary_sessions(day, label=label, error=error)
 
 
 
@@ -2027,7 +2044,7 @@ def accept_adjustment(adjustment: dict[str, Any]) -> dict[str, Any] | None:
     if discipline and discipline not in _PLAN_DISCIPLINES:
         raise AdjustmentValidationError(
             f"adjustment has unsupported discipline {discipline}")
-    strength_sessions = _validate_multisession_shape(
+    secondary_sessions = _validate_multisession_shape(
         adjustment, label="adjustment", error=AdjustmentValidationError,
     )
     _validate_optional_start_time(
@@ -2039,9 +2056,18 @@ def accept_adjustment(adjustment: dict[str, Any]) -> dict[str, Any] | None:
         fields["pos_updated_at"] = datetime.datetime.now(
             datetime.timezone.utc).isoformat()
     fields["tsb_target"] = _normalized_tsb_target(fields.get("tsb_target"))
-    if strength_sessions:
-        return db.edit_plan_day_with_strength(
-            date, fields, _prepared_strength_session(date, strength_sessions[0]),
+    if "secondary_sessions" in adjustment:
+        strength = next((session for session in secondary_sessions
+                         if str(session.get("discipline") or "").lower() == "strength"), None)
+        extras = [session for session in secondary_sessions
+                  if str(session.get("discipline") or "").lower() != "strength"]
+        return db.edit_plan_day_with_sessions(
+            date, fields,
+            strength=_prepared_strength_session(date, strength) if strength else None,
+            secondary_sessions=[
+                _prepared_secondary_session(date, session, index)
+                for index, session in enumerate(extras, start=1)
+            ],
             source="coach",
         )
     return db.edit_plan_day(date, fields, source="coach")
@@ -2067,12 +2093,31 @@ def _prepared_strength_session(date: str, session: dict[str, Any]) -> dict[str, 
     }
 
 
+def _prepared_secondary_session(date: str, session: dict[str, Any],
+                                order: int) -> dict[str, Any]:
+    """Normalize a non-strength additional workout for durable storage."""
+    return {
+        "date": date,
+        "session_order": order,
+        "discipline": str(session.get("discipline") or "other").lower(),
+        "title": str(session.get("title") or "Additional workout"),
+        "duration_min": int(session["duration_min"]),
+        "intensity": session.get("intensity"),
+        "structure": session.get("structure") or {},
+        "why": session.get("why"),
+        "start_time": session.get("start_time"),
+        "source": "coach",
+    }
+
+
 def _weekplan_for_activation(
-        days: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Normalize primary plan rows and their independent strength workouts."""
+        days: list[dict[str, Any]]) -> tuple[
+            list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Normalize primary rows plus independent strength and other workouts."""
     validate_weekplan(days, require_not_past=True)
     prepared: list[dict[str, Any]] = []
     strength_sessions: list[dict[str, Any]] = []
+    secondary_sessions: list[dict[str, Any]] = []
     for d in days or []:
         dt = datetime.date.fromisoformat(str(d["date"]))
         fields = {k: d[k] for k in
@@ -2080,10 +2125,19 @@ def _weekplan_for_activation(
                   if k in d}
         fields["tsb_target"] = _normalized_tsb_target(fields.get("tsb_target"))
         prepared.append({"date": dt.isoformat(), **fields})
-        for session in _strength_secondaries(
-                d, label=f"week plan row {dt.isoformat()}", error=WeekPlanValidationError):
-            strength_sessions.append(_prepared_strength_session(dt.isoformat(), session))
-    return prepared, strength_sessions
+        extras = _secondary_sessions(
+            d, label=f"week plan row {dt.isoformat()}", error=WeekPlanValidationError,
+        )
+        secondary_order = 0
+        for session in extras:
+            if str(session.get("discipline") or "").lower() == "strength":
+                strength_sessions.append(_prepared_strength_session(dt.isoformat(), session))
+            else:
+                secondary_order += 1
+                secondary_sessions.append(_prepared_secondary_session(
+                    dt.isoformat(), session, secondary_order,
+                ))
+    return prepared, strength_sessions, secondary_sessions
 
 
 def activate_weekplan(plan_id: int | str) -> dict[str, Any]:

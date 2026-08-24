@@ -34,6 +34,15 @@ def _strength(date: str, title: str = "Upper 1", **extra) -> dict:
     }
 
 
+def _secondary(date: str, title: str = "Bike commute home", **extra) -> dict:
+    return {
+        "date": date, "discipline": "bike", "title": title,
+        "duration_min": 75, "intensity": "easy Z2",
+        "structure": {"main": "30 km home"}, "why": "Independent return ride.",
+        "start_time": "17:00", **extra,
+    }
+
+
 class CalendarSyncTests(unittest.TestCase):
     def setUp(self) -> None:
         self._old_path = db._DB_PATH
@@ -94,6 +103,69 @@ class CalendarSyncTests(unittest.TestCase):
         self.assertEqual(write.call_args_list[1].args[0]["date"], date)
         self.assertEqual(db.get_plan_day(date)["gcal_event_id"], "g-primary")
         self.assertEqual(db.get_plan_strength(date)["gcal_event_id"], "g-strength")
+
+    def test_outbound_and_return_commutes_get_distinct_google_events(self) -> None:
+        date = "2026-08-24"
+        db.upsert_plan_day({
+            **_primary(date, title="Bike commute to work"),
+            "discipline": "bike", "duration_min": 75, "start_time": "07:15",
+        })
+        db.edit_plan_day_with_sessions(
+            date, {}, secondary_sessions=[_secondary(date)],
+            replace_strength=False,
+        )
+        returning = db.get_plan_secondary(date)[0]
+
+        def upsert(day, session_kind="primary"):
+            return {"event_id": f"g-{session_kind.replace(':', '-')}"}
+
+        with (
+            patch.object(calendar_source, "_creds_status", return_value={
+                "credentials_present": True, "token_present": True,
+            }),
+            patch.object(calendar_source, "upsert_workout_event", side_effect=upsert) as write,
+        ):
+            result = calendar_sync.push_days([date])
+
+        self.assertEqual(result["pushed"], 2)
+        self.assertEqual([call.kwargs.get("session_kind", "primary")
+                          for call in write.call_args_list],
+                         ["primary", f"secondary:{returning['id']}"])
+        self.assertEqual(db.get_plan_day(date)["duration_min"], 75)
+        self.assertEqual(db.get_plan_secondary(date)[0]["duration_min"], 75)
+        self.assertNotEqual(db.get_plan_day(date)["gcal_event_id"],
+                            db.get_plan_secondary(date)[0]["gcal_event_id"])
+
+    def test_return_commute_google_event_has_its_own_identity_and_duration(self) -> None:
+        session = {**_secondary("2026-08-24"), "id": 42}
+        body = calendar_source._event_body(session, "secondary:42")
+        private = body["extendedProperties"]["private"]
+
+        self.assertEqual(private[calendar_source.TRICOACH_KIND_KEY], "secondary:42")
+        start = datetime.datetime.fromisoformat(body["start"]["dateTime"])
+        end = datetime.datetime.fromisoformat(body["end"]["dateTime"])
+        self.assertEqual((end - start).seconds // 60, 75)
+
+    def test_dragging_return_commute_does_not_move_outbound_ride(self) -> None:
+        date = "2026-08-24"
+        target = "2026-08-25"
+        db.upsert_plan_day(_primary(date, title="Bike commute to work"))
+        db.upsert_plan_day(_primary(target, title="Easy run"))
+        db.edit_plan_day_with_sessions(
+            date, {}, secondary_sessions=[_secondary(date)],
+            replace_strength=False,
+        )
+        session = db.get_plan_secondary(date)[0]
+
+        result = calendar_sync.move_secondary_session(
+            session["id"], new_date=target, new_start="18:00", do_reconcile=False,
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(db.get_plan_day(date)["title"], "Bike commute to work")
+        self.assertEqual(db.get_plan_day(target)["title"], "Easy run")
+        self.assertEqual(db.get_plan_secondary_by_id(session["id"])["date"], target)
+        self.assertEqual(db.get_plan_secondary_by_id(session["id"])["start_time"], "18:00")
 
     def test_strength_google_event_has_an_independent_identity(self) -> None:
         body = calendar_source._event_body(_strength("2026-08-24"), "strength")
@@ -220,6 +292,24 @@ class CalendarSyncTests(unittest.TestCase):
             "2026-08-24", new_date=None, new_start="08:00", do_reconcile=False)
         push.assert_called_once_with(["2026-08-24"])
         self.assertEqual(body["google_sync"], synced)
+
+    def test_drag_route_targets_a_secondary_session_by_id(self) -> None:
+        moved = {"ok": True, "changed": ["2026-08-24"], "sessions": []}
+        synced = {"connected": True, "pushed": 2, "errors": None}
+        with (
+            patch.object(calendar_sync, "move_secondary_session",
+                         return_value=moved) as move,
+            patch.object(calendar_sync, "push_days", return_value=synced) as push,
+        ):
+            response = main.workout_move({
+                "date": "2026-08-24", "new_start": "18:00",
+                "session_kind": "secondary", "session_id": 42,
+            })
+
+        move.assert_called_once_with(
+            42, new_date=None, new_start="18:00", do_reconcile=False)
+        push.assert_called_once_with(["2026-08-24"])
+        self.assertEqual(json.loads(response.body)["google_sync"], synced)
 
 
 if __name__ == "__main__":

@@ -24,8 +24,8 @@ Output ONLY a JSON object, no prose around it:
 {"reply": "<one short sentence confirming what you did>", "actions": [ ... ]}
 
 Action types (use the exact date strings from CONTEXT; resolve "tomorrow/Friday/tonight" from `today`):
-- {"type":"move","session_kind":"primary|strength","date":"YYYY-MM-DD","new_date":"YYYY-MM-DD"(optional),"new_start":"HH:MM"(optional,24h)}
-    Reschedule the matching PRIMARY workout or separate STRENGTH session currently on "date".
+- {"type":"move","session_kind":"primary|strength|secondary","session_id":<int for secondary>,"date":"YYYY-MM-DD","new_date":"YYYY-MM-DD"(optional),"new_start":"HH:MM"(optional,24h)}
+    Reschedule the matching PRIMARY, STRENGTH, or named additional workout currently on "date".
     Omit fields you aren't changing. Moving onto a day with the same session_kind swaps those two;
     a strength move never moves that date's primary run/ride.
 - {"type":"add_event","title":"...","date":"YYYY-MM-DD","start":"HH:MM","duration_min":<int>,"all_day":false}
@@ -62,6 +62,17 @@ def _context() -> str:
             wd = datetime.date.fromisoformat(d["date"]).strftime("%a")
             lines.append(f"  {d['date']} {wd}: strength — {d.get('title')} "
                          f"@ {d.get('start_time') or '?'} for {d.get('duration_min')}min")
+    secondary = db.get_plan_secondary_range(today.isoformat(), end)
+    if secondary:
+        lines.append("")
+        lines.append("ADDITIONAL WORKOUTS (each is independently movable):")
+        for session in secondary:
+            wd = datetime.date.fromisoformat(session["date"]).strftime("%a")
+            lines.append(
+                f"  id={session['id']} {session['date']} {wd}: "
+                f"{session.get('discipline')} — {session.get('title')} "
+                f"@ {session.get('start_time') or '?'} for {session.get('duration_min')}min"
+            )
     ev = calendar_source.get_events(days=16)
     if ev.get("available") and ev.get("events"):
         lines.append("")
@@ -121,7 +132,8 @@ def command(text: str) -> dict[str, Any]:
         return {"reply": "Workout length stays fixed in Calendar — ask Coach Steve to change the session.",
                 "actions": [], "applied": 0}
     if any(a.get("type") == "move"
-           and str(a.get("session_kind") or "primary").lower() not in {"primary", "strength"}
+           and str(a.get("session_kind") or "primary").lower()
+           not in {"primary", "strength", "secondary"}
            for a in actions if isinstance(a, dict)):
         return {"reply": "I couldn't identify which workout type to move.",
                 "actions": [], "applied": 0}
@@ -161,10 +173,18 @@ def _apply(a: dict[str, Any], touched: list[str]) -> str:
     t = a.get("type")
     if t == "move":
         kind = str(a.get("session_kind") or "primary").lower()
-        mover = (calendar_sync.move_strength_session
-                 if kind == "strength" else calendar_sync.move_session)
-        r = mover(a["date"], new_date=a.get("new_date"),
-                  new_start=a.get("new_start"), do_reconcile=False)
+        if kind == "secondary":
+            if a.get("session_id") is None:
+                raise RuntimeError("secondary workout needs session_id")
+            r = calendar_sync.move_secondary_session(
+                a["session_id"], new_date=a.get("new_date"),
+                new_start=a.get("new_start"), do_reconcile=False,
+            )
+        else:
+            mover = (calendar_sync.move_strength_session
+                     if kind == "strength" else calendar_sync.move_session)
+            r = mover(a["date"], new_date=a.get("new_date"),
+                      new_start=a.get("new_start"), do_reconcile=False)
         if r.get("error"):
             raise RuntimeError(r["error"])
         touched.extend(r.get("changed") or [a["date"]])
