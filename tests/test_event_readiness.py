@@ -148,10 +148,20 @@ class ScoringTests(unittest.TestCase):
         self.assertIn("no usable race distances", result["reason"])
 
     def test_hostile_input_does_not_raise(self) -> None:
-        for bad in (None, 42, "load", {}, {"by_sport": "nope"}):
+        for bad in (None, 42, "load", {}, {"by_sport": "nope"},
+                    {"by_sport": {"run": {"km": "many"}}}):
             result = er.readiness(load14=bad, training_load=bad, readiness_score=bad,
                                   days_left=bad, profile=MARATHON)
             self.assertIn("available", result)
+
+    def test_non_finite_metrics_do_not_poison_the_score(self) -> None:
+        result = er.readiness(
+            load14={"by_sport": {"run": {"km": float("nan")}}},
+            training_load={"load_ratio": float("inf")},
+            readiness_score=float("nan"), days_left=True, profile=MARATHON,
+        )
+        self.assertIsInstance(result["score"], int)
+        self.assertIsNone(result["days_left"])
 
     def test_the_score_stays_within_bounds(self) -> None:
         for load in (_load(run=0), _load(run=10000)):

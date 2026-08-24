@@ -123,6 +123,22 @@ class PersistedEventProfileSwitchTests(unittest.TestCase):
         self.assertEqual(coaching_contract.event_context()["date"], "2026-10-18")
         self.assertIsNone(db.get_pending_event_profile())
 
+    def test_natural_undated_goal_does_not_ask_the_athlete_to_repeat_it(self) -> None:
+        staged = coach._explicit_mode_switch("change my goal to build muscle")
+        self.assertIn("target date", staged["reply"])
+        self.assertNotIn("Send the confirmed goal", staged["reply"])
+        pending = db.get_pending_event_profile()
+        self.assertEqual(pending["mode"], "STRENGTH")
+        self.assertEqual(pending["goal"], {"target": "build muscle"})
+        self.assertEqual(pending["provenance"]["goal"], "confirmed_by_user")
+
+        confirmed = coach._explicit_mode_switch("confirm switch")
+        self.assertIn("STRENGTH is now active", confirmed["reply"])
+        self.assertNotIn(" on .", confirmed["reply"])
+        status = coach._explicit_mode_switch("what mode am I in?")
+        self.assertIn("ongoing goal", status["reply"])
+        self.assertNotIn("date is  ", status["reply"])
+
     def test_failed_confirm_surfaces_error_and_keeps_prior_active_profile(self) -> None:
         coach._explicit_mode_switch("switch to marathon")
         coach._explicit_mode_switch(self._marathon_block())

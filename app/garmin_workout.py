@@ -657,7 +657,7 @@ def build_workout(sess: dict[str, Any], date_str: str, thr_pace: float | None = 
         warm = _strip_watt_cue(warm)
         main = _WATT_RANGE_RE.sub(replacement, main) if main else main
         cool = _strip_watt_cue(cool)
-    desc = f"Tri Coach · {intensity} · {sess.get('duration_min','')} min\n" + "\n".join(
+    desc = f"Training · {intensity} · {sess.get('duration_min','')} min\n" + "\n".join(
         p for p in [f"Warmup: {warm}" if warm else None,
                     f"{'Bike' if disc == 'brick' else 'Main'}: {main}" if main else None,
                     f"Cooldown: {cool}" if cool else None,

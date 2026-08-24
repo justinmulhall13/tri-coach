@@ -130,12 +130,10 @@ def get_insights(*, baseline_data: dict[str, Any] | None = None,
             add("info", "🌱", "Load ratio low",
                 f"ACWR {acwr:.2f} — room to build safely if recovery allows.")
 
-    # --- Race weakness stalling ---
-    # The T100 volume model has Vancouver-specific targets. Ignore even a stale
-    # caller-supplied payload after the active event profile changes.
-    t100 = (rg.get("t100") or {}) if config.supports_t100_features() else {}
-    low_bucket = t100.get("lowest_volume_bucket")
-    comp = (t100.get("components") or {}).get(low_bucket) or {}
+    # --- Active-goal weakness stalling ---
+    event_ready = rg.get("event_ready") or {}
+    low_bucket = event_ready.get("lowest_volume_bucket")
+    comp = (event_ready.get("components") or {}).get(low_bucket) or {}
     if low_bucket and isinstance(comp.get("pct"), (int, float)) and comp["pct"] < 60:
         if low_bucket == "run":
             detail = (f"Run is at {comp['pct']}% of its 14-day bucket. Do not jump run volume; "

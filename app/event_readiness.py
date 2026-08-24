@@ -1,17 +1,12 @@
-"""Race preparedness for whatever event is actually active.
+"""Preparedness for whatever event is actually active.
 
-The bundled T100 score is tuned to one race: its 2 km / 80 km / 18 km demands
-are baked into fixed 14-day volume targets, which is why it is gated to that
-profile. Reusing those numbers for a marathon would silently claim a runner
-needed 170 km of cycling a fortnight.
-
-This module derives the targets from the active profile's own distances
-instead, so a marathon gets a marathon ring and the label reads "Marathon
-readiness". The scoring shape deliberately mirrors the T100 model — volume
-coverage, load balance, recovery — so the two are read the same way.
+Targets are derived from the persisted profile's own distances, so a marathon
+gets marathon demands and a triathlon gets its stated swim, bike, and run. One
+model combines volume coverage, load balance, recovery, and long-run evidence.
 """
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -79,7 +74,8 @@ _DISTANCE_KEYS = {
 def _number(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return float(value) if value > 0 else None
+    number = float(value)
+    return number if math.isfinite(number) and number > 0 else None
 
 
 def race_distances(profile: Any) -> dict[str, float]:
@@ -144,12 +140,13 @@ def longest_run_km(activities: Any) -> float | None:
         return None
     best = None
     for activity in activities:
-        if not isinstance(activity, dict) or activity.get("sport") != "run":
+        if (not isinstance(activity, dict)
+                or str(activity.get("sport") or "").casefold() not in {"run", "running"}):
             continue
-        km = activity.get("km")
-        if isinstance(km, bool) or not isinstance(km, (int, float)) or km <= 0:
+        km = _number(activity.get("km"))
+        if km is None:
             continue
-        best = float(km) if best is None else max(best, float(km))
+        best = km if best is None else max(best, km)
     return best
 
 
@@ -177,7 +174,9 @@ def readiness(*, load14: Any, training_load: Any, readiness_score: Any,
             target = weekly_run_target_km(race_km) * 2.0
         else:
             target = race_km * VOLUME_MULTIPLE.get(discipline, 1.0)
-        actual = (by_sport.get(discipline) or {}).get("km") or 0
+        bucket = by_sport.get(discipline)
+        actual = _number(bucket.get("km")) if isinstance(bucket, dict) else None
+        actual = actual or 0.0
         ratio = min(1.0, actual / target) if target > 0 else 0.0
         coverage[discipline] = ratio
         components[discipline] = {
@@ -186,14 +185,16 @@ def readiness(*, load14: Any, training_load: Any, readiness_score: Any,
         }
 
     acwr = (training_load or {}).get("load_ratio") if isinstance(training_load, dict) else None
-    if isinstance(acwr, (int, float)) and not isinstance(acwr, bool):
+    if (isinstance(acwr, (int, float)) and not isinstance(acwr, bool)
+            and math.isfinite(float(acwr))):
+        acwr = float(acwr)
         load_c = 1.0 if 0.8 <= acwr <= 1.3 else 0.7
     else:
         load_c = 0.5
     components["load_balance"] = {"pct": round(load_c * 100), "acwr": acwr}
 
     score_value = readiness_score if isinstance(readiness_score, (int, float)) \
-        and not isinstance(readiness_score, bool) else 50
+        and not isinstance(readiness_score, bool) and math.isfinite(float(readiness_score)) else 50
     recovery_c = min(1.0, max(0.0, score_value / 100))
 
     # Weights are renormalised over the disciplines this event actually has, so
@@ -257,7 +258,7 @@ def readiness(*, load14: Any, training_load: Any, readiness_score: Any,
         "label": ("Race ready" if score >= 85 else "On track" if score >= 65 else
                   "Behind" if score >= 40 else "Way behind"),
         "event_label": event_label(profile),
-        "days_left": days_left if isinstance(days_left, int) else None,
+        "days_left": days_left if isinstance(days_left, int) and not isinstance(days_left, bool) else None,
         "components": components,
         "lowest_volume_bucket": lowest,
         "basis": "14-day volume against this event's own race distances",

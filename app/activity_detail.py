@@ -188,17 +188,6 @@ def _best_efforts(series: dict[str, list], sport: str, total_s: float = 0.0) -> 
     return out or None
 
 
-_T100_ANALYZE_PROMPT = """Here is the full data for one of my completed activities (stats, splits, \
-and series summaries). Give me your read on this session in 4–6 sentences:
-1. What kind of session this actually was (based on the numbers, not the name).
-2. Execution quality — pacing/power/HR discipline, split consistency, decoupling if visible.
-3. Training effect — what this did for me physiologically and how it fits my T100 build \
-and current load focus.
-For a structured interval session, grade each ACTIVE bout from `interval_execution` and never \
-compare whole-session average HR with the work target.
-Direct, evidence-based, reference specific numbers. No adjustment block, no preamble."""
-
-
 _GENERIC_ANALYZE_PROMPT = """Here is the full data for one of my completed activities (stats, splits, \
 and series summaries). Give me your read on this session in 4–6 sentences:
 1. What kind of session this actually was (based on the numbers, not the name).
@@ -211,7 +200,10 @@ Direct, evidence-based, reference specific numbers. No adjustment block, no prea
 
 
 def _analyze_prompt() -> str:
-    return _T100_ANALYZE_PROMPT if config.supports_t100_features() else _GENERIC_ANALYZE_PROMPT
+    # Event-specific demands already arrive in the persisted context block.
+    # A separate legacy-event prompt was a second source of truth that could
+    # survive a mode switch through cached analyses.
+    return _GENERIC_ANALYZE_PROMPT
 
 
 def _analysis_cache_key(activity_id: int) -> str:

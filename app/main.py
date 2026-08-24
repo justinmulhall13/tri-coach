@@ -26,11 +26,11 @@ from fastapi.staticfiles import StaticFiles
 
 from . import (activity_detail, baselines, calendar_agent, calendar_source,
                calendar_sync, coach, coaching_contract, config, db, fitness_trend, garmin_source,
-               garmin_workout, hevy_actions, hevy_connector, insights, nudges, nutrition, plan, plan_adapt, zones,
+               garmin_workout, hevy_actions, hevy_connector, insights, nudges, nutrition, plan, plan_adapt, recipes, zones,
                lifting_rules, lifting_split, lifting_stats,
                push, rings, ring_detail, strength_block, strength_effort, suggest)
 
-app = FastAPI(title="Tri Coach")
+app = FastAPI(title="Training")
 
 # A strength block longer than a year is not a training block; capping it
 # also keeps week arithmetic inside the date range.
@@ -1183,6 +1183,84 @@ def nutrition_suggest(body: dict = Body(default={})) -> JSONResponse:
     return JSONResponse(result, status_code=502 if result.get("error") else 200)
 
 
+@app.post("/api/nutrition/recipes/search")
+def nutrition_recipe_search(body: dict = Body(default={})) -> JSONResponse:
+    """Find current publisher recipes and verify their structured metadata."""
+    try:
+        result = recipes.discover(
+            str(body.get("query") or ""), day=nutrition.get_day(),
+            limit=body.get("limit") or 6,
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc), "recipes": []}, status_code=400)
+    status = 502 if result.get("error") and not result.get("recipes") else 200
+    return JSONResponse(result, status_code=status)
+
+
+@app.get("/api/nutrition/recipes/saved")
+def nutrition_saved_recipes() -> JSONResponse:
+    return JSONResponse({"recipes": db.get_saved_recipes()})
+
+
+@app.post("/api/nutrition/recipes/saved")
+def nutrition_save_recipe(body: dict = Body(default={})) -> JSONResponse:
+    recipe = body.get("recipe") if isinstance(body.get("recipe"), dict) else body
+    try:
+        saved = db.save_recipe(recipe)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return JSONResponse({"ok": True, "recipe": saved})
+
+
+@app.delete("/api/nutrition/recipes/saved/{recipe_id}")
+def nutrition_delete_recipe(recipe_id: int) -> JSONResponse:
+    return JSONResponse({"ok": db.delete_saved_recipe(recipe_id)})
+
+
+@app.get("/api/nutrition/grocery")
+def nutrition_grocery() -> JSONResponse:
+    return JSONResponse({"items": db.get_grocery_items()})
+
+
+@app.post("/api/nutrition/grocery")
+def nutrition_grocery_add(body: dict = Body(default={})) -> JSONResponse:
+    try:
+        item = db.add_grocery_item(str(body.get("item") or ""))
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return JSONResponse({"ok": True, "item": item, "items": db.get_grocery_items()})
+
+
+@app.post("/api/nutrition/grocery/from-recipe/{recipe_id}")
+def nutrition_grocery_from_recipe(recipe_id: int) -> JSONResponse:
+    try:
+        items = db.add_recipe_to_grocery(recipe_id)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
+    return JSONResponse({"ok": True, "items": items})
+
+
+@app.patch("/api/nutrition/grocery/{item_id}")
+def nutrition_grocery_check(item_id: int, body: dict = Body(default={})) -> JSONResponse:
+    if "checked" not in body:
+        return JSONResponse({"error": "checked is required"}, status_code=400)
+    item = db.set_grocery_checked(item_id, bool(body["checked"]))
+    return JSONResponse({"ok": item is not None, "item": item},
+                        status_code=200 if item else 404)
+
+
+@app.delete("/api/nutrition/grocery/checked")
+def nutrition_grocery_clear_checked() -> JSONResponse:
+    removed = db.clear_checked_grocery()
+    return JSONResponse({"ok": True, "removed": removed, "items": db.get_grocery_items()})
+
+
+@app.delete("/api/nutrition/grocery/{item_id}")
+def nutrition_grocery_delete(item_id: int) -> JSONResponse:
+    return JSONResponse({"ok": db.delete_grocery_item(item_id),
+                         "items": db.get_grocery_items()})
+
+
 @app.delete("/api/nutrition/{entry_id}")
 def nutrition_delete(entry_id: int) -> JSONResponse:
     ok = db.delete_nutrition(entry_id)
@@ -1349,7 +1427,7 @@ def service_worker() -> FileResponse:
 @app.get("/manifest.webmanifest")
 def manifest() -> JSONResponse:
     return JSONResponse({
-        "name": "Tri Coach", "short_name": "Tri Coach", "start_url": "/",
+        "name": "Training", "short_name": "Training", "start_url": "/",
         "display": "standalone", "background_color": "#080b10", "theme_color": "#080b10",
         "icons": [{"src": "/static/icon.png", "sizes": "512x512", "type": "image/png",
                    "purpose": "any maskable"}],

@@ -116,6 +116,9 @@ PROFILE_FIELDS: Final[tuple[str, ...]] = (
 PROFILE_PROVENANCE: Final[frozenset[str]] = frozenset({
     "confirmed_by_user", "pasted_from_guide", "unknown",
 })
+UNDATED_GOAL_MODES: Final[frozenset[str]] = frozenset({
+    "STRENGTH", "GENERAL", "HYBRID",
+})
 
 
 # === RULES (do not change while switching events) =============================
@@ -165,7 +168,12 @@ RULES: Final[dict[str, tuple[str, ...]]] = {
 }
 
 
-_SWITCH_RE = re.compile(r"^\s*switch\s+to\s+(.+?)\s*[.!]?\s*$", re.I)
+_SWITCH_PATTERNS: Final[tuple[re.Pattern[str], ...]] = tuple(re.compile(pattern, re.I) for pattern in (
+    r"^\s*switch\s+to\s+(.+?)\s*[.!]?\s*$",
+    r"^\s*change\s+(?:my\s+)?(?:mode|goal|event|race)\s+to\s+(.+?)\s*[.!]?\s*$",
+    r"^\s*(?:start|begin)\s+training\s+for\s+(.+?)\s*[.!]?\s*$",
+    r"^\s*make\s+(.+?)\s+my\s+(?:goal|event|race)\s*[.!]?\s*$",
+))
 
 
 def current_mode() -> str:
@@ -183,20 +191,32 @@ def scoped_meta_key(name: str) -> str:
 
 
 def explicit_switch_target(message: str) -> str | None:
-    """Return a target only for the athlete's exact ``switch to ...`` command."""
-    match = _SWITCH_RE.fullmatch(message or "")
-    return match.group(1).strip() if match else None
+    """Return a target only for an explicit mode/goal-changing command.
+
+    Natural phrasing is accepted, but an ordinary training question still
+    cannot mutate the active profile.
+    """
+    for pattern in _SWITCH_PATTERNS:
+        match = pattern.fullmatch(message or "")
+        if match:
+            return match.group(1).strip()
+    return None
 
 
 def target_is_current(target: str) -> bool:
     event = event_context()
-    normalized = re.sub(r"[^a-z0-9]+", " ", target.lower()).strip()
+    def key(value: str) -> str:
+        words = re.findall(r"[a-z0-9]+", value.lower())
+        return " ".join(word for word in words
+                        if word not in {"mode", "profile", "event", "goal", "race"})
+
+    normalized = key(target)
     aliases = {
         str(event.get("mode") or "").lower(),
         str(event.get("event") or event.get("event_name") or "").lower(),
         str(event.get("id") or "").replace("-", " ").lower(),
     }
-    return normalized in {re.sub(r"[^a-z0-9]+", " ", alias).strip() for alias in aliases}
+    return normalized in {key(alias) for alias in aliases}
 
 
 def event_context() -> dict[str, Any]:
@@ -311,6 +331,8 @@ def normalize_event_profile(profile: dict[str, Any],
 def prepare_event_profile_for_activation(profile: dict[str, Any]) -> dict[str, Any]:
     """Validate all required fields after the athlete explicitly confirms."""
     record = normalize_event_profile(profile)
+    record["mode"] = str(record.get("mode") or "").upper()
+    undated_goal = record["mode"] in UNDATED_GOAL_MODES
     missing = []
     if not str(record.get("event_name") or "").strip():
         missing.append("event_name")
@@ -318,10 +340,16 @@ def prepare_event_profile_for_activation(profile: dict[str, Any]) -> dict[str, A
     try:
         datetime.date.fromisoformat(date_text)
     except ValueError:
-        missing.append("event_date")
+        if undated_goal:
+            record["event_date"] = ""
+        else:
+            missing.append("event_date")
     distances = record.get("distances")
     if not isinstance(distances, dict) or not distances:
-        missing.append("distances")
+        if undated_goal:
+            record["distances"] = {}
+        else:
+            missing.append("distances")
     else:
         try:
             valid_distances = all(not isinstance(v, bool) and float(v) > 0 for v in distances.values())
@@ -337,15 +365,21 @@ def prepare_event_profile_for_activation(profile: dict[str, Any]) -> dict[str, A
     if missing:
         raise ValueError("event profile is incomplete: " + ", ".join(dict.fromkeys(missing)))
 
-    record["mode"] = str(record["mode"]).upper()
     # Never accept a caller/model-supplied namespace. This prevents a new
     # profile from claiming the reserved T100 feature gate or inheriting chat,
     # plans, and drafts from a materially different event.
     record["id"] = _server_profile_id(record)
     # An exact confirmation promotes only unknown provenance. Guide-sourced
     # facts retain their source even after the athlete approves the profile.
+    optional_unknown = {
+        field for field in ("event_date", "distances")
+        if undated_goal and not record.get(field)
+    }
     record["provenance"] = {
-        field: ("confirmed_by_user" if record["provenance"].get(field) == "unknown"
+        field: (record["provenance"].get(field)
+                if field in optional_unknown
+                else "confirmed_by_user"
+                if record["provenance"].get(field) == "unknown"
                 else record["provenance"].get(field))
         for field in PROFILE_FIELDS
     }
@@ -397,9 +431,18 @@ def race_phase(today: datetime.date) -> dict[str, Any]:
     """Countdown and periodization derived from the persisted active profile."""
     event = event_context()
     date_text = str(event.get("date") or "")
+    mode = str(event.get("mode") or "UNKNOWN").upper()
     try:
         race_date = datetime.date.fromisoformat(date_text)
     except ValueError:
+        if mode in UNDATED_GOAL_MODES:
+            return {
+                "name": event.get("event"), "date": "",
+                "distances": copy.deepcopy(event.get("disciplines_and_distances") or {}),
+                "days_remaining": None, "weeks_remaining": None,
+                "is_past": False, "phase": "build", "mode": mode,
+                "undated_goal": True,
+            }
         return {"name": event.get("event"), "date": date_text,
                 "error": "EVENT_PROFILE date is invalid; expected YYYY-MM-DD"}
     days = (race_date - today).days
@@ -412,7 +455,7 @@ def race_phase(today: datetime.date) -> dict[str, Any]:
         "weeks_remaining": round(days / 7, 1),
         "is_past": days < 0,
         "phase": phase,
-        "mode": str(event.get("mode") or "UNKNOWN").upper(),
+        "mode": mode,
     }
 
 
@@ -425,7 +468,7 @@ def system_prompt() -> str:
     event = event_context()
     event_json = json.dumps(event, indent=2, ensure_ascii=False)
     return f"""COACHING CONTRACT
-CURRENT MODE: {str(event.get('mode') or 'UNKNOWN').upper()}. Never infer a mode change from a training question. The runtime can only change event profiles after an exact `switch to [event]` command, and an unknown profile leaves this mode unchanged.
+CURRENT MODE: {str(event.get('mode') or 'UNKNOWN').upper()}. Never infer a mode change from a training question. The runtime can change event profiles only after an explicit goal-changing command and a separate confirmation; an unknown profile leaves this mode unchanged.
 
 ATHLETE CONSTANTS (self-reported; never change during an event switch)
 - Body mass fallback: {athlete['body_mass_fallback']['value']:g} kg. A dated athlete-maintained Garmin weight entry is self-reported via Garmin and overrides this fallback only for weight-dependent arithmetic.

@@ -26,7 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from . import (athlete_guide, calendar_source, coaching_contract, config, db,
-               fueling_reference, garmin_source, hevy_connector,
+               event_readiness, fueling_reference, garmin_source, hevy_connector,
                interval_analysis, rings, suggest, web_lookup, zones)
 from . import (hevy_actions, lifting_rules, lifting_split, strength_context,
                strength_effort, strength_knowledge, strength_visual)
@@ -209,22 +209,12 @@ was created from chat text; writes require resolved exercise-template IDs and ex
 Use `athlete_zones` for real numbers: it carries the athlete's actual Garmin HR zones \
 (per sport — cycling zones sit lower than running), lactate-threshold HR and pace, and FTP. \
 Quote real bpm and min/km from it; never invent zone boundaries or paces.
-- OUTPUT FORMAT: NEVER reply in paragraphs. Every reply is a scannable TL;DR:
-    • Line 1 is exactly "TL;DR: <the single bottom-line call, one sentence>".
-    • Then 2–5 bullet lines, each "• <Label>: <one tight line>". Choose labels that fit the \
-    question (e.g. Readiness, Today, Do, Watch, Week, Swim, Fuel, Why).
-    • Use a number only when it changes the athlete's decision or gives them an actionable target. \
-Never dump a dashboard of metrics. When you use one, say why it matters in the same line \
-(for example: "HR cap 143: keeps this genuinely easy").
-    • Compress hard but keep every crucial verdict and instruction. One line per bullet, no \
-sub-bullets, no restating. Sound like a candid training partner: direct, grounded, and useful, \
-not a clinical report or motivational poster.
-    • Each bullet is ONE short clause, ~14 words max. If a bullet needs two sentences, split it \
-    into two bullets. Short labels (one word if possible). Fueling audits may use up to 8 concise \
-    bullets with equations. A requested lifting prescription may use enough concise bullets to \
-    give every exercise's order, sets, reps or duration, rest, and effort without omitting fields.
-    • Plain text only: no markdown bold/asterisks/headers (they render literally), no filler, \
-no hype, no emoji, and no em dashes. This applies to morning briefs and nightly reviews too.
+- RESPONSE STYLE: Talk like a concise, candid coach in a normal conversation. Start with the
+  answer, usually in two to five short sentences. Do not use TL;DR, labeled sections, a dashboard
+  of metrics, or repetitive summaries. Use a compact list only when the athlete actually needs a
+  schedule, exercise order, set prescription, or checkable fueling arithmetic. Never hide context
+  behind "more details". Use a number only when it changes the decision, and explain why it matters
+  in the same sentence. Plain text only: no markdown emphasis, hype, emoji, filler, or em dashes.
 
 You CAN reprogram ANY day in the plan — today OR any upcoming day through race day \
 (tomorrow's swim, Monday's session, etc.). If the athlete says a planned session is \
@@ -672,12 +662,17 @@ def _context_block(user_query: str = "") -> str:
     morning = readiness.get("training_readiness") or {}
     ready_score = (morning.get("score")
                    if (morning.get("freshness") or {}).get("is_current") is True else None)
-    ring_context = ({"t100": rings.t100_readiness(
-        load if isinstance(load, dict) else {},
-        decision_training_load,
-        ready_score,
-        phase.get("days_remaining", 0),
-    )} if config.supports_t100_features() else {})
+    long_load = safe(lambda: garmin_source.get_recent_load(
+        event_readiness.LONG_RUN_WINDOW_DAYS))
+    ring_context = {"event_ready": event_readiness.readiness(
+        load14=load if isinstance(load, dict) else {},
+        training_load=decision_training_load,
+        readiness_score=ready_score,
+        days_left=phase.get("days_remaining", 0),
+        profile=coaching_contract.event_context(),
+        activities=(long_load.get("activities")
+                    if isinstance(long_load, dict) else None),
+    )}
     signals = safe(lambda: insights.get_insights(
         baseline_data=baseline if isinstance(baseline, dict) else {},
         pmc_data=pmc if isinstance(pmc, dict) else {},
@@ -1399,20 +1394,13 @@ def _fixed_week_visible_reply(text: str) -> str:
     to normalize or that no date is fixed cannot accompany that schedule.
     """
     kept: list[str] = []
-    replaced_tldr = False
     for line in (text or "").splitlines():
         gated = bool(_CONDITIONAL_SCHEDULE_RE.search(line) or _VISIBLE_DATE_GATING_RE.search(line))
         if not gated:
             kept.append(line)
-            continue
-        if re.match(r"^\s*TL;?DR\s*:", line, re.I) and not replaced_tldr:
-            kept.append("TL;DR: Fixed-date schedule drafted; review each dated session below.")
-            replaced_tldr = True
     cleaned = "\n".join(kept).strip()
     if not cleaned:
-        return "TL;DR: Fixed-date schedule drafted; review each dated session below."
-    if not any(re.match(r"^\s*TL;?DR\s*:", line, re.I) for line in cleaned.splitlines()):
-        cleaned = "TL;DR: Fixed-date schedule drafted; review each dated session below.\n" + cleaned
+        return "I drafted the fixed-date schedule below. Review it before activating it."
     return cleaned
 
 
@@ -1452,9 +1440,8 @@ def _explicit_mode_switch(user_message: str) -> dict[str, Any] | None:
         try:
             activated = db.activate_pending_event_profile()
         except Exception as exc:  # validation and storage failures must be visible
-            reply = ("TL;DR: Event switch was not saved; the prior profile remains active.\n"
-                     f"• Error: {exc}\n"
-                     "• Needed: Complete the missing fields, then say confirm switch.")
+            reply = ("That switch did not save, so your prior profile is still active. "
+                     f"{exc}. Complete the missing fields, then say confirm switch.")
             try:
                 db.add_chat("user", command_text)
                 db.add_chat("assistant", reply)
@@ -1464,10 +1451,9 @@ def _explicit_mode_switch(user_message: str) -> dict[str, Any] | None:
                           pending=db.get_pending_event_profile())
         invalidate_context_cache()
         runtime = coaching_contract.runtime_event_profile(activated)
-        provenance = runtime.get("field_provenance") or {}
-        reply = (f"TL;DR: {runtime['mode']} is now active for {runtime['event']}.\n"
-                 f"• Date: {runtime['date']} ({provenance.get('event_date', 'unknown')}).\n"
-                 "• Context: Future turns use this persisted profile; prior-event chat stays isolated.")
+        date_suffix = f" on {runtime['date']}" if runtime.get("date") else ""
+        reply = (f"{runtime['mode']} is now active for {runtime['event']}{date_suffix}. "
+                 "It is saved, and every future turn will read this profile.")
         # The transaction above completed before this reply is persisted or returned.
         db.add_chat("user", command_text)
         db.add_chat("assistant", reply)
@@ -1478,9 +1464,9 @@ def _explicit_mode_switch(user_message: str) -> dict[str, Any] | None:
 
     if re.fullmatch(r"cancel(?: the)? (?:event )?switch[.!]?", normalized_message, re.I):
         db.clear_pending_event_profile()
-        reply = (f"TL;DR: Pending switch cancelled; {active.get('mode')} remains active.\n"
-                 f"• Event: {active.get('event')} on {active.get('date')}.\n"
-                 "• Guard: No staged event facts were activated.")
+        date_suffix = f" on {active.get('date')}" if active.get("date") else ""
+        reply = (f"I cancelled the pending switch. {active.get('mode')} remains active for "
+                 f"{active.get('event')}{date_suffix}.")
         db.add_chat("user", user_message)
         db.add_chat("assistant", reply)
         return result(reply)
@@ -1490,23 +1476,24 @@ def _explicit_mode_switch(user_message: str) -> dict[str, Any] | None:
         try:
             pending = db.stage_event_profile(supplied_profile)
         except Exception as exc:
-            reply = ("TL;DR: Event profile details were not saved.\n"
-                     f"• Error: {exc}\n"
-                     "• Active: The prior event and mode are unchanged.")
+            reply = ("Those event details did not save, so the prior event and mode are unchanged. "
+                     f"{exc}.")
             return result(reply, error=f"{type(exc).__name__}: {exc}")
-        reply = (f"TL;DR: {pending.get('event_name') or 'Event'} is staged, not active.\n"
-                 "• Check: Verify date, distances, goal, mode, and provenance.\n"
-                 "• Confirm: Say exactly confirm switch when every field is correct.")
+        reply = (f"I saved {pending.get('event_name') or 'that event'} as staged, not active. "
+                 "Check the date, distances, goal, and mode, then say confirm switch.")
         db.add_chat("user", user_message)
         db.add_chat("assistant", reply)
         return result(reply, pending=pending)
 
     if re.search(r"\b(what|which)\b.{0,40}\b(mode|event|race)\b|\bcurrent (mode|event)\b|"
                  r"\bwhat am i training for\b", normalized_message, re.I):
-        provenance = active.get("field_provenance") or {}
-        reply = (f"TL;DR: {active.get('mode')} is active for {active.get('event')}.\n"
-                 f"• Date: {active.get('date')} ({provenance.get('event_date', 'unknown')}).\n"
-                 f"• Profile: {active.get('id')} is persisted and active.")
+        date_source = (active.get("field_provenance") or {}).get("event_date", "unknown")
+        if active.get("date"):
+            timing = f"The date is {active.get('date')} ({date_source})"
+        else:
+            timing = "It is an ongoing goal, so no event date is required"
+        reply = (f"You are in {active.get('mode')} mode for {active.get('event')}. {timing}, "
+                 "and that profile is saved and active.")
         db.add_chat("user", user_message)
         db.add_chat("assistant", reply)
         return result(reply)
@@ -1519,7 +1506,7 @@ def _explicit_mode_switch(user_message: str) -> dict[str, Any] | None:
 
     def target_key(value: Any) -> str:
         words = [word for word in re.findall(r"[a-z0-9]+", str(value or "").lower())
-                 if word not in {"mode", "profile", "event"}]
+                 if word not in {"mode", "profile", "event", "goal", "race"}]
         return " ".join(words)
 
     if pending_existing:
@@ -1536,41 +1523,52 @@ def _explicit_mode_switch(user_message: str) -> dict[str, Any] | None:
             return activate_switch(user_message)
 
     if coaching_contract.target_is_current(target):
-        reply = (f"TL;DR: {mode} is already the active mode.\n"
-                 f"• Event: {active.get('event')} remains active on {active.get('date')}.\n"
-                 "• Guard: Ordinary training questions cannot change event mode.")
+        date_suffix = f" on {active.get('date')}" if active.get("date") else ""
+        reply = (f"{mode} is already the active mode for {active.get('event')}"
+                 f"{date_suffix}.")
         pending = db.get_pending_event_profile()
     else:
-        target_text = target.strip()
+        target_text = re.sub(r"\s+(?:mode|profile)$", "", target.strip(), flags=re.I).strip()
         words = set(re.findall(r"[a-z]+", target_text.lower()))
         staged_mode = ("MARATHON" if "marathon" in words else
                        "TRIATHLON" if words & {"triathlon", "tri", "t100"} else
+                       "DUATHLON" if "duathlon" in words else
                        "RUNNING" if words & {"run", "running"} else
                        "CYCLING" if words & {"bike", "cycling"} else
+                       "SWIMMING" if words & {"swim", "swimming"} else
+                       "STRENGTH" if words & {"lift", "lifting", "strength", "bodybuilding",
+                                                 "muscle", "muscular", "huge", "mass"} else
+                       "HYBRID" if words & {"hybrid", "multisport"} else
+                       "GENERAL" if words & {"general", "fitness", "health"} else
                        re.sub(r"[^A-Z0-9]+", "_", target_text.upper()).strip("_") or "UNKNOWN")
         try:
+            undated_goal = staged_mode in coaching_contract.UNDATED_GOAL_MODES
             pending = db.stage_event_profile({
                 "event_name": target_text,
                 "event_date": None,
                 "distances": {},
-                "goal": None,
+                # In an undated mode, the explicit switch target is itself the
+                # goal. Asking the athlete to repeat "build muscle" was the
+                # exact natural-language dead end this path is meant to avoid.
+                "goal": {"target": target_text} if undated_goal else None,
                 "mode": staged_mode,
                 "provenance": {
                     "event_name": "confirmed_by_user",
                     "event_date": "unknown",
                     "distances": "unknown",
-                    "goal": "unknown",
+                    "goal": "confirmed_by_user" if undated_goal else "unknown",
                     "mode": "confirmed_by_user",
                 },
             })
         except Exception as exc:
-            reply = (f"TL;DR: Switch staging failed; {mode} remains active.\n"
-                     f"• Error: {exc}\n"
-                     "• Guard: No active profile state changed.")
+            reply = (f"I could not save that pending switch, so {mode} remains active. {exc}.")
             return result(reply, error=f"{type(exc).__name__}: {exc}")
-        reply = (f"TL;DR: Mode remains {mode}; {target_text} is staged, not active.\n"
-                 "• Needed: Send the confirmed event date, distances, and goal.\n"
-                 "• Confirm: After reviewing the complete profile, say exactly confirm switch.")
+        if undated_goal:
+            needed = "A target date and performance measures are optional"
+        else:
+            needed = "Send the event date, distances, and goal"
+        reply = (f"I saved {target_text} as staged, not active. Mode remains {mode} until the new "
+                 f"profile is complete. {needed}; after you review it, say confirm switch.")
     db.add_chat("user", user_message)
     db.add_chat("assistant", reply)
     return result(reply, pending=pending)
@@ -1714,28 +1712,25 @@ def _finish_chat(user_message: str, today: str, msg: Any, *,
     # prose cannot bypass the persisted transaction, even if it hallucinates a
     # successful switch.
     if _UNSAVED_SWITCH_CLAIM_RE.search(reply_clean):
-        reply_clean = ("TL;DR: Event switch is not active yet.\n"
-                       "• State: Profile details are staged only.\n"
-                       "• Confirm: Say exactly confirm switch after reviewing every field.")
+        reply_clean = ("The event switch is not active yet; I only saved the profile as pending. "
+                       "Review every field, then say confirm switch.")
     if profile_error:
-        reply_clean = ("TL;DR: Event profile details were not saved; the prior profile remains active.\n"
-                       f"• Error: {profile_error}\n"
-                       "• Guard: No mode or event state changed.")
+        reply_clean = ("The event profile did not save, so your prior profile remains active. "
+                       f"{profile_error}.")
     elif staged_profile and "confirm switch" not in reply_clean.lower():
-        reply_clean = (reply_clean.rstrip() + "\n"
-                       "• Confirm: Profile staged only; say exactly confirm switch to activate.")
+        reply_clean = (reply_clean.rstrip() + "\n\nThe profile is staged only. Say confirm switch to activate it.")
     if week:
         reply_clean = _fixed_week_visible_reply(reply_clean)
         if plan_draft:
             reply_clean = (reply_clean.rstrip() +
-                           f"\n• Draft: Saved as plan #{plan_draft['plan_id']} for later review.")
+                           f"\n\nI saved this as plan #{plan_draft['plan_id']} so you can reopen it later.")
     if schedule_error:
         reply_clean = (reply_clean.rstrip() +
-                       "\n• Schedule memory: I used those details for this answer, but they did not save for future chats.")
+                       "\n\nI used those schedule details here, but they did not save for future chats.")
     elif saved_schedule_constraints:
         count = len(saved_schedule_constraints)
         reply_clean = (reply_clean.rstrip() +
-                       f"\n• Schedule memory: Saved {count} availability fact{'s' if count != 1 else ''} for future planning.")
+                       f"\n\nSaved {count} availability fact{'s' if count != 1 else ''} for future planning.")
 
     # Never surface a blank "(no reply)". If the model returned only a machine block
     # (or ran out of tokens mid-thought), give a sensible confirmation — the proposal
@@ -1918,7 +1913,7 @@ is still planned today and I haven't done it, say what's left. For structured in
 signal, today's planned session and its main target, and the single most important thing to nail, \
 drawing on my load focus and where I'm behind for the race.
 
-Use the TL;DR + bullets format from your rules (TL;DR line, then 2–5 labeled bullets). \
+Use the concise conversational style from your rules. \
 No paragraphs, no adjustment block."""
 
 
@@ -1949,7 +1944,7 @@ salvaging tomorrow or writing off.
 - Give one honest takeaway on where today leaves me for the week and the race, and one \
 concrete thing to prioritize tomorrow (including sleep/recovery if the markers warrant it).
 
-Use the TL;DR + bullets format from your rules (TL;DR line, then 2–5 labeled bullets). \
+Use the concise conversational style from your rules. \
 No paragraphs, no adjustment block."""
 
 

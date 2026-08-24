@@ -1,6 +1,6 @@
 """WHOOP-style click-through breakdowns for the four dashboard rings.
 
-Each ring (recovery, sleep, strain, t100) returns a common payload the frontend
+Each ring (recovery, sleep, strain, event readiness) returns a common payload the frontend
 renders identically:
 
   {score, unit, label, color, contributors[], stages[], charts[], insight}
@@ -321,75 +321,8 @@ def _strain_insight(strain, zones) -> str | None:
     return "Today's training sat mostly in the easy aerobic zones — good for base and recovery."
 
 
-# --- T100 readiness -----------------------------------------------------------
 def _event_ready() -> dict[str, Any]:
-    """Detail for the race-readiness ring, whatever event is active.
-
-    This used to be T100-only and returned an error for any other profile — so
-    switching to a marathon left the ring on screen but its detail sheet dead.
-    """
-    if not config.supports_t100_features():
-        return _generic_event_ready()
-    load14 = _safe(lambda: garmin_source.get_recent_load(14)) or {}
-    tl = _safe(garmin_source.get_training_load) or {}
-    rd = _safe(garmin_source.get_readiness) or {}
-    tr_score = (rd.get("training_readiness") or {}).get("score")
-    race = config.race_phase()
-    t = rings.t100_readiness(load14, tl, tr_score, race.get("days_remaining", 0))
-    comp = t.get("components", {})
-
-    def leg(name):
-        cc = comp.get(name, {})
-        return _contrib(f"{name.title()} volume", {"swim": "🏊", "bike": "🚴", "run": "🏃"}[name],
-                        cc.get("km_14d"), unit="km", higher_better=True, pct=cc.get("pct"),
-                        fmt=f"target {cc.get('target')} km / 14 d"
-                             + ("  · lowest volume bucket"
-                                if name == t.get("lowest_volume_bucket") else ""))
-
-    contributors = [leg("swim"), leg("bike"), leg("run"),
-                    _contrib("Load balance (ACWR)", "⚖", (comp.get("load_balance") or {}).get("acwr"),
-                             unit="", pct=(comp.get("load_balance") or {}).get("pct"),
-                             fmt="sweet spot 0.8–1.3"),
-                    _contrib("Readiness", "✅", tr_score, unit="/100", higher_better=True,
-                             pct=tr_score if isinstance(tr_score, (int, float)) else None)]
-
-    # Volume vs target bars (one per sport, with % of target).
-    vol_points = []
-    for name in ("swim", "bike", "run"):
-        cc = comp.get(name, {})
-        vol_points.append({"label": name.title(), "value": cc.get("pct") or 0,
-                           "color": {"swim": "#22d3ee", "bike": "#f59e0b", "run": "#fb7185"}[name],
-                           "sub": f"{cc.get('km_14d')}/{cc.get('target')} km"})
-    charts = [{"kind": "bars", "title": "14-day volume vs target", "unit": "%", "max": 100, "points": vol_points}]
-
-    # Fitness / Fatigue / Form (PMC) mini trend.
-    pmc = _safe(lambda: fitness_trend.get_pmc(30))
-    if isinstance(pmc, dict) and pmc.get("series"):
-        form_pts = [{"label": s["date"][5:], "date": s["date"], "value": s["tsb"]} for s in pmc["series"]]
-        charts.append({"kind": "line", "title": "Form (TSB) — last 30 days", "unit": "", "zero": True,
-                       "points": form_pts})
-
-    insight = None
-    if isinstance(pmc, dict) and pmc.get("interpretation"):
-        insight = pmc["interpretation"].get("note")
-    low_bucket = t.get("lowest_volume_bucket")
-    if low_bucket:
-        wc = comp.get(low_bucket, {})
-        lead = f"Lowest volume bucket: {low_bucket} at {wc.get('pct')}% of its 14-day target. "
-        insight = lead + (insight or "")
-
-    return {
-        "name": "t100", "title": "T100 readiness",
-        "score": t.get("score"), "unit": "/100", "color": "#c084fc",
-        "label": f"{t.get('label')} · {race.get('days_remaining','?')} days out",
-        "contributors": contributors, "stages": [], "charts": charts,
-        "insight": insight or None,
-    }
-
-
-
-def _generic_event_ready() -> dict[str, Any]:
-    """Race readiness for a non-T100 event, scored against its own distances."""
+    """Readiness for the persisted active event, scored from its own demands."""
     from . import event_readiness
 
     load14 = _safe(lambda: garmin_source.get_recent_load(14)) or {}
@@ -468,7 +401,7 @@ def _generic_event_ready() -> dict[str, Any]:
 
 _BUILDERS = {"recovery": _recovery, "readiness": _recovery, "sleep": _sleep,
              "strain": _strain,
-             # "t100" is kept as an alias so an older client still resolves.
+             # Legacy route alias; the returned content is always event-aware.
              "t100": _event_ready, "event_ready": _event_ready}
 
 

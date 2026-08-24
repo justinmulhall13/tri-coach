@@ -25,11 +25,14 @@ class EventProfileIsolationTests(unittest.TestCase):
             self.assertIsNone(config.event_distance_km("bike"))
             self.assertFalse(config.supports_t100_features())
 
-    def test_the_t100_model_is_gated_outside_its_installed_profile(self) -> None:
+    def test_the_legacy_t100_alias_uses_the_active_event_model(self) -> None:
         with patch.dict(coaching_contract.EVENT_PROFILE, self._running_profile(), clear=True):
-            readiness = rings.t100_readiness({}, {}, None, 20)
-        self.assertFalse(readiness["available"])
-        self.assertNotIn("components", readiness)
+            with patch.object(rings.garmin_source, "get_recent_load", return_value={"activities": []}):
+                readiness = rings.t100_readiness(
+                    {"by_sport": {"run": {"km": 20}}}, {}, None, 20)
+        self.assertTrue(readiness["available"])
+        self.assertEqual(readiness["event_label"], "10K")
+        self.assertNotIn("swim", readiness["components"])
 
     def test_the_readiness_detail_serves_the_active_event_rather_than_erroring(self) -> None:
         # It used to return "T100 readiness is unavailable" for any other event,

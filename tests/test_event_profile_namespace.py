@@ -110,6 +110,25 @@ class IncompleteProfileTests(unittest.TestCase):
             with self.assertRaises(ValueError, msg=bad):
                 _activate(_profile(event_date=bad))
 
+    def test_an_undated_strength_goal_can_become_its_own_mode(self) -> None:
+        record = _activate({
+            "event_name": "Build muscle",
+            "event_date": None,
+            "distances": {},
+            "goal": {"target": "add upper-body muscle while supporting running"},
+            "mode": "STRENGTH",
+        })
+        self.assertEqual(record["mode"], "STRENGTH")
+        self.assertEqual(record["event_date"], "")
+        self.assertEqual(record["distances"], {})
+        self.assertEqual(record["provenance"]["event_date"], "unknown")
+        self.assertEqual(record["provenance"]["distances"], "unknown")
+
+    def test_strength_goal_without_a_goal_is_still_incomplete(self) -> None:
+        with self.assertRaises(ValueError):
+            _activate({"event_name": "Build muscle", "event_date": None,
+                       "distances": {}, "goal": None, "mode": "STRENGTH"})
+
 
 if __name__ == "__main__":
     unittest.main()

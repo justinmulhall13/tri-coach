@@ -14,6 +14,24 @@ class CoachingContractTests(unittest.TestCase):
         self.assertEqual(coaching_contract.current_mode(), "TRIATHLON")
         self.assertIsNone(coaching_contract.explicit_switch_target("How should I train for a marathon?"))
         self.assertEqual(coaching_contract.explicit_switch_target("switch to marathon"), "marathon")
+        self.assertEqual(coaching_contract.explicit_switch_target(
+            "change my goal to build muscle"), "build muscle")
+        self.assertEqual(coaching_contract.explicit_switch_target(
+            "start training for an ultramarathon"), "an ultramarathon")
+        self.assertIsNone(coaching_contract.explicit_switch_target(
+            "Would strength work help my marathon?"))
+
+    def test_undated_goal_phase_is_valid_and_not_a_fake_countdown(self) -> None:
+        profile = {
+            "id": "strength-goal", "mode": "STRENGTH", "event": "Build muscle",
+            "date": "", "disciplines_and_distances": {},
+            "goal": {"target": "gain muscle"},
+        }
+        with patch.dict(coaching_contract.EVENT_PROFILE, profile, clear=True):
+            phase = coaching_contract.race_phase(datetime.date(2026, 8, 23))
+        self.assertTrue(phase["undated_goal"])
+        self.assertIsNone(phase["days_remaining"])
+        self.assertEqual(phase["phase"], "build")
 
     def test_contract_contains_fixed_profile_and_event_guards(self) -> None:
         athlete = coaching_contract.athlete_context()

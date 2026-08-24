@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-<title>Tri Coach</title>
+<title>Training</title>
 <!-- iPhone home-screen app (PWA) -->
 <link rel="manifest" href="/manifest.webmanifest" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="Tri Coach" />
+<meta name="apple-mobile-web-app-title" content="Training" />
 <meta name="theme-color" content="#f3f1f8" media="(prefers-color-scheme: light)" />
 <meta name="theme-color" content="#111018" media="(prefers-color-scheme: dark)" />
 <link rel="apple-touch-icon" href="/static/icon.png" />
@@ -653,7 +653,7 @@
   .bigring:hover .name::after{opacity:.8;transform:translateX(0);}
   /* Rings default to the hero violet; Recovery is coloured by its score at render
      (green/amber/coral) since recovery status is the one glanceable data signal. */
-  .r-sleep,.r-ready,.r-strain,.r-t100{--rc1:var(--a1);--rc2:var(--a2);}
+  .r-sleep,.r-ready,.r-strain,.r-event{--rc1:var(--a1);--rc2:var(--a2);}
   .bigring .name{color:var(--rc1);}
 
   /* ── proactive signals ──────────────────────────────────── */
@@ -1184,12 +1184,6 @@
   .msg{box-shadow:0 12px 34px -28px rgba(16,18,22,.52);}
   .msg.assistant{background:rgba(255,255,255,.83);border-color:rgba(16,18,22,.07);}
   .msg.user{background:linear-gradient(135deg,#7658ef,#4f34cc);box-shadow:0 18px 34px -24px rgba(var(--glow),.9),inset 0 1px 0 rgba(255,255,255,.25);}
-  .coach-details{margin-top:8px;border-top:1px solid var(--line);padding-top:7px;}
-  .coach-details summary{list-style:none;cursor:pointer;color:var(--a1);font-size:11.5px;font-weight:700;padding:3px 0;}
-  .coach-details summary::-webkit-details-marker{display:none;}
-  .coach-details summary::after{content:"  ·  more";font-weight:500;color:var(--muted);}
-  .coach-details[open] summary::after{content:"  ·  less";}
-  .coach-detail-body{padding-top:5px;}
   #main-coach{padding-bottom:142px;}
   #chatlog{padding-bottom:126px;}
   .coach-new{padding:6px 11px;font-size:11.5px;border-radius:999px;background:rgba(var(--glow),.08);}
@@ -1415,6 +1409,100 @@
     .reveal-ready{opacity:1;transform:none;filter:none;}
     .home-hero::before{transform:none;}
   }
+
+  /* Product reset: restrained training software, not a generated dashboard. */
+  :root{
+    --bg:#f4f3ef;--ink:#171916;--muted:#6f726b;--line:rgba(23,25,22,.12);
+    --glass:#fff;--glass2:#ecebe6;--surface:#fff;--surface-solid:#fff;--surface-soft:#f7f6f2;
+    --nav-glass:#fff;--a1:#e4512e;--a2:#c83e20;--glow:228,81,46;
+    --disp:system-ui,-apple-system,"Segoe UI",sans-serif;--body:system-ui,-apple-system,"Segoe UI",sans-serif;
+    --round:system-ui,-apple-system,"Segoe UI",sans-serif;--r-card:17px;--r-control:12px;
+    --ambient-shadow:0 1px 2px rgba(23,25,22,.04);--lift-shadow:0 1px 2px rgba(23,25,22,.04);
+  }
+  body{background:var(--bg);letter-spacing:0;}
+  body::before,body::after,.home-hero::before,header::after{display:none!important;}
+  header{background:var(--bg);backdrop-filter:none;-webkit-backdrop-filter:none;border-bottom:1px solid var(--line);box-shadow:none;}
+  .emblem{color:var(--a1);filter:none;animation:none;}
+  .brand .logo,.countdown .n{background:none;color:var(--ink);-webkit-text-fill-color:currentColor;letter-spacing:.08em;}
+  .brand .logo{font-size:14px;font-weight:800;}
+  .tabs{background:#e9e8e3;border-color:transparent;backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:none;}
+  .tab.active,.primary{background:var(--a1);color:#fff;box-shadow:none;border-color:var(--a1);}
+  button,.ghostbtn,.lightsel,input,textarea{border-radius:10px;}
+  .card,#main .card,#main-fuel .card,#main-stats .card{background:#fff;border-color:var(--line);border-radius:17px;box-shadow:none;}
+  #main .card:hover,#main-fuel .card:hover,#main-stats .card:hover{box-shadow:none;}
+  .card h2{font-size:19px;letter-spacing:-.02em;text-transform:none;}
+  .card h2::before{display:none;}
+  .home-hero{background:#fff;border-color:var(--line);border-radius:19px;box-shadow:none;}
+  #workout>.wo-tile,.modrow,.bigring,.fring,.load-score,.load-story,.load-system,.zone-row{background:var(--surface-soft);box-shadow:none;border-color:var(--line);}
+  .fring.remaining{background:var(--surface-soft);}
+  .mod-ico{background:var(--ink);color:#fff;box-shadow:none;}
+  .todaychip{border-color:var(--line);background:#fff;}.todaychip .dot{box-shadow:none;}
+  .phasepill{text-transform:none;letter-spacing:0;}
+  .coach-avatar{background:var(--ink);color:#fff;box-shadow:none;}
+  .coach-avatar::before,.coach-avatar::after{display:none;}
+  .coach-top{background:var(--bg);border-color:var(--line);backdrop-filter:none;-webkit-backdrop-filter:none;}
+  #chatlog{background:none;}
+  .msg{box-shadow:none;font-size:14px;line-height:1.55;}
+  .msg.assistant{background:transparent;border:0;padding-left:2px;max-width:780px;}
+  .msg.user{background:var(--ink);color:#fff;box-shadow:none;}
+  .msg .cp{margin:0 0 8px;}.msg .cp:last-child{margin-bottom:0;}
+  .coach-list{margin:5px 0 0;padding-left:20px;}.coach-list li{margin:4px 0;}
+  .msg a{color:var(--a1);text-decoration:underline;text-underline-offset:2px;}
+  .coach-compose{background:#fff;border-color:var(--line);backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:0 10px 34px rgba(23,25,22,.12);}
+  .chatbar textarea,.chatbar textarea:focus{background:#f3f2ee;box-shadow:none;border-color:transparent;}
+  .coach-mic{background:#f1eee9;border-color:var(--line);color:var(--ink);}
+  .coach-thinking-orb{background:var(--ink);box-shadow:none;animation:none;}
+  .coach-thinking-orb::after{display:none;}
+  .section-kicker{font-size:10px;line-height:1.2;font-weight:750;letter-spacing:.11em;text-transform:uppercase;color:var(--a1);margin-bottom:5px;}
+
+  /* Nutrition workspace */
+  .nutrition-overview{padding:22px;}
+  .nutrition-section-head{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;margin-bottom:14px;}
+  .nutrition-section-head h2{margin:0;}
+  .recipe-search{display:flex;gap:8px;flex:1;max-width:590px;}
+  .recipe-search input,.grocery-add input{flex:1;min-width:0;background:#f2f1ed;border:1px solid transparent;padding:11px 13px;color:var(--ink);font:inherit;}
+  .recipe-search input:focus,.grocery-add input:focus{outline:2px solid color-mix(in srgb,var(--a1) 26%,transparent);border-color:var(--a1);}
+  .recipe-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;}
+  .recipe-card{min-width:0;border:1px solid var(--line);border-radius:15px;overflow:hidden;background:#fff;display:flex;flex-direction:column;}
+  .recipe-photo{aspect-ratio:16/10;background:#e6e5e0;overflow:hidden;}
+  .recipe-photo img{width:100%;height:100%;object-fit:cover;display:block;}
+  .recipe-body{padding:14px;display:flex;flex-direction:column;flex:1;}
+  .recipe-source{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
+  .fit-chip{padding:3px 6px;border-radius:6px;background:#e8f2ea;color:#2c633b;text-transform:none;letter-spacing:0;white-space:nowrap;}
+  .recipe-card h3{font-size:17px;line-height:1.2;letter-spacing:-.02em;margin:9px 0 5px;}
+  .recipe-meta{font-size:11px;color:var(--muted);}.recipe-card p{font-size:12px;color:var(--muted);line-height:1.45;margin:9px 0;}
+  .recipe-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:auto;padding-top:12px;}
+  .recipe-actions button{padding:8px 10px;font-size:11px;}.recipe-actions a{margin-left:auto;color:var(--ink);font-size:11px;font-weight:650;text-decoration:none;}
+  .nutrition-library{display:grid;grid-template-columns:1.05fr .95fr;gap:18px;align-items:start;}
+  .saved-recipe-list{display:flex;flex-direction:column;gap:7px;}
+  .saved-recipe{display:grid;grid-template-columns:48px minmax(0,1fr) auto auto auto;align-items:center;gap:9px;padding:7px;border:1px solid var(--line);border-radius:11px;}
+  .saved-recipe img{width:48px;height:48px;border-radius:8px;object-fit:cover;}.saved-recipe b{display:block;font-size:12px;line-height:1.25;}.saved-recipe span{display:block;color:var(--muted);font-size:10px;margin-top:2px;}
+  .saved-recipe a{color:var(--ink);font-weight:700;text-decoration:none;}.icon-delete{border:0;background:none;color:var(--muted);font-size:18px;padding:5px;}
+  .grocery-add{display:flex;gap:8px;margin-bottom:12px;}.grocery-list{max-height:410px;overflow:auto;padding-right:3px;}
+  .grocery-group h3{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:14px 0 5px;}
+  .grocery-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:9px;padding:8px 2px;border-bottom:1px solid var(--line);cursor:pointer;}
+  .grocery-row input{margin-top:3px;accent-color:var(--a1);}.grocery-row b{font-size:12px;font-weight:550;display:block;}.grocery-row small{font-size:9px;color:var(--muted);display:block;}.grocery-row.checked b{text-decoration:line-through;color:var(--muted);}
+  .grocery-row button{border:0;background:none;color:var(--muted);font-size:17px;padding:0 4px;}
+  .nutrition-empty{padding:20px 8px;color:var(--muted);font-size:12px;text-align:center;border:1px dashed var(--line);border-radius:11px;}
+
+  @media(max-width:900px){.recipe-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.nutrition-library{grid-template-columns:1fr;}}
+  @media(max-width:820px){
+    header,header.header-compact{background:var(--bg);border-color:var(--line);box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;}
+    .botnav{background:#fff;border-color:var(--line);box-shadow:0 8px 30px rgba(23,25,22,.12);backdrop-filter:none;-webkit-backdrop-filter:none;}
+    .botnav::before{width:calc((100% - 10px)/6);background:#efece7;border-color:transparent;box-shadow:none;}
+  }
+  @media(max-width:600px){
+    .recipe-grid{grid-template-columns:1fr;}.nutrition-section-head{align-items:stretch;flex-direction:column;}.recipe-search{width:100%;}.recipe-search .primary{padding-left:11px;padding-right:11px;}
+    .nutrition-library{gap:14px;}.saved-recipe{grid-template-columns:44px minmax(0,1fr) auto auto;}.saved-recipe img{width:44px;height:44px;}.saved-recipe .ghostbtn{grid-column:2 / -1;justify-self:start;}.recipe-card h3{font-size:18px;}
+    .fuel-rings{grid-template-columns:1fr 1fr;}.nutrition-overview{padding:16px;}
+  }
+  @media(prefers-color-scheme:dark){
+    :root{color-scheme:dark;--bg:#10110f;--ink:#f1f0ea;--muted:#9d9e96;--line:rgba(241,240,234,.12);--glass:#181a17;--glass2:#20221e;--surface:#181a17;--surface-solid:#181a17;--surface-soft:#20221e;--nav-glass:#181a17;}
+    body,header,header.header-compact{background:var(--bg);}.card,#main .card,#main-fuel .card,#main-stats .card,.recipe-card{background:#181a17;border-color:var(--line);}
+    .home-hero{background:#181a17;border-color:var(--line);}.tabs{background:#20221e;}.recipe-search input,.grocery-add input,.chatbar textarea,.chatbar textarea:focus{background:#242620;color:var(--ink);}
+    .recipe-photo{background:#242620;}.fit-chip{background:#26382a;color:#a7d9b2;}.botnav{background:#181a17;border-color:var(--line);}.botnav::before{background:#292b26;}
+    .coach-compose,.coach-top{background:#181a17;border-color:var(--line);}.msg.user{background:#e7e5df;color:#151713;}.fring,.bigring,#workout>.wo-tile,.modrow{background:#20221e;}
+  }
 </style>
 </head>
 <body>
@@ -1422,23 +1510,17 @@
 <header>
   <div class="brand">
     <svg class="emblem" width="30" height="30" viewBox="0 0 40 40" aria-hidden="true">
-      <defs><radialGradient id="core" cx="50%" cy="50%" r="50%">
-        <stop offset="0" stop-color="#eafcff"/><stop offset="45%" stop-color="var(--a1)"/><stop offset="100%" stop-color="var(--a2)"/></radialGradient></defs>
-      <circle cx="20" cy="20" r="17" fill="none" stroke="var(--a1)" stroke-width="2"/>
-      <circle cx="20" cy="20" r="11" fill="none" stroke="var(--a2)" stroke-width="1.4" opacity=".8"/>
-      <g fill="var(--a1)">
-        <circle cx="20" cy="5.2" r="3"/><circle cx="32.8" cy="27.4" r="3"/><circle cx="7.2" cy="27.4" r="3"/>
-      </g>
-      <circle cx="20" cy="20" r="5.4" fill="url(#core)"/>
+      <path d="M8 30c6-15 12-20 24-20M10 34h20" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="29" cy="10" r="4" fill="currentColor"/>
     </svg>
-    <span class="logo">TRI&nbsp;COACH</span>
+    <span class="logo">TRAINING</span>
     <span id="todaychip" class="todaychip" style="display:none"><span class="dot"></span><span id="todaychip-text"></span></span>
     <span id="phase" class="phasepill"></span>
     <nav class="tabs" id="tabs">
       <button class="tab active" data-view="dash">Home</button>
       <button class="tab" data-view="coach">Coach<span class="coach-unread-dot" aria-hidden="true">1</span></button>
       <button class="tab" data-view="calendar">Calendar</button>
-      <button class="tab" data-view="fuel">Fuel</button>
+      <button class="tab" data-view="fuel">Nutrition</button>
       <button class="tab" data-view="lift">Lifting</button>
       <button class="tab" data-view="stats">Analytics</button>
     </nav>
@@ -1463,8 +1545,8 @@
 
   <!-- Jump straight into the coach to change the plan -->
   <button class="modrow" id="modrow" type="button">
-    <span class="mod-ico">✦</span>
-    <span class="mod-txt"><b>Modify plan with Coach Steve</b><em>Shift workouts, change goals, adjust volume</em></span>
+    <span class="mod-ico">↗</span>
+    <span class="mod-txt"><b>Adjust your plan</b><em>Move sessions, change goals, or rebuild the week with Coach</em></span>
     <span class="mod-arrow">›</span>
   </button>
 
@@ -1480,7 +1562,7 @@
       <div class="bigring r-sleep" id="br-sleep"></div>
       <div class="bigring r-ready" id="br-ready"></div>
       <div class="bigring r-strain" id="br-strain"></div>
-      <div class="bigring r-t100" id="br-t100" style="display:none"></div>
+      <div class="bigring r-event" id="br-event-ready" style="display:none"></div>
     </div>
   </div>
 
@@ -1504,7 +1586,7 @@
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
         <h2 style="margin:0">Plan · to race day</h2>
         <div style="display:flex;align-items:center;gap:10px;">
-          <span class="note" style="padding:0">Sick, traveling? Just tell Coach Steve — he rebuilds it.</span>
+          <span class="note" style="padding:0">Tell Coach when life changes and the plan can move with it.</span>
           <button id="hist-btn" style="padding:4px 12px;font-size:12px;">↶ Changes</button>
         </div>
       </div>
@@ -1534,13 +1616,13 @@
 <main id="main-coach" style="display:none">
     <div class="card" id="coach-card">
       <div class="coach-top">
-        <div class="coach-person"><div class="coach-avatar">S</div><div><b>Steve</b><span>your coach · straight answers</span></div></div>
+        <div class="coach-person"><div class="coach-avatar">C</div><div><b>Coach</b><span>training context, plain answers</span></div></div>
         <button id="clearchat" class="coach-new" type="button">New chat</button>
       </div>
       <div id="chatlog"></div>
       <div class="coach-compose">
         <div class="chatbar">
-          <textarea id="chatinput" rows="1" aria-label="Message Coach Steve" placeholder="Message Steve…"></textarea>
+          <textarea id="chatinput" rows="1" aria-label="Message Coach" placeholder="Ask Coach or change the plan…"></textarea>
           <button id="coach-mic" class="coach-mic" type="button" aria-label="Dictate message" aria-pressed="false">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8.5" y="3" width="7" height="12" rx="3.5"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7"/></svg>
           </button>
@@ -1556,10 +1638,11 @@
 </main>
 
 <main id="main-fuel" style="display:none">
-  <div class="card">
+  <div class="card nutrition-overview">
     <div class="fuel-head">
       <div>
-        <h2 style="margin:0">Fuel</h2>
+        <div class="section-kicker">Today</div>
+        <h2 style="margin:0">Nutrition</h2>
         <div class="note" style="padding:0" id="fuel-basis">Loading today's targets…</div>
       </div>
       <select id="fuel-goal" class="lightsel">
@@ -1572,8 +1655,35 @@
     <div id="fuel-macros" class="macrobank"></div>
   </div>
 
+  <div class="card recipe-discovery">
+    <div class="nutrition-section-head">
+      <div><div class="section-kicker">Cook something useful</div><h2>Recipes for your training day</h2></div>
+      <div class="recipe-search">
+        <input id="recipe-query" type="search" autocomplete="off" placeholder="High-protein dinner, quick breakfast, recovery meal…" />
+        <button class="primary" id="recipe-search-btn">Find recipes</button>
+      </div>
+    </div>
+    <div id="recipe-status" class="note"></div>
+    <div id="recipe-results" class="recipe-grid"></div>
+  </div>
+
+  <div class="nutrition-library">
+    <div class="card">
+      <div class="nutrition-section-head"><div><div class="section-kicker">Library</div><h2>Saved recipes</h2></div></div>
+      <div id="saved-recipes" class="saved-recipe-list"><div class="muted">No saved recipes yet.</div></div>
+    </div>
+    <div class="card grocery-card">
+      <div class="nutrition-section-head">
+        <div><div class="section-kicker">Shop once</div><h2>Grocery list</h2></div>
+        <button class="ghostbtn" id="grocery-clear">Clear checked</button>
+      </div>
+      <div class="grocery-add"><input id="grocery-input" type="text" placeholder="Add an item"/><button id="grocery-add-btn" class="primary">Add</button></div>
+      <div id="grocery-list" class="grocery-list"><div class="muted">Your list is empty.</div></div>
+    </div>
+  </div>
+
   <div class="card" id="intra-card" style="display:none">
-    <h2>⚡ Fuelling today's session</h2>
+    <div class="section-kicker">During training</div><h2>Session fuel</h2>
     <div id="intra-body"></div>
     <div class="fuel-confirm" id="fuel-confirm">
       <div><b>Finished today’s workout and took the suggested fuel?</b><span>We’ll add only the prescribed during-workout carbs to today’s intake.</span></div>
@@ -1584,27 +1694,27 @@
 
   <div class="split">
     <div class="card">
-      <h2>Log what you ate</h2>
-      <div class="note" style="margin-bottom:8px">Type it — "chicken and rice + a banana at 1pm" — or attach a photo of the meal.</div>
+      <div class="section-kicker">Daily log</div><h2>What you ate</h2>
+      <div class="note" style="margin-bottom:8px">Use exact label or measured recipe macros when you want them counted.</div>
       <div class="chef-inrow">
         <input type="text" id="log-input" placeholder="e.g. 3 eggs, oats and honey, coffee — 7am" />
         <button class="primary" id="log-btn">Log</button>
       </div>
       <div class="chef-inrow" style="margin-top:8px">
         <input type="file" id="log-photo" accept="image/*" capture="environment" style="flex:1;font-size:12px" />
-        <button class="ghostbtn" id="photo-btn">📷 Log from photo</button>
+        <button class="ghostbtn" id="photo-btn">Use photo</button>
       </div>
       <div id="log-status" class="note"></div>
       <div id="log-list"></div>
     </div>
     <div class="card">
-      <h2>Ask about fuelling</h2>
+      <div class="section-kicker">Ask</div><h2>Meal timing and fuel</h2>
       <div class="note" style="margin-bottom:8px">"Can I eat a burger tonight?" · "What should I eat before tomorrow's brick?"</div>
       <div class="chef-inrow">
         <input type="text" id="ask-input" placeholder="e.g. can I have pizza tonight?" />
         <button class="primary" id="ask-btn">Ask</button>
       </div>
-      <button class="ghostbtn" id="suggest-btn" style="margin-top:8px">🍽️ Suggest my next meal</button>
+      <button class="ghostbtn" id="suggest-btn" style="margin-top:8px">Suggest my next meal</button>
       <div id="chef-reply" class="chef-reply"></div>
     </div>
   </div>
@@ -1703,7 +1813,7 @@
   <button data-view="dash" class="on"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 4l9 6.5V19a1.5 1.5 0 0 1-1.5 1.5h-4V14h-7v6.5h-4A1.5 1.5 0 0 1 3 19z"/></svg>Home</button>
   <button data-view="coach"><svg viewBox="0 0 24 24"><path d="M21 12a7.5 7.5 0 0 1-7.5 7.5H8L3.5 22l1-4.2A7.5 7.5 0 1 1 21 12z"/></svg>Coach<span class="coach-unread-dot" aria-hidden="true">1</span></button>
   <button data-view="calendar"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>Calendar</button>
-  <button data-view="fuel"><svg viewBox="0 0 24 24"><path d="M12 21c3.6 0 6.2-2.6 6.2-6 0-4.2-4.3-7.4-6.2-12-1.9 4.6-6.2 7.8-6.2 12 0 3.4 2.6 6 6.2 6z"/></svg>Fuel</button>
+  <button data-view="fuel"><svg viewBox="0 0 24 24"><path d="M12 21c3.6 0 6.2-2.6 6.2-6 0-4.2-4.3-7.4-6.2-12-1.9 4.6-6.2 7.8-6.2 12 0 3.4 2.6 6 6.2 6z"/></svg>Food</button>
   <button data-view="lift"><svg viewBox="0 0 24 24"><path d="M3 12h2m14 0h2M6.5 8.5v7M17.5 8.5v7M9.5 7v10M14.5 7v10M9.5 12h5"/></svg>Lifting</button>
   <button data-view="stats"><svg viewBox="0 0 24 24"><path d="M4 20V9M10 20V4M16 20v-7M22 20H2"/></svg>Stats</button>
 </nav>
@@ -1825,7 +1935,7 @@ function promptToken(){
   const ov=document.createElement("div");
   ov.style.cssText="position:fixed;inset:0;z-index:200;background:rgba(4,7,11,.88);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;padding:24px;";
   ov.innerHTML=`<div style="width:min(380px,100%);background:rgba(16,22,31,.98);border:1px solid var(--line);border-radius:20px;padding:22px;box-shadow:0 30px 80px -20px #000;">
-    <div style="font-family:var(--disp);font-size:19px;font-weight:700;margin-bottom:6px;">Connect to Tri Coach</div>
+    <div style="font-family:var(--disp);font-size:19px;font-weight:700;margin-bottom:6px;">Connect to Training</div>
     <div style="color:var(--muted);font-size:13px;margin-bottom:14px;line-height:1.5;">Enter your access token to load your data. It's saved on this device — you'll only do this once.</div>
     <input id="tc-tok-in" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="access token"
       style="width:100%;background:var(--glass2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;color:var(--ink);font-size:15px;font-family:var(--body);margin-bottom:12px;" />
@@ -1963,8 +2073,8 @@ async function loadDashboard(){
 function renderRace(r){
   if(r.error){ $("cd-n").textContent="!"; return; }
   _activeRaceName=r.name||"goal race";
-  $("cd-n").textContent = r.is_past?"🏁":r.days_remaining;
-  $("cd-u").textContent = r.is_past?"":`days to ${r.name} · ${r.weeks_remaining} wk`;
+  $("cd-n").textContent = r.is_past?"🏁":r.days_remaining==null?"GOAL":r.days_remaining;
+  $("cd-u").textContent = r.is_past?"":r.days_remaining==null?String(r.name||""):`days to ${r.name} · ${r.weeks_remaining} wk`;
   const p=$("phase"); p.textContent=r.phase; p.className="phasepill phase-"+r.phase;
   renderPhaseStrip(r);
 }
@@ -2002,11 +2112,11 @@ function renderRaceCard(r, planResp){
   el.innerHTML=`
     <div class="rc-top">
       <div>
-        <div class="rc-kicker">A-race · ${fmt(modeLabel)}</div>
+        <div class="rc-kicker">Goal · ${fmt(modeLabel)}</div>
         <div class="rc-name">${fmt(r.name)}</div>
         <div class="rc-goal">${distanceLabel}</div>
       </div>
-      <div class="rc-count"><b>${r.is_past?"🏁":days}</b><span>${r.is_past?"done":"days out"}</span></div>
+      <div class="rc-count"><b>${r.is_past?"🏁":days==null?"—":days}</b><span>${r.is_past?"done":days==null?"ongoing":"days out"}</span></div>
     </div>
     <div class="rc-bar"><div class="rc-fill" style="width:${pct.toFixed(0)}%"></div></div>
     <div class="rc-foot"><span>${(r.phase||"").replace(/^./,c=>c.toUpperCase())}${wk?" · "+wk:""}</span>
@@ -2122,10 +2232,9 @@ function renderRings(rg){
   bigRing($("br-ready"),"Recovery",rr.score,"/100",rsub);
   bigRing($("br-strain"),"Day Strain",rg.strain.score,"/100",
     `${rg.strain.label} · ${rg.strain.inputs.intensity_min} int-min · ${rg.strain.inputs.active_kcal} kcal`);
-  // One race-readiness ring named after whatever event is active: "T100 Ready"
-  // for the tri, "Marathon Ready" once the goal is a marathon.
-  const t=(rg.event_ready&&rg.event_ready.available!==false?rg.event_ready:null)||rg.t100||null;
-  const tEl=$("br-t100");
+  // One goal-readiness ring follows the active persisted profile.
+  const t=(rg.event_ready&&rg.event_ready.available!==false?rg.event_ready:null)||null;
+  const tEl=$("br-event-ready");
   if(t){
     const comp=t.components||{};
     const ringName=`${esc(String(t.event_label||"Race"))} Ready`;
@@ -2142,7 +2251,7 @@ function renderRings(rg){
   }
   // clickable → WHOOP-style breakdown
   const map={"br-sleep":"sleep","br-ready":"recovery","br-strain":"strain"};
-  if(t) map["br-t100"]="t100";
+  if(t) map["br-event-ready"]="event_ready";
   Object.entries(map).forEach(([id,name])=>{
     const el=$(id); el.classList.add("ring-click"); el.onclick=()=>openRingDetail(name);
   });
@@ -2894,45 +3003,48 @@ function renderBanners(h){
 }
 
 // ---- Coach chat ----
-// Render Coach Steve's TL;DR + bullets as structured, scannable rows instead of
-// a pre-wrapped text blob.
 function esc(s){ const d=document.createElement("div"); d.textContent=s;
   // textContent escapes & < > but NOT quotes, so an esc()'d value dropped into
   // an attribute could still break out of it. Escape quotes too, which makes
   // every call site safe in both element and attribute context.
   return d.innerHTML.replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
+function safeExternalUrl(raw){
+  try{ const u=new URL(String(raw||""),location.origin); return /^https?:$/.test(u.protocol)?u.href:""; }
+  catch(_e){ return ""; }
+}
+function coachInline(text){
+  const input=String(text||""); let out="",last=0;
+  const re=/\[([^\]]{1,160})\]\((https?:\/\/[^\s)]+)\)/g; let m;
+  while((m=re.exec(input))){
+    out+=esc(input.slice(last,m.index));
+    const url=safeExternalUrl(m[2]);
+    out+=url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(m[1])}</a>`:esc(m[0]);
+    last=re.lastIndex;
+  }
+  return out+esc(input.slice(last));
+}
 function coachHTML(text){
   const lines=String(text||"").split("\n");
-  let html="", plain=[];
-  const flush=()=>{ if(plain.length){ html+=`<div class="cline">${esc(plain.join(" "))}</div>`; plain=[]; } };
+  let html="", plain=[], bullets=[];
+  const flushPlain=()=>{ if(plain.length){ html+=`<p class="cp">${coachInline(plain.join(" "))}</p>`; plain=[]; } };
+  const flushBullets=()=>{ if(bullets.length){ html+=`<ul class="coach-list">${bullets.map(item=>`<li>${coachInline(item)}</li>`).join("")}</ul>`; bullets=[]; } };
   for(let ln of lines){
-    const t=ln.trim(); if(!t) { flush(); continue; }
-    if(/^tl;?dr\s*:/i.test(t)){ flush(); html+=`<div class="tldr">${esc(t.replace(/^tl;?dr\s*:\s*/i,""))}</div>`; continue; }
+    let t=ln.trim();
+    if(!t){ flushPlain(); flushBullets(); continue; }
+    t=t.replace(/^tl;?dr\s*:\s*/i,""); // legacy history reads naturally
     const b=t.match(/^[•\-\*]\s*(.+)$/);
     if(b){
-      flush();
-      const m=b[1].match(/^(.{2,24}?)(?:\s*:\s+|\s+[—-]\s+)(.*)$/); // "Label: rest"; legacy dash replies still render
-      html+= m ? `<div class="cb"><span class="cbl">${esc(m[1])}</span><span>${esc(m[2])}</span></div>`
-               : `<div class="cb"><span>${esc(b[1])}</span></div>`;
+      flushPlain(); bullets.push(b[1]);
       continue;
     }
+    flushBullets();
     plain.push(t);
   }
-  flush();
+  flushPlain(); flushBullets();
   return html||esc(text);
 }
 function setCoachText(el,text){
   el.classList.add("fmt"); el.innerHTML=coachHTML(text);
-  // Keep the coaching decision visible first. Dense supporting numbers remain
-  // available in-place instead of turning every answer into a wall of text.
-  const rows=[...el.children].filter(n=>n.classList.contains("cb")||n.classList.contains("cline"));
-  if(rows.length>5){
-    const details=document.createElement("details"); details.className="coach-details";
-    const summary=document.createElement("summary"); summary.textContent="Detailed breakdown";
-    const body=document.createElement("div"); body.className="coach-detail-body";
-    rows.slice(4).forEach(n=>body.appendChild(n));
-    details.append(summary,body); el.appendChild(details);
-  }
 }
 const _COACH_SESSION_KEY="triCoachVisibleSessionV2", _COACH_SESSION_TTL=5*60*1000;
 function coachSessionMessages(){
@@ -3029,8 +3141,8 @@ function addCalendarCommand(command){
       if(r.error){ btn.textContent="Try again"; btn.disabled=false; status.textContent=r.error; return; }
       const sync=r.google_sync||{};
       status.textContent=(r.reply||"Calendar updated.")+
-        (sync.connected===false?" Saved in Tri Coach; Google is not connected.":
-         (sync.errors&&sync.errors.length)?" Saved in Tri Coach; Google sync needs retry.":"");
+        (sync.connected===false?" Saved in Training; Google is not connected.":
+         (sync.errors&&sync.errors.length)?" Saved in Training; Google sync needs retry.":"");
       if(r.applied){
         btn.textContent="✓ Calendar updated";
         loadDashboard();
@@ -3737,7 +3849,7 @@ $("refresh").onclick=loadDashboard;
 
 // Scroll-linked chrome stays intentionally subtle: the header compresses,
 // the hero shifts a few pixels, and cards reveal once as they enter view.
-const _viewIndex={dash:0,coach:1,calendar:2,fuel:3,stats:4};
+const _viewIndex={dash:0,coach:1,calendar:2,fuel:3,lift:4,stats:5};
 function syncFloatingNav(v){
   const nav=$("botnav");
   if(nav) nav.style.setProperty("--tab-index",_viewIndex[v]??0);
@@ -4140,7 +4252,12 @@ if($("modrow")) $("modrow").onclick=()=>switchView("coach");
 async function loadFuel(){
   $("fuel-macros").innerHTML=`<div class="muted"><span class="pulse"></span> loading…</div>`;
   try{ renderFuelTab(await j("/api/nutrition/day")); }
-  catch(e){ $("fuel-macros").innerHTML=`<span class="err">${e.message}</span>`; }
+  catch(e){ $("fuel-macros").innerHTML=`<span class="err">${esc(e.message)}</span>`; }
+  try{ renderSavedRecipes((await j("/api/nutrition/recipes/saved")).recipes||[]); }
+  catch(e){ $("saved-recipes").innerHTML=`<span class="err">${esc(e.message)}</span>`; }
+  try{ renderGrocery((await j("/api/nutrition/grocery")).items||[]); }
+  catch(e){ $("grocery-list").innerHTML=`<span class="err">${esc(e.message)}</span>`; }
+  if(!_recipeResults.length) searchRecipes("",true);
 }
 function renderFuelTab(day){
   if(!day || day.error){ $("fuel-macros").innerHTML=`<span class="err">${(day&&day.error)||"unavailable"}</span>`; return; }
@@ -4182,6 +4299,106 @@ function renderFuelTab(day){
     }
   } else { $("intra-card").style.display="none"; }
   renderFoodList(day.logged||[]);
+}
+
+let _recipeResults=[],_savedRecipes=[];
+function recipeNutritionLine(recipe){
+  const n=recipe.nutrition||{}, values=[];
+  if(n.kcal!=null) values.push(`${Math.round(n.kcal)} kcal`);
+  if(n.protein_g!=null) values.push(`${fmt(n.protein_g)}g protein`);
+  if(n.carb_g!=null) values.push(`${fmt(n.carb_g)}g carbs`);
+  return values.join(" · ")||"Nutrition not published";
+}
+function recipeCard(recipe,index){
+  const url=safeExternalUrl(recipe.source_url), image=safeExternalUrl(recipe.image_url);
+  const fit=recipe.fit||{};
+  return `<article class="recipe-card">
+    <div class="recipe-photo">${image?`<img src="${esc(image)}" alt="${esc(String(recipe.title||"Recipe"))}" loading="lazy" referrerpolicy="no-referrer"/>`:""}</div>
+    <div class="recipe-body">
+      <div class="recipe-source"><span>${esc(String(recipe.source_name||"Recipe source"))}</span>${fit.label?`<span class="fit-chip">${esc(String(fit.label))}</span>`:""}</div>
+      <h3>${esc(String(recipe.title||"Recipe"))}</h3>
+      <div class="recipe-meta">${recipe.total_minutes?`${esc(String(recipe.total_minutes))} min · `:""}${esc(recipeNutritionLine(recipe))}</div>
+      ${recipe.description?`<p>${esc(String(recipe.description))}</p>`:""}
+      <div class="recipe-actions"><button class="primary" data-recipe-grocery="${index}">Add to grocery</button><button class="ghostbtn" data-recipe-save="${index}">Save</button>${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open recipe</a>`:""}</div>
+    </div>
+  </article>`;
+}
+function bindRecipeCards(){
+  $("recipe-results").querySelectorAll("[data-recipe-save]").forEach(btn=>btn.onclick=()=>saveRecipe(Number(btn.dataset.recipeSave)));
+  $("recipe-results").querySelectorAll("[data-recipe-grocery]").forEach(btn=>btn.onclick=()=>addSearchRecipeToGrocery(Number(btn.dataset.recipeGrocery),btn));
+}
+async function searchRecipes(query="",automatic=false){
+  const q=(query||$("recipe-query").value||"").trim(),btn=$("recipe-search-btn");
+  btn.disabled=true; $("recipe-status").innerHTML=`<span class="pulse"></span> Finding real recipes from publisher sites…`;
+  try{
+    const result=await j("/api/nutrition/recipes/search",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query:q,limit:6})});
+    _recipeResults=result.recipes||[];
+    $("recipe-results").innerHTML=_recipeResults.map(recipeCard).join("")||`<div class="nutrition-empty">No verified recipes came back. Try a more specific meal.</div>`;
+    $("recipe-status").textContent=result.error||(_recipeResults.length?`${_recipeResults.length} recipes with publisher photos and ingredient lists.`:"No recipes found.");
+    bindRecipeCards();
+  }catch(e){
+    $("recipe-status").innerHTML=`<span class="err">${esc(e.message)}</span>`;
+    if(!automatic) $("recipe-results").innerHTML="";
+  }finally{btn.disabled=false;}
+}
+async function saveRecipe(index){
+  const recipe=_recipeResults[index]; if(!recipe) return null;
+  const result=await j("/api/nutrition/recipes/saved",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({recipe})});
+  const saved=result.recipe;
+  const latest=await j("/api/nutrition/recipes/saved"); renderSavedRecipes(latest.recipes||[]);
+  $("recipe-status").textContent=`Saved ${saved.title}.`;
+  return saved;
+}
+async function addSearchRecipeToGrocery(index,button){
+  button.disabled=true;
+  try{
+    const saved=await saveRecipe(index);
+    if(!saved) return;
+    const result=await j(`/api/nutrition/grocery/from-recipe/${saved.id}`,{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+    renderGrocery(result.items||[]); $("recipe-status").textContent=`Added ${saved.title} ingredients to your grocery list.`;
+  }catch(e){$("recipe-status").innerHTML=`<span class="err">${esc(e.message)}</span>`;}
+  finally{button.disabled=false;}
+}
+function renderSavedRecipes(recipes){
+  _savedRecipes=recipes||[];
+  $("saved-recipes").innerHTML=_savedRecipes.length?_savedRecipes.map((recipe,index)=>{
+    const image=safeExternalUrl(recipe.image_url),url=safeExternalUrl(recipe.source_url);
+    return `<div class="saved-recipe">
+      ${image?`<img src="${esc(image)}" alt="" loading="lazy" referrerpolicy="no-referrer"/>`:""}
+      <div><b>${esc(String(recipe.title))}</b><span>${esc(String(recipe.source_name||""))}</span></div>
+      <button class="ghostbtn" data-saved-add="${index}">Ingredients</button>
+      ${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" aria-label="Open recipe">↗</a>`:""}
+      <button class="icon-delete" data-saved-delete="${recipe.id}" aria-label="Delete saved recipe">×</button>
+    </div>`;
+  }).join(""):`<div class="nutrition-empty">Save recipes to build a reusable meal library.</div>`;
+  $("saved-recipes").querySelectorAll("[data-saved-add]").forEach(btn=>btn.onclick=async()=>{
+    const recipe=_savedRecipes[Number(btn.dataset.savedAdd)]; if(!recipe)return;
+    const result=await j(`/api/nutrition/grocery/from-recipe/${recipe.id}`,{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+    renderGrocery(result.items||[]);
+  });
+  $("saved-recipes").querySelectorAll("[data-saved-delete]").forEach(btn=>btn.onclick=async()=>{
+    await j(`/api/nutrition/recipes/saved/${btn.dataset.savedDelete}`,{method:"DELETE"});
+    renderSavedRecipes((await j("/api/nutrition/recipes/saved")).recipes||[]);
+  });
+}
+function renderGrocery(items){
+  const list=items||[];
+  if(!list.length){$("grocery-list").innerHTML=`<div class="nutrition-empty">Add a recipe and its ingredients land here.</div>`;return;}
+  const groups={}; list.forEach(item=>(groups[item.category||"Other"]??=[]).push(item));
+  $("grocery-list").innerHTML=Object.entries(groups).map(([category,rows])=>`<section class="grocery-group"><h3>${esc(category)}</h3>${rows.map(item=>`
+    <label class="grocery-row ${item.checked?"checked":""}"><input type="checkbox" data-grocery-check="${item.id}" ${item.checked?"checked":""}/><span><b>${esc(String(item.item_text))}</b>${item.recipe_title?`<small>${esc(String(item.recipe_title))}</small>`:""}</span><button type="button" data-grocery-delete="${item.id}" aria-label="Remove">×</button></label>`).join("")}</section>`).join("");
+  $("grocery-list").querySelectorAll("[data-grocery-check]").forEach(box=>box.onchange=async()=>{
+    await j(`/api/nutrition/grocery/${box.dataset.groceryCheck}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({checked:box.checked})});
+    renderGrocery((await j("/api/nutrition/grocery")).items||[]);
+  });
+  $("grocery-list").querySelectorAll("[data-grocery-delete]").forEach(btn=>btn.onclick=async e=>{
+    e.preventDefault(); const result=await j(`/api/nutrition/grocery/${btn.dataset.groceryDelete}`,{method:"DELETE"}); renderGrocery(result.items||[]);
+  });
+}
+async function addGroceryItem(){
+  const input=$("grocery-input"),item=input.value.trim(); if(!item)return;
+  const result=await j("/api/nutrition/grocery",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({item})});
+  input.value=""; renderGrocery(result.items||[]);
 }
 async function confirmCompletedFueling(){
   const btn=$("fuel-confirm-btn"), status=$("fuel-confirm-status");
@@ -4249,6 +4466,13 @@ $("ask-btn").onclick=()=>{ const q=$("ask-input").value.trim(); if(q){ askChef(q
 $("ask-input").addEventListener("keydown",e=>{if(e.key==="Enter")$("ask-btn").click();});
 $("suggest-btn").onclick=()=>askChef("");
 $("fuel-confirm-btn").onclick=confirmCompletedFueling;
+$("recipe-search-btn").onclick=()=>searchRecipes();
+$("recipe-query").addEventListener("keydown",e=>{if(e.key==="Enter")searchRecipes();});
+$("grocery-add-btn").onclick=addGroceryItem;
+$("grocery-input").addEventListener("keydown",e=>{if(e.key==="Enter")addGroceryItem();});
+$("grocery-clear").onclick=async()=>{
+  const result=await j("/api/nutrition/grocery/checked",{method:"DELETE"}); renderGrocery(result.items||[]);
+};
 $("fuel-goal").onchange=async()=>{
   const g=$("fuel-goal").value;
   $("fuel-basis").textContent="Updating targets…";
@@ -4757,8 +4981,8 @@ async function _postMove(payload){
     if(r.error){ setCalStatus("Couldn't save: "+r.error,true); loadCalendar(); }
     else{
       const sync=r.google_sync||{};
-      if(sync.connected===false) setCalStatus("Saved in Tri Coach · Google is not connected",true);
-      else if(sync.errors&&sync.errors.length) setCalStatus("Saved in Tri Coach · Google sync needs retry",true);
+      if(sync.connected===false) setCalStatus("Saved in Training · Google is not connected",true);
+      else if(sync.errors&&sync.errors.length) setCalStatus("Saved in Training · Google sync needs retry",true);
       else setCalStatus("Saved · synced to Google");
       j("/api/plan").then(p=>{ _calPlan=p; renderPlan(p); });
     }

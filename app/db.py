@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import re
 import sqlite3
 import threading
 from pathlib import Path
@@ -224,6 +225,31 @@ CREATE TABLE IF NOT EXISTS nutrition_log (
     fat_g       INTEGER,
     created_at  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS saved_recipes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_url  TEXT UNIQUE NOT NULL,
+    title       TEXT NOT NULL,
+    image_url   TEXT NOT NULL,
+    source_name TEXT NOT NULL,
+    recipe_json TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS grocery_items (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_text      TEXT NOT NULL,
+    normalized_key TEXT NOT NULL,
+    category       TEXT NOT NULL DEFAULT 'Other',
+    checked        INTEGER NOT NULL DEFAULT 0,
+    recipe_id      INTEGER,
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_grocery_recipe_item
+    ON grocery_items (recipe_id, normalized_key);
 """
 
 # Columns added after the initial release; applied idempotently by _migrate().
@@ -1153,6 +1179,165 @@ def delete_nutrition(entry_id: int) -> bool:
     cur = c.execute("DELETE FROM nutrition_log WHERE id=?", (entry_id,))
     c.commit()
     return cur.rowcount > 0
+
+
+# --- Saved recipes and grocery list -----------------------------------------
+def _recipe_row(row: sqlite3.Row) -> dict[str, Any]:
+    value = json.loads(row["recipe_json"])
+    value.update({"id": row["id"], "saved_at": row["created_at"]})
+    return value
+
+
+def save_recipe(recipe: dict[str, Any]) -> dict[str, Any]:
+    import datetime
+    source_url = str(recipe.get("source_url") or "").strip()
+    title = str(recipe.get("title") or "").strip()[:180]
+    image_url = str(recipe.get("image_url") or "").strip()
+    source_name = str(recipe.get("source_name") or "Recipe source").strip()[:120]
+    ingredients = recipe.get("ingredients")
+    if not source_url or not title or not image_url or not isinstance(ingredients, list) or not ingredients:
+        raise ValueError("recipe needs source_url, title, image_url, and ingredients")
+    clean = {
+        **recipe,
+        "source_url": source_url[:2000], "title": title,
+        "image_url": image_url[:2000], "source_name": source_name,
+        "ingredients": [str(item).strip()[:300] for item in ingredients
+                        if str(item).strip()][:80],
+    }
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    c = _conn()
+    c.execute(
+        """INSERT INTO saved_recipes
+           (source_url,title,image_url,source_name,recipe_json,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?)
+           ON CONFLICT(source_url) DO UPDATE SET
+             title=excluded.title,image_url=excluded.image_url,
+             source_name=excluded.source_name,recipe_json=excluded.recipe_json,
+             updated_at=excluded.updated_at""",
+        (clean["source_url"], clean["title"], clean["image_url"], clean["source_name"],
+         json.dumps(clean, ensure_ascii=False, separators=(",", ":")), now, now),
+    )
+    c.commit()
+    row = c.execute("SELECT * FROM saved_recipes WHERE source_url=?", (source_url,)).fetchone()
+    return _recipe_row(row)
+
+
+def get_saved_recipes(limit: int = 50) -> list[dict[str, Any]]:
+    rows = _conn().execute(
+        "SELECT * FROM saved_recipes ORDER BY updated_at DESC,id DESC LIMIT ?",
+        (max(1, min(int(limit), 200)),),
+    ).fetchall()
+    return [_recipe_row(row) for row in rows]
+
+
+def get_saved_recipe(recipe_id: int) -> dict[str, Any] | None:
+    row = _conn().execute("SELECT * FROM saved_recipes WHERE id=?", (recipe_id,)).fetchone()
+    return _recipe_row(row) if row else None
+
+
+def delete_saved_recipe(recipe_id: int) -> bool:
+    c = _conn()
+    cur = c.execute("DELETE FROM saved_recipes WHERE id=?", (recipe_id,))
+    c.commit()
+    return cur.rowcount > 0
+
+
+def _grocery_key(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()[:240]
+
+
+def _grocery_category(text: str) -> str:
+    value = text.lower()
+    groups = (
+        ("Produce", r"\b(?:apple|banana|berry|berries|broccoli|carrot|celery|garlic|ginger|lemon|lime|onion|pepper|potato|spinach|tomato|zucchini|herb|cilantro|parsley)\b"),
+        ("Protein", r"\b(?:beef|chicken|egg|fish|pork|salmon|shrimp|steak|tofu|turkey|tuna)\b"),
+        ("Dairy", r"\b(?:butter|cheese|cream|milk|yogurt)\b"),
+        ("Bakery & grains", r"\b(?:bread|bun|flour|oat|pasta|rice|tortilla|quinoa)\b"),
+        ("Pantry", r"\b(?:oil|salt|sauce|spice|sugar|honey|syrup|stock|broth|vinegar)\b"),
+    )
+    return next((name for name, pattern in groups if re.search(pattern, value)), "Other")
+
+
+def _grocery_row(row: sqlite3.Row) -> dict[str, Any]:
+    value = dict(row)
+    value["checked"] = bool(value["checked"])
+    return value
+
+
+def add_recipe_to_grocery(recipe_id: int) -> list[dict[str, Any]]:
+    import datetime
+    recipe = get_saved_recipe(recipe_id)
+    if not recipe:
+        raise ValueError("saved recipe was not found")
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    c = _conn()
+    for raw in recipe.get("ingredients") or []:
+        text = str(raw).strip()[:300]
+        key = _grocery_key(text)
+        if not text or not key:
+            continue
+        c.execute(
+            """INSERT INTO grocery_items
+               (item_text,normalized_key,category,checked,recipe_id,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?) ON CONFLICT(recipe_id,normalized_key) DO NOTHING""",
+            (text, key, _grocery_category(text), 0, recipe_id, now, now),
+        )
+    c.commit()
+    return get_grocery_items()
+
+
+def add_grocery_item(item_text: str) -> dict[str, Any]:
+    import datetime
+    text = str(item_text or "").strip()[:300]
+    key = _grocery_key(text)
+    if not text or not key:
+        raise ValueError("grocery item is required")
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    c = _conn()
+    cur = c.execute(
+        """INSERT INTO grocery_items
+           (item_text,normalized_key,category,checked,recipe_id,created_at,updated_at)
+           VALUES (?,?,?,?,NULL,?,?)""",
+        (text, key, _grocery_category(text), 0, now, now),
+    )
+    c.commit()
+    row = c.execute("SELECT * FROM grocery_items WHERE id=?", (cur.lastrowid,)).fetchone()
+    return _grocery_row(row)
+
+
+def get_grocery_items() -> list[dict[str, Any]]:
+    rows = _conn().execute(
+        """SELECT g.*,r.title AS recipe_title FROM grocery_items g
+           LEFT JOIN saved_recipes r ON r.id=g.recipe_id
+           ORDER BY g.checked,g.category,g.id"""
+    ).fetchall()
+    return [_grocery_row(row) for row in rows]
+
+
+def set_grocery_checked(item_id: int, checked: bool) -> dict[str, Any] | None:
+    import datetime
+    c = _conn()
+    c.execute("UPDATE grocery_items SET checked=?,updated_at=? WHERE id=?",
+              (int(bool(checked)), datetime.datetime.now().isoformat(timespec="seconds"), item_id))
+    c.commit()
+    row = c.execute(
+        """SELECT g.*,r.title AS recipe_title FROM grocery_items g
+           LEFT JOIN saved_recipes r ON r.id=g.recipe_id WHERE g.id=?""", (item_id,)).fetchone()
+    return _grocery_row(row) if row else None
+
+
+def delete_grocery_item(item_id: int) -> bool:
+    c = _conn()
+    cur = c.execute("DELETE FROM grocery_items WHERE id=?", (item_id,))
+    c.commit()
+    return cur.rowcount > 0
+
+
+def clear_checked_grocery() -> int:
+    c = _conn()
+    cur = c.execute("DELETE FROM grocery_items WHERE checked=1")
+    c.commit()
+    return cur.rowcount
 
 
 def add_chat(role: str, content: str) -> None:
