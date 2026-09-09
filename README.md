@@ -162,11 +162,15 @@ and decide on its own what is worth remembering (availability, niggles, travel)
 versus what is just chatter. It also follows an explicit set of load rules: state
 the TSB target, hold the race-day taper between +5 and +15, name the tradeoff
 when cutting volume, give easy sessions a hard ceiling rather than a range, and
-never raise run volume to hit a load target when the Achilles is the limiter.
+progress run volume with a weekly cap and a real long run rather than a step
+change to hit a load number.
 The standing four-day split is preserved whenever Steve rebuilds a training
 week and placed around the key runs. Lifting prescriptions include exercise
 order, sets, reps or duration, rest and effort while leaving unknown working
-weights unknown.
+weights unknown, and taper automatically as the race approaches — moderate
+inside three weeks, light inside two, nothing in the last two days. Strength
+added that late does not arrive in time to help; the fatigue it costs arrives
+immediately.
 
 ### Calendar
 ![Calendar tab](docs/screenshots/calendar.png)
@@ -316,7 +320,10 @@ app/
   interval_analysis.py recorded work bouts + duration-weighted HR execution
 
   zones.py           the athlete's REAL Garmin HR zones (per sport), LT, FTP
-  plan.py            periodized plan generator (build / peak / taper)
+  plan.py            periodized plan generator (build / peak / taper), dispatching
+                     to the builder the active event mode actually has
+  marathon_plan.py   compressed marathon build: the long run carries the specific
+                     adaptation, the bike carries aerobic volume
   plan_adapt.py      closed-loop adaptation (session feedback, illness/travel reflow)
   suggest.py         today's session = plan + readiness advisory
   schedule_time.py   default workout times around the 9-4 workday
@@ -480,6 +487,25 @@ A few problems here were more interesting than they first look:
   surfaces for contrast. The compact-on-scroll header, floating bottom bar and
   fixed Coach composer are safe-area aware, with reduced-motion and
   reduced-transparency fallbacks.
+
+- **A short marathon block is not a scaled-down long one.** Arriving with a big
+  cycling base and an 8.5 km longest run, the obvious move is to ramp weekly
+  kilometres. That is the move that breaks people: weekly volume can only rise so
+  fast, and the one adaptation a marathon actually demands — tolerating hours of
+  eccentric loading — is trained by the long run alone. Cycling is concentric and
+  buys none of it. So the long run carries the specific progression and the bike
+  carries aerobic volume. The ladder is anchored to race day rather than to the
+  day the plan was generated, which is what lets the plan be regenerated
+  mid-block without silently rewriting long runs the athlete has already seen.
+
+- **The lifting placer optimised the wrong thing, and only one event exposed it.**
+  Sessions were spread for maximum spacing, with day "freedom" used merely to
+  choose which slot got legs. In a triathlon week — rest days, swim days — the
+  free days were also the well-spaced ones and it looked correct. A marathon week
+  is running every single day, nothing scores highly, and spacing alone put a leg
+  session on the long run every week and a lift on race day itself. Freedom now
+  selects the candidate pool and spacing only breaks ties among days that cost
+  the same, and race day is unusable at any price.
 
 - **Classification that respects intent.** A Peloton stretch syncs from Garmin as
   `strength_training`; counting it as a completed strength lift is wrong, so

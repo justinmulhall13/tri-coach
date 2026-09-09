@@ -171,5 +171,29 @@ class ScoringTests(unittest.TestCase):
                 self.assertLessEqual(result["score"], 100)
 
 
+class LimiterNoteTests(unittest.TestCase):
+    """The limiter sentence is the readiness sheet's most useful line, and it
+    used to appear only when the LONG RUN capped the score — so it went missing
+    exactly when the score was worst and the athlete most needed it."""
+
+    def _score(self, run_km_14d: float, longest_km: float) -> dict:
+        return er.readiness(load14=_load(run=run_km_14d),
+                            training_load={"load_ratio": 1.0}, readiness_score=50,
+                            days_left=40, profile=MARATHON,
+                            activities=[{"sport": "run", "km": longest_km}])
+
+    def test_a_volume_limited_score_still_names_its_limiter(self) -> None:
+        result = self._score(run_km_14d=29.0, longest_km=17.5)
+        self.assertIsNone(result["capped_by"])
+        self.assertIsNotNone(result["limiter_note"])
+        self.assertIn("Run volume", result["limiter_note"])
+        self.assertIn("29", result["limiter_note"])
+
+    def test_the_long_run_cap_still_wins_when_it_applies(self) -> None:
+        result = self._score(run_km_14d=140.0, longest_km=10.0)
+        self.assertEqual(result["capped_by"], "long_run")
+        self.assertIn("long run", result["limiter_note"])
+
+
 if __name__ == "__main__":
     unittest.main()

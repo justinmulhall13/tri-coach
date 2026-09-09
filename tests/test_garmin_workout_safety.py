@@ -9,6 +9,28 @@ from app import coaching_contract, garmin_workout
 from app import plan
 
 
+# These tests assert behaviour of the T100 profile specifically. Pin it rather
+# than reading whichever event happens to be active in the shared database, so
+# switching the athlete's real event cannot turn them red.
+_PROFILE_PIN = None
+
+
+def setUpModule():
+    global _PROFILE_PIN
+    from unittest.mock import patch as _patch
+    from app import coaching_contract as _cc, db as _db
+    _PROFILE_PIN = _patch.object(
+        _db, "get_active_event_profile_record",
+        return_value=_cc.default_event_profile_record())
+    _PROFILE_PIN.start()
+
+
+def tearDownModule():
+    if _PROFILE_PIN is not None:
+        _PROFILE_PIN.stop()
+
+
+
 class GarminWorkoutSafetyTests(unittest.TestCase):
     def test_active_event_profile_drives_race_targets_after_cross_profile_switch(self) -> None:
         active_profile = {

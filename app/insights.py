@@ -136,8 +136,8 @@ def get_insights(*, baseline_data: dict[str, Any] | None = None,
     comp = (event_ready.get("components") or {}).get(low_bucket) or {}
     if low_bucket and isinstance(comp.get("pct"), (int, float)) and comp["pct"] < 60:
         if low_bucket == "run":
-            detail = (f"Run is at {comp['pct']}% of its 14-day bucket. Do not jump run volume; "
-                      "the Achilles is limiting. Add any needed low-intensity load on the bike.")
+            detail = (f"Run is at {comp['pct']}% of its 14-day bucket. Build it back with a "
+                      "progressive week (~10% up) and a real long run, not a single big day.")
         else:
             detail = (f"{low_bucket.title()} is at {comp['pct']}% of its 14-day bucket. "
                       f"Bias safe {low_bucket} work only if recovery and the active plan allow it.")

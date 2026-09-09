@@ -4,7 +4,7 @@ This file is the durable continuation point for the current Tri Coach work. Read
 
 ## Non-negotiable user intent
 
-- Keep the real active event profile on `t100-vancouver-2026`. Do not activate a marathon or another event while testing.
+- The active event profile is the **TCS Toronto Waterfront Marathon, 2026-10-18** (`tcs-toronto-waterfront-marathon-2026-10-18-29641bea562e`), goal `sub-3:30`. T100 Vancouver is past; the old `t100-vancouver-2026` rows stay in the database, inert, scoped out by profile id. Do not activate another event while testing — pin a profile in the test instead (see below).
 - Event switches must be persisted, provenance-tagged, and committed before any success message.
 - Generated schedules must be durable drafts with a `plan_id` before they are shown.
 - Preserve every existing app feature. Do not deploy unless the full suite, Python compilation, JavaScript syntax check, and database integrity check pass.
@@ -42,7 +42,8 @@ Before deployment, verify without mutating state:
 SELECT active_profile_id, pending_profile_json FROM event_profile_state WHERE singleton_id=1;
 ```
 
-Expected active ID: `t100-vancouver-2026`; expected pending value: `NULL`.
+Expected active ID: `tcs-toronto-waterfront-marathon-2026-10-18-29641bea562e`; expected pending
+value: `NULL`.
 
 
 ## Session 2026-08-20 (Claude Code) — findings and changes
@@ -411,3 +412,103 @@ profile" for any other event, so after switching to the marathon the ring render
 but its sheet was dead. `_event_ready` now serves whatever event is active, with a
 long-run contributor and the limiter sentence as the insight. `"t100"` stays as an
 alias so an older client still resolves.
+
+
+## Session 2026-09-08 — the marathon block
+
+### The event switched, and that broke twenty tests without breaking any code
+T100 Vancouver is past. The athlete's event is now the TCS Toronto Waterfront
+Marathon on 2026-10-18, goal sub-3:30, 40 days out at the switch.
+
+Twenty tests went red the moment the profile changed, all of them asserting
+T100-only data (`KeyError: 'course_aid'`, `'placement'`, `'error'`). None of them
+were testing a switch — they read whichever profile the shared database happened
+to hold. Five modules now pin the default profile at module scope:
+
+```python
+def setUpModule():
+    _PROFILE_PIN = _patch.object(_db, "get_active_event_profile_record",
+                                 return_value=_cc.default_event_profile_record())
+    _PROFILE_PIN.start()
+```
+
+Insert that block **before the first `class`**, never "after the last import
+line": several of these files open with a multi-line parenthesized import, and an
+insert after its first line lands inside the parentheses and is a `SyntaxError`.
+
+**A patched reader is not enough when a test writes plan rows.** `plan_days` are
+namespaced by the profile id the *database* holds, so patching
+`get_active_event_profile_record` alone writes marathon days stamped
+`t100-vancouver-2026`, and every reconcile then skips them as another profile's
+rows. `tests/test_marathon_plan.py` really stages and activates instead.
+
+### `app/marathon_plan.py` — the compressed build
+The athlete arrived with a 117 km/week bike base and an 8.5 km longest run. You
+cannot get to a marathon from there by scaling weekly kilometres; weekly volume
+only moves so fast, and the one adaptation the race demands — tolerating hours of
+eccentric loading — is trained by the long run alone. Cycling is concentric and
+does not buy it. So the long run carries the specific progression
+(`LONG_RUN_KM = (14, 18, 23, 28, 16)`) and the bike carries aerobic volume. That
+also matches how the athlete self-regulates: run when the legs are good, ride
+when they are sore, which is now rule 9 in the coach prompt and `SORE_SWAP` on
+every easy and mid-long day. It is deliberately absent from the long run and the
+threshold run: those are the two sessions the block is built on.
+
+Invariants worth keeping:
+
+- **The ladder is right-aligned to race day, never left-aligned to the start.**
+  That is what makes `reconcile` safe: re-running it mid-block yields the same
+  remaining long runs the athlete was already shown. A block longer than the
+  stock ladder grows at the front, so the peak stays two Sundays out.
+- **The peak long run is a BUILD session.** The taper starts the day after it
+  (`< 14`, not `<= 14`). An earlier version marked the peak week as taper and
+  handed the athlete a rest day two days before their biggest run.
+- **`phase` is not preserved by reconcile.** It is derived from the date and race
+  day, so a refresh recomputes it; only true placement metadata (`start_time`,
+  `gcal_event_id`, `pos_updated_at`) survives.
+- **Nothing about the race is hardcoded.** `race_day()` reads the event name and
+  distance from the active profile — an earlier version wrote "TCS Toronto
+  Waterfront Marathon" into every MARATHON profile's race day, including a test
+  fixture called "Berlin".
+- **Goal pace is derived, never invented.** `goal_pace_per_km()` reads an explicit
+  `run_goal_min_per_km`, else parses a finish time out of the athlete's own goal
+  text. No stated time means no pace number anywhere in the plan.
+
+### The long run is labelled `"long"`, not `"easy"`
+`zones` already maps both to Z2, so nothing about the prescription changed — but
+`strength_effort.is_key_run` keyed off duration alone (`LONG_RUN_MIN = 90`), and
+an early-block 14 km long run is 86 minutes. It was scoring as an ordinary easy
+day, and the lifting placer was putting a leg session on it.
+
+### Two real placement bugs in `strength_block`
+1. `_spread` optimises spacing and nothing else. In a triathlon week, where rest
+   and swim days score high, that was invisible. A marathon week is running every
+   day, so the freest days are only a 3, and spacing alone parked a lower day on
+   the long run **every week**. `_freest_pool` now descends the freedom tiers
+   first and lets spacing decide only among days that cost the same.
+2. `is_key_run` rates race day a 2, which was enough to place a lift **on race
+   day** in a week where nothing scored higher. `_day_freedom` now returns 0 for
+   a race and for the morning before one.
+
+### Lifting tapers, and the code says so rather than the prompt
+`strength_effort.TAPER_CAPS` caps the session at moderate inside 21 days of the
+race, light inside 14, and skip inside 2. Strength added that late does not
+arrive in time to help; the fatigue it costs arrives immediately. It is a
+ceiling and only ever lowers a call — poor readiness already saying "light" is
+not raised back to a "moderate" cap.
+
+Because effort now reads the active event, `test_strength_effort` and
+`test_strength_block` hold the race 120 days away at module scope. Without that
+they would start failing on their own as the real race approaches.
+
+### The Achilles is not a standing injury
+Removed from `coach.py` rule 8, `coaching_contract` (`run_constraints`, the prose
+line and the rules tuple) and `insights.py`. It was a T100-specific worry about
+running on gravel and the athlete said so plainly. The generic physio material in
+`strength_knowledge.py` and `lifting_split.py` stays: it is reference used only
+when he reports actual pain on the day.
+
+### Today's session is an `edited` row on purpose
+2026-09-08 records the 8.2 km he actually ran. Written with `source="edited"` so
+the bootstrap reconcile skips it rather than prescribing a threshold run over a
+session already done.

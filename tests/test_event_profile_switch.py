@@ -178,7 +178,19 @@ class PersistedEventProfileSwitchTests(unittest.TestCase):
         self.assertFalse(any("T100" in source for source in fuel["sources"]))
         self.assertIsNone(athlete_guide.context_for("show the bike aid stations"))
         self.assertIn("marathon_2026_10_18", activity_detail._analysis_cache_key(42))
-        self.assertIn("marathon-2026-10-18", plan.seed()["error"])
+        # MARATHON now has its own builder, so the leak test is that the plan
+        # it writes belongs to THIS event: no swim, no T100 anything, and race
+        # day named from the persisted profile rather than a hardcoded race.
+        seeded = plan.seed()
+        self.assertNotIn("error", seeded)
+        self.assertEqual(seeded["seeded_through"], "2026-10-18")
+        written = db.get_plan("2026-01-01", "2026-12-31")
+        self.assertTrue(written)
+        self.assertFalse(any(day.get("discipline") == "swim" for day in written))
+        self.assertFalse(any("T100" in json.dumps(day) for day in written))
+        race_day = next(day for day in written if day["date"] == "2026-10-18")
+        self.assertIn("Marathon", race_day["title"])
+        self.assertNotIn("Toronto", race_day["title"])
         self.assertEqual(plan._hr("race"), "HR unknown (event race target required)")
 
         chef_system = nutrition._system_prompt()

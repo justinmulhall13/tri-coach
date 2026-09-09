@@ -250,6 +250,17 @@ def readiness(*, load14: Any, training_load: Any, readiness_score: Any,
                     score = ceiling
 
     lowest = min(coverage.items(), key=lambda item: item[1])[0] if coverage else None
+    # The limiter sentence is the most useful line on the readiness sheet, and it
+    # was previously produced ONLY when the long run capped the score — so it went
+    # missing exactly when the score was worst and the athlete most needed to know
+    # which number was holding it down. Fall back to the thinnest volume bucket.
+    if long_run_note is None and lowest and components.get(lowest):
+        block = components[lowest]
+        long_run_note = (
+            f"{lowest.title()} volume is what is holding this down: "
+            f"{block['km_14d']:g} km in 14 days against {block['target']:g} km."
+        )
+
     return {
         "available": True,
         "score": score,

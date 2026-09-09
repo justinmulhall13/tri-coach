@@ -9,6 +9,28 @@ from app import (coach, coaching_contract, fueling_reference, garmin_source,
                  garmin_workout, hevy_connector, nutrition, plan)
 
 
+# These tests assert behaviour of the T100 profile specifically. Pin it rather
+# than reading whichever event happens to be active in the shared database, so
+# switching the athlete's real event cannot turn them red.
+_PROFILE_PIN = None
+
+
+def setUpModule():
+    global _PROFILE_PIN
+    from unittest.mock import patch as _patch
+    from app import coaching_contract as _cc, db as _db
+    _PROFILE_PIN = _patch.object(
+        _db, "get_active_event_profile_record",
+        return_value=_cc.default_event_profile_record())
+    _PROFILE_PIN.start()
+
+
+def tearDownModule():
+    if _PROFILE_PIN is not None:
+        _PROFILE_PIN.stop()
+
+
+
 class CoachingContractTests(unittest.TestCase):
     def test_event_mode_is_static_and_only_exact_command_is_detected(self) -> None:
         self.assertEqual(coaching_contract.current_mode(), "TRIATHLON")

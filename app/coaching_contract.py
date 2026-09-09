@@ -40,8 +40,8 @@ ATHLETE_CONSTANTS: Final[dict[str, Any]] = {
     },
     "run_constraints": {
         "weakest_discipline": True,
-        "limiter": "Achilles",
-        "load_rule": "Never jump run volume to hit a load target",
+        "limiter": None,
+        "load_rule": "Progress run volume ~10%/week with a real long run; no step changes",
     },
     "bike_prescription": {
         "primary_target": "heart rate",
@@ -158,7 +158,7 @@ RULES: Final[dict[str, tuple[str, ...]]] = {
         "Do not add lifting unprompted, but handle it fully when the athlete asks.",
         "Use recent lifting history when available; otherwise label equipment, injuries, and working loads unknown and ask.",
         "Prescribe exercise order, sets, reps or duration, rest, and effort; never invent a working weight.",
-        "Respect the Achilles limiter, event phase, and the race-week ban on anything untested.",
+        "Respect the run-progression cap, event phase, and the race-week ban on anything untested.",
     ),
     "output": (
         "Be direct and specific; use real amounts in g, tbsp, and tsp.",
@@ -475,7 +475,7 @@ ATHLETE CONSTANTS (self-reported; never change during an event switch)
 - Athlete: {athlete['age']}-year-old {athlete['sex']}.
 - GI history: {athlete['gi_history']['event']} on {athlete['gi_history']['date']}; {athlete['gi_history']['constraint']}.
 - Sweat: {athlete['sweat_profile']['description']}, roughly {athlete['sweat_profile']['sweat_rate_l_per_h']:g} L/h.
-- Run: weakest discipline; Achilles is the limiter; never add run volume merely to hit load.
+- Run: weakest discipline. Build volume ~10%/week with a genuine long run; no step changes to hit a load number.
 - Bike: prescribe by heart rate, never outdoor watts. The {athlete['bike_prescription']['peloton_ftp_w']} W FTP is Peloton-only.
 - Easy running: give one explicit ceiling, never a range.
 - Fixed conversions: {athlete['fixed_conversions']['table_salt']}; {athlete['fixed_conversions']['granulated_sugar']}; {athlete['fixed_conversions']['maple_syrup']}; carb powder is {athlete['fixed_conversions']['carb_powder']}; each gel is {athlete['fixed_conversions']['gel']}.

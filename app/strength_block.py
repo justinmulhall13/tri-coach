@@ -51,6 +51,15 @@ def _index_plan(plan_days: Any) -> dict[datetime.date, dict[str, Any]]:
     return indexed
 
 
+def _is_race(day: Any) -> bool:
+    """The event itself, however the builder labelled it."""
+    if not isinstance(day, dict):
+        return False
+    return "race" in {str(day.get("discipline") or "").lower(),
+                      str(day.get("intensity") or "").lower(),
+                      str(day.get("phase") or "").lower()}
+
+
 def _day_freedom(date: datetime.date, plan: dict[datetime.date, dict[str, Any]]) -> int:
     """How free a day is for lifting. Higher is better; 0 means unusable.
 
@@ -58,8 +67,14 @@ def _day_freedom(date: datetime.date, plan: dict[datetime.date, dict[str, Any]])
     lifting after a hard run shares fatigue the athlete has already spent,
     while lifting the day before compromises a session not yet run.
     """
+    tomorrow = date + datetime.timedelta(days=1)
+    # Race day and the morning before it are never available at any price.
+    # is_key_run alone rates race day a 2, which is enough to get a lift placed
+    # on it in a week where nothing scores higher.
+    if _is_race(plan.get(date)) or _is_race(plan.get(tomorrow)):
+        return 0
     today_key = strength_effort.is_key_run(plan.get(date))
-    tomorrow_key = strength_effort.is_key_run(plan.get(date + datetime.timedelta(days=1)))
+    tomorrow_key = strength_effort.is_key_run(plan.get(tomorrow))
     if today_key and tomorrow_key:
         return 0
     if tomorrow_key:
@@ -92,6 +107,24 @@ def _spread(candidates: list[datetime.date], count: int) -> list[datetime.date]:
     return sorted(chosen)
 
 
+def _freest_pool(usable: list[datetime.date], freedom: dict[datetime.date, int],
+                 sessions: int) -> list[datetime.date]:
+    """Narrow to the freest days that can still supply `sessions` lifts.
+
+    `_spread` optimises spacing and nothing else, so on its own it will take the
+    long-run day when an easy day is sitting free — in a run-only block, where
+    the week is Monday-to-Sunday full of running, that put a leg day on the long
+    run every week. Descending the freedom tiers first protects the key runs;
+    spacing then decides among days that cost the same.
+    """
+    pool: list[datetime.date] = []
+    for tier in sorted({freedom[date] for date in usable}, reverse=True):
+        pool.extend(date for date in usable if freedom[date] == tier)
+        if len(pool) >= sessions:
+            break
+    return sorted(pool)
+
+
 def place_week(*, week_start: datetime.date, sessions: int,
                plan: dict[datetime.date, dict[str, Any]]) -> list[dict[str, Any]]:
     """Choose the lifting days for one week and assign upper/lower to them."""
@@ -100,7 +133,8 @@ def place_week(*, week_start: datetime.date, sessions: int,
     usable = [date for date in dates if freedom[date] > 0]
     if not usable:
         return []
-    picked = _spread(usable, min(sessions, len(usable)))
+    pool = _freest_pool(usable, freedom, sessions)
+    picked = _spread(pool, min(sessions, len(pool)))
 
     # Slots strictly alternate along the calendar, so two lower days can never
     # land back to back. Four sessions in seven days forces at least one pair of

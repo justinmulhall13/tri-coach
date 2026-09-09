@@ -2,9 +2,27 @@ from __future__ import annotations
 
 import datetime
 import unittest
+from unittest.mock import patch
 
 from app import strength_block as sb
 from app import strength_effort as se
+
+
+# Effort now also has a race-proximity ceiling. These tests are about placement,
+# so the event is held far away rather than moving with the real active profile.
+_FAR_RACE = None
+
+
+def setUpModule():
+    global _FAR_RACE
+    _FAR_RACE = patch.object(se.coaching_contract, "race_phase",
+                             return_value={"days_remaining": 120, "is_past": False})
+    _FAR_RACE.start()
+
+
+def tearDownModule():
+    if _FAR_RACE is not None:
+        _FAR_RACE.stop()
 
 
 MONDAY = datetime.date(2026, 8, 24)
@@ -134,6 +152,72 @@ class EffortTests(unittest.TestCase):
             self.assertEqual(len(block["placements"]), 4)
 
 
+
+
+class RunOnlyBlockTests(unittest.TestCase):
+    """A marathon week is running every day, so nothing scores as "free" the way
+    a swim/bike week does. Spacing alone then parks a leg day on the long run."""
+
+    def _marathon_week(self) -> list[dict]:
+        """Mon ride, Tue threshold, Wed easy, Thu mid-long, Fri ride, Sat shakeout,
+        Sun long run — the shape the marathon builder actually writes."""
+        shape = [("bike", {"intensity": "Z2", "duration_min": 45}),
+                 ("run", {"intensity": "threshold", "duration_min": 55}),
+                 ("run", {"intensity": "easy", "duration_min": 38}),
+                 ("run", {"intensity": "easy", "duration_min": 63}),
+                 ("bike", {"intensity": "Z2", "duration_min": 50}),
+                 ("run", {"intensity": "easy", "duration_min": 25}),
+                 ("run", {"intensity": "long", "duration_min": 86})]
+        days = []
+        for offset in range(14):
+            discipline, fields = shape[offset % 7]
+            days.append(_day(MONDAY + datetime.timedelta(days=offset), discipline, **fields))
+        return days
+
+    def test_no_lift_lands_on_the_long_run_while_an_easy_day_is_free(self) -> None:
+        week = self._marathon_week()
+        block = sb.build(start=MONDAY, weeks=2, sessions_per_week=2, plan_days=week)
+        longs = {d["date"] for d in week if d.get("intensity") == "long"}
+        placed = {p["date"] for p in block["placements"]}
+        self.assertTrue(placed)
+        self.assertFalse(placed & longs, sorted(placed & longs))
+
+    def test_no_lift_lands_on_the_threshold_run_either(self) -> None:
+        week = self._marathon_week()
+        block = sb.build(start=MONDAY, weeks=2, sessions_per_week=2, plan_days=week)
+        quality = {d["date"] for d in week if d.get("intensity") == "threshold"}
+        self.assertFalse({p["date"] for p in block["placements"]} & quality)
+
+    def test_a_freer_day_beats_a_better_spaced_one(self) -> None:
+        # Hard running every day except Wednesday and Thursday, so Wednesday is
+        # the only day with neither a key run on it nor one the next morning.
+        # Spacing alone would take Tuesday: it comes first among the usable days.
+        days = []
+        for offset in range(14):
+            date = MONDAY + datetime.timedelta(days=offset)
+            easy = offset % 7 in (2, 3)
+            days.append(_day(date, "run", intensity="easy" if easy else "threshold",
+                             duration_min=40 if easy else 60))
+        wednesday = (MONDAY + datetime.timedelta(days=2)).isoformat()
+        tuesday = (MONDAY + datetime.timedelta(days=1)).isoformat()
+        block = sb.build(start=MONDAY, weeks=1, sessions_per_week=1, plan_days=days)
+        self.assertEqual([p["date"] for p in block["placements"]], [wednesday])
+        self.assertNotEqual(block["placements"][0]["date"], tuesday)
+
+
+class RaceDayTests(unittest.TestCase):
+    def test_nothing_is_ever_placed_on_race_day_or_the_morning_before(self) -> None:
+        race = MONDAY + datetime.timedelta(days=6)
+        for marker in ({"discipline": "race"},
+                       {"discipline": "run", "intensity": "race", "duration_min": 240},
+                       {"discipline": "run", "phase": "race", "duration_min": 240}):
+            with self.subTest(marker=marker):
+                days = _week({race: {"date": race.isoformat(), **marker}})
+                block = sb.build(start=MONDAY, weeks=1, sessions_per_week=4,
+                                 plan_days=days)
+                placed = {p["date"] for p in block["placements"]}
+                self.assertNotIn(race.isoformat(), placed)
+                self.assertNotIn((race - datetime.timedelta(days=1)).isoformat(), placed)
 
 
 class AlternationTests(unittest.TestCase):

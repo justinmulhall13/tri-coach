@@ -16,6 +16,8 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
+from . import coaching_contract
+
 # Ordered from hardest to easiest. Ceilings and downgrades move along this list.
 LEVELS = ("heavy", "moderate", "light", "skip")
 
@@ -28,6 +30,21 @@ _QUALITY_INTENSITIES = {
 
 # A run at or beyond this duration is a key session regardless of its label.
 LONG_RUN_MIN = 90
+
+# The week's long run is the key session whatever the clock says. An early
+# marathon block long run can be under 90 minutes and still be the one workout
+# the whole week is built around, so the label decides rather than the duration.
+_LONG_INTENSITIES = {"long", "long run"}
+
+# Race proximity caps lifting regardless of how fresh the athlete feels. Strength
+# gained inside three weeks of a marathon does not arrive in time to help, while
+# the fatigue it costs arrives immediately. These are ceilings, never floors.
+TAPER_CAPS: tuple[tuple[int, str], ...] = (
+    (2, "skip"),        # race day and the day before
+    (7, "light"),       # race week
+    (14, "light"),      # the taper
+    (21, "moderate"),   # the last build week before the taper
+)
 
 # Garmin readiness at or below this is poor enough to pull the ceiling down.
 POOR_READINESS = 35
@@ -65,7 +82,7 @@ def is_key_run(day: Any) -> bool:
     if str(day.get("discipline") or "").lower() == "race":
         return True
     intensity = str(day.get("intensity") or "").strip().lower()
-    if intensity in _QUALITY_INTENSITIES:
+    if intensity in _QUALITY_INTENSITIES or intensity in _LONG_INTENSITIES:
         return True
     duration = day.get("duration_min")
     return (isinstance(duration, (int, float)) and not isinstance(duration, bool)
@@ -83,6 +100,28 @@ def _readiness_score(readiness: Any) -> int | None:
     block = readiness.get("training_readiness")
     score = block.get("score") if isinstance(block, dict) else None
     return int(score) if isinstance(score, (int, float)) and not isinstance(score, bool) else None
+
+
+def _taper_cap(today: datetime.date) -> tuple[str | None, int | None]:
+    """The hardest a lift may be, given how close the event is.
+
+    Reads the active event profile rather than taking a race date argument, so
+    the cap follows a profile switch the way every other event-derived number
+    does. An unknown or past event imposes no cap.
+    """
+    try:
+        phase = coaching_contract.race_phase(today)
+    except Exception:  # noqa: BLE001 - never let a profile problem block a lift
+        return None, None
+    if not isinstance(phase, dict) or phase.get("is_past"):
+        return None, None
+    days = phase.get("days_remaining")
+    if not isinstance(days, int) or isinstance(days, bool) or days < 0:
+        return None, None
+    for limit, cap in TAPER_CAPS:
+        if days < limit:
+            return cap, days
+    return None, days
 
 
 def decide(*, today: datetime.date, plan_days: Any, readiness: Any = None,
@@ -138,7 +177,17 @@ def decide(*, today: datetime.date, plan_days: Any, readiness: Any = None,
     else:
         reasons.append("No morning readiness score available, so it neither raises nor lowers effort.")
 
-    # 3. Unknown working weights cap the session regardless of how fresh he is.
+    # 3. Race proximity caps the session however good the legs feel.
+    taper_cap, days_out = _taper_cap(today)
+    if taper_cap and _index(level) < _index(taper_cap):
+        level = taper_cap
+        reasons.append(
+            f"{days_out} days to the race: lifting is now maintenance, so the "
+            f"ceiling is {taper_cap}. Strength added this late does not arrive "
+            "in time; the fatigue does."
+        )
+
+    # 4. Unknown working weights cap the session regardless of how fresh he is.
     calibration = bool(isinstance(strength, dict) and strength.get("calibration_required"))
     if calibration and _index(level) < _index("moderate"):
         level = "moderate"
@@ -150,6 +199,8 @@ def decide(*, today: datetime.date, plan_days: Any, readiness: Any = None,
     return {
         "level": level,
         "ceiling_from_run_load": ceiling,
+        "taper_cap": taper_cap,
+        "days_to_race": days_out,
         "reps_in_reserve": _RIR[level],
         "cue": _cue_for(level, calibration=calibration),
         "reasons": reasons,

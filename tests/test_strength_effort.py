@@ -2,12 +2,31 @@ from __future__ import annotations
 
 import datetime
 import unittest
+from unittest.mock import patch
 
 from app import strength_effort as se
 
 
 TODAY = datetime.date(2026, 8, 20)
 TOMORROW = datetime.date(2026, 8, 21)
+
+
+# Race proximity is now a ceiling on lifting effort, and these tests are about
+# run load and recovery. Hold the event far away at module scope so they assert
+# what they mean rather than moving with whatever race is really active.
+_FAR_RACE = None
+
+
+def setUpModule():
+    global _FAR_RACE
+    _FAR_RACE = patch.object(se.coaching_contract, "race_phase",
+                             return_value={"days_remaining": 120, "is_past": False})
+    _FAR_RACE.start()
+
+
+def tearDownModule():
+    if _FAR_RACE is not None:
+        _FAR_RACE.stop()
 
 
 def _day(date: datetime.date, discipline: str, **kw) -> dict:
@@ -147,6 +166,59 @@ class ExplanationTests(unittest.TestCase):
             self.assertIn(se.decide(today=TODAY, plan_days=bad)["level"], se.LEVELS)
 
 
+
+
+class TaperTests(unittest.TestCase):
+    """Strength gained inside three weeks of a race arrives too late to help,
+    but the fatigue it costs arrives immediately."""
+
+    RACE = datetime.date(2026, 10, 18)
+
+    def _decide(self, days_out: int, **kw) -> dict:
+        today = self.RACE - datetime.timedelta(days=days_out)
+        phase = {"days_remaining": days_out, "is_past": False}
+        with patch.object(se.coaching_contract, "race_phase", return_value=phase):
+            return se.decide(today=today, plan_days=[], **kw)
+
+    def test_a_clear_day_far_from_the_race_is_still_a_heavy_day(self) -> None:
+        result = self._decide(60)
+        self.assertEqual(result["level"], "heavy")
+        self.assertIsNone(result["taper_cap"])
+
+    def test_the_last_build_week_caps_at_moderate(self) -> None:
+        self.assertEqual(self._decide(18)["level"], "moderate")
+
+    def test_the_taper_caps_at_light(self) -> None:
+        for days_out in (13, 7, 3):
+            self.assertEqual(self._decide(days_out)["level"], "light", days_out)
+
+    def test_race_day_and_the_day_before_are_skipped(self) -> None:
+        for days_out in (0, 1):
+            self.assertEqual(self._decide(days_out)["level"], "skip", days_out)
+
+    def test_the_cap_is_a_ceiling_and_never_raises_a_lower_call(self) -> None:
+        # Poor readiness already says light; being 18 days out must not lift it
+        # back up to the moderate cap.
+        result = self._decide(18, readiness=_readiness(20))
+        self.assertEqual(result["level"], "light")
+
+    def test_the_reason_names_the_countdown(self) -> None:
+        self.assertIn("11 days to the race",
+                      " ".join(self._decide(11)["reasons"]))
+
+    def test_a_past_or_unknown_event_imposes_no_cap(self) -> None:
+        for phase in ({"days_remaining": 3, "is_past": True},
+                      {"days_remaining": None, "is_past": False},
+                      {}, None):
+            with patch.object(se.coaching_contract, "race_phase", return_value=phase):
+                result = se.decide(today=TODAY, plan_days=[])
+            self.assertIsNone(result["taper_cap"], phase)
+            self.assertEqual(result["level"], "heavy", phase)
+
+    def test_a_broken_event_profile_never_blocks_the_decision(self) -> None:
+        with patch.object(se.coaching_contract, "race_phase",
+                          side_effect=RuntimeError("no profile")):
+            self.assertEqual(se.decide(today=TODAY, plan_days=[])["level"], "heavy")
 
 
 class HostileInputTests(unittest.TestCase):
