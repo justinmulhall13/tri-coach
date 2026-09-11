@@ -512,3 +512,35 @@ when he reports actual pain on the day.
 2026-09-08 records the 8.2 km he actually ran. Written with `source="edited"` so
 the bootstrap reconcile skips it rather than prescribing a threshold run over a
 session already done.
+
+
+## Session 2026-09-10 — school replaces the workday, dark-mode chips
+
+### School is 08:00-12:40 every day
+The athlete said "every day", and it is taken literally, weekends included. The
+old fixed 9-4 weekday workday is gone from `schedule_time.py`, the calendar
+assistant prompt and the week view (the `workband` is now a labelled
+`schoolband` drawn on all seven days). Placement: finish 15 minutes before
+school if the session fits after 05:30, otherwise start at 13:00. School is also
+added to the busy ranges, so the 15-minute nudge can never walk a session into
+it. `SCHOOL_START_MIN` / `SCHOOL_END_MIN` in `index.html` must match
+`schedule_time.SCHOOL_START` / `SCHOOL_END`; `tests/test_school_schedule.py`
+checks that. `ATHLETE_CONSTANTS["daily_schedule"]` tells Coach Steve.
+
+Days already synced carry a stored `start_time`, so a scheduler change alone
+does not move them. Future rows whose stored time overlapped school were cleared
+and re-placed.
+
+### `--ink` is a text colour, never a background
+The product-reset block used `background:var(--ink);color:#fff` for the coach
+avatar, the thinking orb, the module icons and the user bubble. `--ink` turns
+near-white in dark mode, so all of them became white glyphs on a white disc —
+only the user bubble had a dark-mode patch. Solid chips now use `--chip` /
+`--chip-ink`, defined in both palettes, and a test rejects
+`background:var(--ink)` anywhere in the page.
+
+### Do not run the backend locally to look at the UI
+Uvicorn's startup handler reconciles Google Calendar, and Fly reconciles the
+same plan: running both is how duplicate events appear. For a visual check,
+render the page's CSS into a static harness and screenshot it with headless
+Chrome (`--headless=new --screenshot`).

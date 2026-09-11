@@ -38,6 +38,10 @@ ATHLETE_CONSTANTS: Final[dict[str, Any]] = {
         "sweat_rate_l_per_h": 1.0,
         "description": "heavy and salty sweater",
     },
+    "daily_schedule": {
+        "school": "08:00-12:40 every day",
+        "training_windows": "before 07:45, or from 13:00",
+    },
     "run_constraints": {
         "weakest_discipline": True,
         "limiter": None,

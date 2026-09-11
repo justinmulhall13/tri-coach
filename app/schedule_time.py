@@ -1,22 +1,21 @@
-"""Default start-times for workouts, scheduled around a fixed 9-4 workday.
+"""Default start-times for workouts, scheduled around school.
 
-The plan stores a duration but no time of day. When we first sync a day to Google
-we pick a sensible timed block: mornings before work on weekdays (or evenings if
-the session is too long to finish before 09:00), any morning on weekends. The
-user can always drag it afterwards — once `start_time` is stored, this module is
-no longer consulted for that day.
+School runs 08:00-12:40 every day. The plan stores a duration but no time of
+day, so when a day is first synced to Google we pick a timed block: before
+school if the session can finish in time, otherwise straight after it. The user
+can always drag it afterwards — once `start_time` is stored, this module is no
+longer consulted for that day.
 """
 from __future__ import annotations
 
 import datetime
 from typing import Any
 
-WORK_START = 9 * 60      # 09:00 in minutes-from-midnight
-WORK_END = 16 * 60       # 16:00 (4 PM)
-MORNING_FLOOR = 5 * 60 + 30   # don't start a weekday session before 05:30
-PRE_WORK_BUFFER = 15     # finish this many minutes before work starts
-EVENING_START = 17 * 60  # after-work fallback slot
-WEEKEND_START = 8 * 60   # 08:00
+SCHOOL_START = 8 * 60            # 08:00 in minutes-from-midnight
+SCHOOL_END = 12 * 60 + 40        # 12:40
+MORNING_FLOOR = 5 * 60 + 30      # don't start a session before 05:30
+PRE_SCHOOL_BUFFER = 15           # finish this many minutes before school starts
+AFTER_SCHOOL_START = 13 * 60     # first slot after the bell, with time to change and eat
 
 
 def _hhmm(minutes: int) -> str:
@@ -103,8 +102,10 @@ def default_start(day: dict[str, Any], existing_events: list[dict[str, Any]] | N
     try:
         d = datetime.date.fromisoformat(day["date"])
     except Exception:
-        return _hhmm(WEEKEND_START)
+        return _hhmm(AFTER_SCHOOL_START)
+    # School is a fixed daily block, so it is busy time like any calendar event.
     busy = _busy_ranges(existing_events or [], day["date"])
+    busy.append((SCHOOL_START, SCHOOL_END))
     rules = _rules_for_date(schedule_constraints or [], d)
     if any(rule.get("kind") in {"busy", "travel"} and _rule_range(rule) is None
            for rule in rules):
@@ -132,12 +133,10 @@ def default_start(day: dict[str, Any], existing_events: list[dict[str, Any]] | N
         for window in [_rule_range(rule)] if window is not None
     ]
 
-    if d.weekday() >= 5:  # Sat/Sun — no work
-        candidate = max(WEEKEND_START, facility_open)
-    else:
-        # Try to finish PRE_WORK_BUFFER before work; floor at MORNING_FLOOR.
-        pre = WORK_START - PRE_WORK_BUFFER - effective_duration
-        candidate = pre if pre >= facility_open else max(EVENING_START, facility_open)
+    # Finish PRE_SCHOOL_BUFFER before school if the session fits after the
+    # morning floor; a session too long for that goes straight after school.
+    pre = SCHOOL_START - PRE_SCHOOL_BUFFER - effective_duration
+    candidate = pre if pre >= facility_open else max(AFTER_SCHOOL_START, facility_open)
 
     if available:
         # Athlete-confirmed windows are hard bounds. Choose the first feasible

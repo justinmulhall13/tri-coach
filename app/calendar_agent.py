@@ -39,7 +39,7 @@ Action types (use the exact date strings from CONTEXT; resolve "tomorrow/Friday/
 Rules: workout duration and workout contents are set only by Coach Steve. If asked to make a workout
 longer/shorter or change its prescribed work, return no actions and say to ask Coach Steve. Only include
 actions the athlete clearly asked for; [] if it's just a question (answer in "reply"). \
-Prefer morning workout times before their 9-4 workday unless told otherwise. Keep "reply" to one sentence."""
+They are in school 08:00-12:40 every day: never place a workout inside that block. Prefer before school, otherwise from 13:00, unless told otherwise. Keep "reply" to one sentence."""
 
 
 def _context() -> str:

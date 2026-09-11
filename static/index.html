@@ -301,8 +301,9 @@
   .cg-hour{height:var(--hourpx);font-size:10px;color:var(--muted);text-align:right;padding-right:6px;transform:translateY(-6px);}
   .cg-col{position:relative;border-left:1px solid var(--line);}
   .cg-col .hourline{position:absolute;left:0;right:0;height:1px;background:var(--line);opacity:.5;}
-  .cg-col .workband{position:absolute;left:0;right:0;background:color-mix(in srgb,var(--muted) 9%,transparent);
-    border-top:1px dashed color-mix(in srgb,var(--muted) 30%,transparent);border-bottom:1px dashed color-mix(in srgb,var(--muted) 30%,transparent);}
+  .cg-col .schoolband{position:absolute;left:0;right:0;background:color-mix(in srgb,var(--muted) 9%,transparent);
+    border-top:1px dashed color-mix(in srgb,var(--muted) 30%,transparent);border-bottom:1px dashed color-mix(in srgb,var(--muted) 30%,transparent);
+    font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);padding:3px 5px;box-sizing:border-box;}
   .cg-ev{position:absolute;left:2px;right:2px;border-radius:8px;padding:3px 6px;font-size:11px;overflow:hidden;
     box-sizing:border-box;line-height:1.25;}
   .cg-ev.gcal{background:color-mix(in srgb,var(--muted) 20%,transparent);color:var(--ink);border:1px solid var(--line);}
@@ -1413,7 +1414,7 @@
   :root{
     --bg:#f4f3ef;--ink:#171916;--muted:#6f726b;--line:rgba(23,25,22,.12);
     --glass:#fff;--glass2:#ecebe6;--surface:#fff;--surface-solid:#fff;--surface-soft:#f7f6f2;
-    --nav-glass:#fff;--a1:#e4512e;--a2:#c83e20;--glow:228,81,46;
+    --nav-glass:#fff;--a1:#e4512e;--a2:#c83e20;--glow:228,81,46;--chip:#171916;--chip-ink:#fff;
     --disp:system-ui,-apple-system,"Segoe UI",sans-serif;--body:system-ui,-apple-system,"Segoe UI",sans-serif;
     --round:system-ui,-apple-system,"Segoe UI",sans-serif;--r-card:17px;--r-control:12px;
     --ambient-shadow:0 1px 2px rgba(23,25,22,.04);--lift-shadow:0 1px 2px rgba(23,25,22,.04);
@@ -1434,23 +1435,23 @@
   .home-hero{background:#fff;border-color:var(--line);border-radius:19px;box-shadow:none;}
   #workout>.wo-tile,.modrow,.bigring,.fring,.load-score,.load-story,.load-system,.zone-row{background:var(--surface-soft);box-shadow:none;border-color:var(--line);}
   .fring.remaining{background:var(--surface-soft);}
-  .mod-ico{background:var(--ink);color:#fff;box-shadow:none;}
+  .mod-ico{background:var(--chip);color:var(--chip-ink);box-shadow:none;}
   .todaychip{border-color:var(--line);background:#fff;}.todaychip .dot{box-shadow:none;}
   .phasepill{text-transform:none;letter-spacing:0;}
-  .coach-avatar{background:var(--ink);color:#fff;box-shadow:none;}
+  .coach-avatar{background:var(--chip);color:var(--chip-ink);box-shadow:none;}
   .coach-avatar::before,.coach-avatar::after{display:none;}
   .coach-top{background:var(--bg);border-color:var(--line);backdrop-filter:none;-webkit-backdrop-filter:none;}
   #chatlog{background:none;}
   .msg{box-shadow:none;font-size:14px;line-height:1.55;}
   .msg.assistant{background:transparent;border:0;padding-left:2px;max-width:780px;}
-  .msg.user{background:var(--ink);color:#fff;box-shadow:none;}
+  .msg.user{background:var(--chip);color:var(--chip-ink);box-shadow:none;}
   .msg .cp{margin:0 0 8px;}.msg .cp:last-child{margin-bottom:0;}
   .coach-list{margin:5px 0 0;padding-left:20px;}.coach-list li{margin:4px 0;}
   .msg a{color:var(--a1);text-decoration:underline;text-underline-offset:2px;}
   .coach-compose{background:#fff;border-color:var(--line);backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:0 10px 34px rgba(23,25,22,.12);}
   .chatbar textarea,.chatbar textarea:focus{background:#f3f2ee;box-shadow:none;border-color:transparent;}
   .coach-mic{background:#f1eee9;border-color:var(--line);color:var(--ink);}
-  .coach-thinking-orb{background:var(--ink);box-shadow:none;animation:none;}
+  .coach-thinking-orb{background:var(--chip);color:var(--chip-ink);box-shadow:none;animation:none;}
   .coach-thinking-orb::after{display:none;}
   .section-kicker{font-size:10px;line-height:1.2;font-weight:750;letter-spacing:.11em;text-transform:uppercase;color:var(--a1);margin-bottom:5px;}
 
@@ -1496,14 +1497,14 @@
     .fuel-rings{grid-template-columns:1fr 1fr;}.nutrition-overview{padding:16px;}
   }
   @media(prefers-color-scheme:dark){
-    :root{color-scheme:dark;--bg:#10110f;--ink:#f1f0ea;--muted:#9d9e96;--line:rgba(241,240,234,.12);--glass:#181a17;--glass2:#20221e;--surface:#181a17;--surface-solid:#181a17;--surface-soft:#20221e;--nav-glass:#181a17;}
+    :root{color-scheme:dark;--bg:#10110f;--ink:#f1f0ea;--muted:#9d9e96;--line:rgba(241,240,234,.12);--glass:#181a17;--glass2:#20221e;--surface:#181a17;--surface-solid:#181a17;--surface-soft:#20221e;--nav-glass:#181a17;--chip:#e9e8e2;--chip-ink:#141613;}
     body,header,header.header-compact{background:var(--bg);}.card,#main .card,#main-fuel .card,#main-stats .card,.recipe-card{background:#181a17;border-color:var(--line);}
     .home-hero{background:#181a17;border-color:var(--line);}.tabs{background:#20221e;}.recipe-search input,.grocery-add input,.chatbar textarea,.chatbar textarea:focus{background:#242620;color:var(--ink);}
     .recipe-photo{background:#242620;}.fit-chip{background:#26382a;color:#a7d9b2;}.botnav{background:#181a17;border-color:var(--line);}.botnav::before{background:#292b26;}
     .todaychip{background:#20221e;color:#f1f0ea;border-color:rgba(241,240,234,.18);}
     .todaychip .dot{background:var(--a1);}
     .coach-mic{background:#242620;color:#f1f0ea;border-color:rgba(241,240,234,.18);}
-    .coach-compose,.coach-top{background:#181a17;border-color:var(--line);}.msg.user{background:#e7e5df;color:#151713;}.fring,.bigring,#workout>.wo-tile,.modrow{background:#20221e;}
+    .coach-compose,.coach-top{background:#181a17;border-color:var(--line);}.fring,.bigring,#workout>.wo-tile,.modrow{background:#20221e;}
   }
 </style>
 </head>
@@ -4255,6 +4256,8 @@ function renderLiftStale(d){
 // ================= Calendar tab (draggable week grid) =================
 let _calLoaded=false;
 const CAL_START_H=5, CAL_END_H=22, CAL_HOURPX=46;  // must match CSS --hourpx
+// School, every day. Mirrors app/schedule_time.py so the band matches where workouts are kept out of.
+const SCHOOL_START_MIN=8*60, SCHOOL_END_MIN=12*60+40;
 document.querySelectorAll("#tabs .tab").forEach(b=>b.onclick=()=>switchView(b.dataset.view));
 let _fuelLoaded=false, _statsLoaded=false;
 function switchView(v){
@@ -4873,9 +4876,8 @@ function renderCalendar(cal, plan){
   const colH=H*CAL_HOURPX;
   let cols="";
   dates.forEach(dt=>{
-    const d=new Date(dt+"T00:00:00"), wd=d.getDay(), weekday=(wd>=1&&wd<=5);
     let lines=""; for(let i=1;i<H;i++) lines+=`<div class="hourline" style="top:${i*CAL_HOURPX}px"></div>`;
-    const band=weekday?`<div class="workband" style="top:${topOf(9*60)}px;height:${(16-9)*CAL_HOURPX}px"></div>`:"";
+    const band=`<div class="schoolband" style="top:${topOf(SCHOOL_START_MIN)}px;height:${(SCHOOL_END_MIN-SCHOOL_START_MIN)/60*CAL_HOURPX}px">School</div>`;
     // google timed events
     let evs="";
     (gcal[dt]||[]).forEach(e=>{

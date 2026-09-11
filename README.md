@@ -37,7 +37,7 @@ never happening. A rigid plan responds to that by turning the rest of the week
 into a guilt trip and a pile of "missed" workouts.
 
 I wanted the opposite: **a plan as fluid as the life it has to fit into.** One
-that re-plans week to week around real work hours and real commitments, moves a
+that re-plans week to week around real school hours and real commitments, moves a
 session instead of writing it off, tells me when I'm actually recovered enough to
 go hard — and, crucially, *doesn't quietly decide for me*. An early version of
 this app silently swapped a key VO2 session for a recovery spin because my HRV
@@ -50,7 +50,8 @@ So the design goals came out of frustration, not features:
 - **The plan bends, the athlete doesn't get bullied.** Low recovery surfaces a
   warning and an easier option; it never rewrites your day behind your back.
 - **Life is a first-class input.** Your real calendar drives scheduling —
-  workouts land around a 9–4 workday and route around whatever else is on it.
+  workouts land around school (08:00–12:40, every day) and route around whatever
+  else is on it.
 - **Talk to it like a person.** "Move my bike to Thursday morning", "I'm at the
   driving range tonight", "only 45 min today, legs are cooked."
 - **Every week is allowed to look different.** The plan is re-shaped around
@@ -177,8 +178,9 @@ immediately.
 
 Training and life on one surface, synced two ways with Google Calendar. Agenda,
 Week and Month views, with navigation back through previous weeks and months.
-Workouts are written to Google as timed blocks, placed in the mornings around a
-fixed 9–4 workday and routed around whatever is already booked.
+Workouts are written to Google as timed blocks, placed before school when they
+fit and straight after it when they don't, and routed around whatever is already
+booked. The week view shades the school block on every day.
 
 Drag a session to move it and tap it to open the full breakdown — every calendar
 change pushes straight to Google. Edits you make *in* Google flow back on next
@@ -326,7 +328,7 @@ app/
                      adaptation, the bike carries aerobic volume
   plan_adapt.py      closed-loop adaptation (session feedback, illness/travel reflow)
   suggest.py         today's session = plan + readiness advisory
-  schedule_time.py   default workout times around the 9-4 workday
+  schedule_time.py   default workout times around the daily school block
   garmin_workout.py  push structured workouts to the watch
 
   coach.py           "Coach Steve" agent (chat, event briefs, private memory)
