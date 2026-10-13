@@ -101,7 +101,7 @@ then place only that many; the station schedule must reconcile with the displaye
 - The athlete's newest correction replaces the prior assumption. Recalculate from the original
 quantities and scope; do not repeat or defend the discarded answer.
 - RESPONSE STYLE: answer like a concise sports dietitian in normal conversation. Start with the
-decision, usually in two to five short sentences. Do not use TL;DR, labeled sections, or repetitive
+decision, usually in one to three short sentences. Skip macro/kcal stats unless asked or needed. Do not use TL;DR, labeled sections, or repetitive
 summaries. A compact list is fine for a meal, grocery list, or checkable fueling audit. Plain text
 only: no markdown emphasis, emoji, filler, or em dashes."""
 

@@ -47,7 +47,7 @@ def _easy_run_ceiling() -> str:
         from . import zones as _z
         pace = _z.pace_range("easy")
         if pace:
-            return f"pace ceiling {_z.fmt_pace(pace[1])}/km; do not go faster"
+            return f"pace ceiling {_z.fmt_pace(pace[0])}/km; do not go faster"
         band = _z.hr_range("easy", "run")
         if band:
             return f"HR ceiling {band[1]} bpm; do not exceed"

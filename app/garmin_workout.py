@@ -150,15 +150,37 @@ def _pace_target(mps_slow: float, mps_fast: float) -> dict[str, Any]:
             "zoneNumber": None, "targetValueOne": round(mps_slow, 3), "targetValueTwo": round(mps_fast, 3)}
 
 
-def _pace_ceiling(max_mps: float) -> dict[str, Any]:
-    """Encode a maximum running speed without imposing a minimum speed.
+# How far below an easy ceiling the slow bound sits. Garmin needs a real slow
+# bound: a 0 m/s bound is an infinite pace and the watch renders it as garbage.
+# 2:30/km of headroom keeps the too-slow alert out of the way on easy days.
+_CEILING_SLACK_SEC = 150.0
 
-    Garmin models pace targets as speed bounds. A zero lower bound can never
-    trigger a too-slow alert, leaving only the upper-speed alert that enforces
-    the athlete's easy-run ceiling.
-    """
+
+def _pace_ceiling(max_mps: float) -> dict[str, Any]:
+    """Encode a maximum running speed with a generous, real slow bound."""
+    slow_mps = 1000.0 / (1000.0 / max_mps + _CEILING_SLACK_SEC)
     return {"targetType": {"workoutTargetTypeId": 6, "workoutTargetTypeKey": "pace.zone", "displayOrder": 6},
-            "zoneNumber": None, "targetValueOne": 0.0, "targetValueTwo": round(max_mps, 3)}
+            "zoneNumber": None, "targetValueOne": round(slow_mps, 3), "targetValueTwo": round(max_mps, 3)}
+
+
+def _pace_label(sec_per_km: float) -> str:
+    """'5:26/km (8:45/mi)' — the watch may be set to either unit."""
+    return f"{zones.fmt_pace(sec_per_km)}/km ({zones.fmt_pace(sec_per_km * 1.609344)}/mi)"
+
+
+def _easy_ceiling_sec(title: str = "") -> float | None:
+    """The one easy-run ceiling used everywhere: the slow end of the easy band.
+
+    It is the number the plan text prints ("no faster than X/km"), so the watch
+    and the app can never disagree. The fast end of the band sits near
+    marathon pace and is not an easy ceiling."""
+    try:
+        # Never pass the title: "Run — threshold" would turn the easy lookup
+        # into a threshold one and cap the warmup and jogs at threshold pace.
+        r = zones.pace_range("easy")
+    except Exception:  # noqa: BLE001
+        r = None
+    return r[0] if r else None
 
 
 def _hr_bpm_ceiling(max_bpm: int) -> dict[str, Any]:
@@ -179,13 +201,9 @@ def _no_target() -> dict[str, Any]:
 
 def _easy_run_target_and_note(title: str = "") -> tuple[dict[str, Any], str]:
     """Return the same one-sided easy ceiling for encoding and description."""
-    try:
-        pace = zones.pace_range("easy", title)
-    except Exception:  # noqa: BLE001
-        pace = None
-    if pace:
-        fast = zones.fmt_pace(pace[1])
-        return _pace_ceiling(1000.0 / pace[1]), f"CEILING {fast}/km; do not go faster"
+    ceiling = _easy_ceiling_sec(title)
+    if ceiling:
+        return _pace_ceiling(1000.0 / ceiling), f"CEILING {_pace_label(ceiling)}; do not go faster"
     try:
         hr = zones.hr_range("easy", "run", title)
     except Exception:  # noqa: BLE001
@@ -299,6 +317,44 @@ def _bike_steps(main: str, intensity: str, order: int, title: str = "",
     return steps, o + 1
 
 
+_KM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*km\b", re.I)
+_PACE_KM_RE = re.compile(r"(\d{1,2}):([0-5]\d)\s*/\s*km", re.I)
+_PACE_BAND_SEC = 8.0   # ± around a stated "at X/km" pace
+
+
+def _text_run_steps(main: str, intensity: str, order: int, title: str,
+                    easy_target) -> tuple[list[dict[str, Any]], int] | None:
+    """Distance runs written the way the plan writes them.
+
+    "18 km steady, no faster than 5:26/km, then the last 5 km at 4:59/km"
+    → 18 km under a 5:26 ceiling, then 5 km at 4:59 ±8 s. The paces the athlete
+    reads in the app are the paces encoded on the watch. Returns None when the
+    text is not distance-based, so the time-based parser handles it.
+    """
+    first = re.split(r"\.\s+(?=[A-Z])", main.strip(), maxsplit=1)[0]
+    clauses = [c for c in re.split(r",?\s*\bthen\b", first, flags=re.I) if c.strip()]
+    steps: list[dict[str, Any]] = []
+    o = order
+    for clause in clauses:
+        km = _KM_RE.search(clause)
+        if not km:
+            continue
+        metres = float(km.group(1)) * 1000.0
+        pace = _PACE_KM_RE.search(clause)
+        if pace:
+            sec = int(pace.group(1)) * 60 + int(pace.group(2))
+            if re.search(r"no faster than|ceiling|at most|or slower", clause, re.I):
+                tg = _pace_ceiling(1000.0 / sec)
+                desc = f"CEILING {_pace_label(sec)}; do not go faster"
+            else:
+                tg = _pace_target(1000.0 / (sec + _PACE_BAND_SEC), 1000.0 / (sec - _PACE_BAND_SEC))
+                desc = f"{_pace_label(sec)} (±{int(_PACE_BAND_SEC)}s)"
+        else:
+            tg, desc = easy_target(intensity)
+        steps.append(_exec(o, "interval", "distance", metres, tg, desc=desc)); o += 1
+    return (steps, o) if steps else None
+
+
 def _run_steps(main: str, intensity: str, thr: float | None, order: int,
                title: str = "") -> tuple[list[dict[str, Any]], int]:
     """Run steps target a real pace band derived from the athlete's Garmin
@@ -346,8 +402,14 @@ def _run_steps(main: str, intensity: str, thr: float | None, order: int,
         slow, fast = zones.fmt_pace(r[0]), zones.fmt_pace(r[1])
         if inten in ("easy", "recovery") or zones.zone_for(inten, title) <= 2:
             # A ceiling, not a range — do not run faster than this.
-            return f"CEILING {fast}/km; do not go faster"
+            return _easy_run_target_and_note(title)[1]
         return f"{fast}-{slow}/km" + (f" · {hr}" if hr else "")
+
+    parsed = _text_run_steps(main, intensity, o, title,
+                             lambda inten: (target(inten), note(inten)))
+    if parsed:
+        steps.extend(parsed[0])
+        return steps, parsed[1]
 
     m = re.search(r"(\d+)\s*[x×]\s*(\d+)\s*(s|sec|min)", main)
     if m:
@@ -710,10 +772,11 @@ def build_workout(sess: dict[str, Any], date_str: str, thr_pace: float | None = 
                 body = _swim_fallback(o, "cooldown", cool, 200); o += len(body)
             steps.extend(body)
         elif _mins(cool):
-            target, easy_note = (_easy_run_target_and_note(name) if disc == "run"
+            walk = bool(re.search(r"\bwalk", cool, re.I))
+            target, easy_note = (_easy_run_target_and_note(name) if disc == "run" and not walk
                                  else (_no_target(), cool[:120]))
             steps.append(_exec(o, "cooldown", "time", _mins(cool) * 60, target,
-                               desc=easy_note if disc == "run" else cool[:120])); o += 1
+                               desc=easy_note if disc == "run" and not walk else cool[:120])); o += 1
 
     sport = _sport(disc)
     segment: dict[str, Any] = {"segmentOrder": 1, "sportType": sport, "workoutSteps": steps}

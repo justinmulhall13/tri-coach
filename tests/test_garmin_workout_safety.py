@@ -238,10 +238,12 @@ class GarminWorkoutSafetyTests(unittest.TestCase):
 
         run_step = workout["workoutSegments"][1]["workoutSteps"][0]
         self.assertEqual(run_step["targetType"]["workoutTargetTypeKey"], "pace.zone")
-        self.assertEqual(run_step["targetValueOne"], 0.0)
-        self.assertEqual(run_step["targetValueTwo"], round(1000.0 / 390.0, 3))
+        # Ceiling = slow end of the easy band (what the plan text prints), with a
+        # real slow bound — never 0 m/s, which Garmin renders as an infinite pace.
+        self.assertEqual(run_step["targetValueOne"], round(1000.0 / (420.0 + 150.0), 3))
+        self.assertEqual(run_step["targetValueTwo"], round(1000.0 / 420.0, 3))
         self.assertNotEqual((run_step["targetValueOne"], run_step["targetValueTwo"]), (152.0, 158.0))
-        self.assertIn("CEILING 6:30/km", run_step["description"])
+        self.assertIn("CEILING 7:00/km", run_step["description"])
 
     def test_easy_brick_run_honors_an_explicit_hr_target(self) -> None:
         with patch.object(garmin_workout.zones, "hr_range", return_value=(110, 130)):
@@ -284,7 +286,7 @@ class GarminWorkoutSafetyTests(unittest.TestCase):
 
         run_step = workout["workoutSegments"][1]["workoutSteps"][0]
         self.assertEqual((run_step["targetValueOne"], run_step["targetValueTwo"]),
-                         (0.0, round(1000.0 / 390.0, 3)))
+                         (round(1000.0 / 570.0, 3), round(1000.0 / 420.0, 3)))
         self.assertNotEqual((run_step["targetValueOne"], run_step["targetValueTwo"]), (152.0, 158.0))
 
     def test_race_brick_surge_uses_event_hr_not_generic_zone(self) -> None:
@@ -321,9 +323,9 @@ class GarminWorkoutSafetyTests(unittest.TestCase):
 
         step = workout["workoutSegments"][0]["workoutSteps"][0]
         self.assertEqual(step["targetType"]["workoutTargetTypeKey"], "pace.zone")
-        self.assertEqual(step["targetValueOne"], 0.0)
-        self.assertEqual(step["targetValueTwo"], round(1000.0 / 390.0, 3))
-        self.assertIn("CEILING 6:30/km", step["description"])
+        self.assertGreater(step["targetValueOne"], 0.0)
+        self.assertEqual(step["targetValueTwo"], round(1000.0 / 420.0, 3))
+        self.assertIn("CEILING 7:00/km (11:16/mi)", step["description"])
 
     def test_visible_easy_ceiling_matches_watch_target_and_omits_hr_range(self) -> None:
         with (
@@ -332,15 +334,68 @@ class GarminWorkoutSafetyTests(unittest.TestCase):
         ):
             visible = plan._easy_run_ceiling()
             target, note = garmin_workout._easy_run_target_and_note("Easy run")
-        self.assertEqual(visible, "pace ceiling 6:30/km; do not go faster")
-        self.assertEqual(note, "CEILING 6:30/km; do not go faster")
-        self.assertEqual(target["targetValueTwo"], round(1000.0 / 390.0, 3))
+        self.assertEqual(visible, "pace ceiling 7:00/km; do not go faster")
+        self.assertEqual(note, "CEILING 7:00/km (11:16/mi); do not go faster")
+        self.assertEqual(target["targetValueTwo"], round(1000.0 / 420.0, 3))
         self.assertNotIn("120", note)
         self.assertNotIn("145", note)
 
     def test_race_push_control_is_hidden_in_workout_detail(self) -> None:
         html = (pathlib.Path(__file__).parents[1] / "static" / "index.html").read_text()
         self.assertIn('["rest","race","strength"].includes((x.disc||"").toLowerCase())', html)
+
+    def _marathon_run(self, title, intensity, warm, main, cool):
+        def fake_range(inten, title=""):
+            return {"threshold": (275.0, 256.0)}.get(inten, (326.0, 297.0))
+        with (
+            patch.object(garmin_workout.zones, "pace_range", side_effect=fake_range),
+            patch.object(garmin_workout.zones, "zone_for",
+                         side_effect=lambda i, t="": 4 if "threshold" in f"{i} {t}" else 2),
+            patch.object(garmin_workout.zones, "hr_range", return_value=(160, 172)),
+        ):
+            return garmin_workout.build_workout({
+                "discipline": "run", "title": title, "intensity": intensity, "duration_min": 60,
+                "structure": {"warmup": warm, "main": main, "cooldown": cool},
+            }, "2026-10-12", thr_pace=261)["workoutSegments"][0]["workoutSteps"]
+
+    def test_distance_run_is_a_distance_step_with_the_written_ceiling(self) -> None:
+        steps = self._marathon_run("Long run — 16 km", "long", "10 min easy build",
+                                   "16 km steady, no faster than 5:26/km. Carry fluid.",
+                                   "10 min walk + legs up")
+        main = steps[1]
+        self.assertEqual(main["endCondition"]["conditionTypeKey"], "distance")
+        self.assertEqual(main["endConditionValue"], 16000.0)
+        self.assertEqual(main["targetValueTwo"], round(1000.0 / 326.0, 3))
+        self.assertIn("5:26/km", main["description"])
+        # A walking cooldown carries no run pace target.
+        self.assertEqual(steps[2]["targetType"]["workoutTargetTypeKey"], "no.target")
+
+    def test_fast_finish_long_run_encodes_both_legs(self) -> None:
+        steps = self._marathon_run(
+            "Long run — 28 km", "long", "10 min easy build",
+            "23 km steady, no faster than 5:26/km, then the last 5 km at 4:59/km. Fuel.",
+            "10 min walk")
+        self.assertEqual([s["endConditionValue"] for s in steps[1:3]], [23000.0, 5000.0])
+        finish = steps[2]
+        self.assertEqual((finish["targetValueOne"], finish["targetValueTwo"]),
+                         (round(1000.0 / 307.0, 3), round(1000.0 / 291.0, 3)))
+
+    def test_marathon_race_day_runs_goal_pace_over_the_full_distance(self) -> None:
+        steps = self._marathon_run("RACE DAY", "race", "20 min easy + strides",
+                                   "42.2 km at 4:59/km. Hold that for the first 32 km.", "walk")
+        main = steps[1]
+        self.assertEqual(main["endConditionValue"], 42200.0)
+        self.assertEqual(main["targetType"]["workoutTargetTypeKey"], "pace.zone")
+        self.assertIn("4:59/km", main["description"])
+
+    def test_threshold_title_never_caps_warmup_or_jogs_at_threshold_pace(self) -> None:
+        steps = self._marathon_run("Run — threshold", "threshold", "15 min easy + 4 strides",
+                                   "4×6 min @ threshold w/ 2 min jog", "10 min easy")
+        warm, repeat, cool = steps
+        jog = repeat["workoutSteps"][1]
+        for easy in (warm, jog, cool):
+            self.assertEqual(easy["targetValueTwo"], round(1000.0 / 326.0, 3))
+        self.assertEqual(repeat["workoutSteps"][0]["targetValueTwo"], round(1000.0 / 256.0, 3))
 
 
 if __name__ == "__main__":

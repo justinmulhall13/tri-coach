@@ -226,12 +226,7 @@ was created from chat text; writes require resolved exercise-template IDs and ex
 Use `athlete_zones` for real numbers: it carries the athlete's actual Garmin HR zones \
 (per sport — cycling zones sit lower than running), lactate-threshold HR and pace, and FTP. \
 Quote real bpm and min/km from it; never invent zone boundaries or paces.
-- RESPONSE STYLE: Talk like a concise, candid coach in a normal conversation. Start with the
-  answer, usually in two to five short sentences. Do not use TL;DR, labeled sections, a dashboard
-  of metrics, or repetitive summaries. Use a compact list only when the athlete actually needs a
-  schedule, exercise order, set prescription, or checkable fueling arithmetic. Never hide context
-  behind "more details". Use a number only when it changes the decision, and explain why it matters
-  in the same sentence. Plain text only: no markdown emphasis, hype, emoji, filler, or em dashes.
+- RESPONSE STYLE: see the FINAL RULE at the end of these instructions; it overrides everything.
 
 You CAN reprogram ANY day in the plan — today OR any upcoming day through race day \
 (tomorrow's swim, Monday's session, etc.). If the athlete says a planned session is \
@@ -378,7 +373,19 @@ EVENT PROFILE STAGING:
 
 ```event_profile
 {"event_name":"Marathon","event_date":"2027-10-18","distances":{"run_km":42.195},"goal":{"target":"finish"},"mode":"MARATHON","provenance":{"event_name":"confirmed_by_user","event_date":"confirmed_by_user","distances":"confirmed_by_user","goal":"confirmed_by_user","mode":"confirmed_by_user"}}
-```"""
+```
+
+FINAL RULE: RESPONSE STYLE (overrides every other instruction about format or detail)
+- The athlete wants SHORT replies. Default to one to three short sentences, about 60 words max.
+  Lead with the answer or the one thing to do. Stop there.
+- Stats only on request. Do not recite HR, pace, distance, TSB, ACWR, HRV, readiness scores,
+  load, or zone numbers unless the athlete asked for numbers, or a single number is the
+  instruction itself (e.g. "keep it under 5:26/km"). Never list several metrics.
+- Do not use TL;DR, labeled sections, headers, recaps, or a dashboard of metrics. No "here's
+  why" paragraph unless asked. Use a short list only for a schedule, exercise order, or set
+  prescription the athlete asked for.
+- Plain text, normal conversation. No markdown emphasis, hype, emoji, filler, or em dashes.
+- If they want more, they will ask. Machine blocks (adjustment, weekplan, etc.) are unaffected."""
 
 # Do not prime the model with the punctuation the athlete banned from output.
 _SYSTEM = _SYSTEM.replace(" — ", ": ").replace("—", "-")
@@ -1937,18 +1944,15 @@ def chat(user_message: str, log_as_constraint: bool = False) -> dict[str, Any]:
 _BRIEF_INSTRUCTION = """I just opened my dashboard. Look at `todays_completed_activities` \
 and `todays_planned_workout`, then give me a tight, unprompted status brief — no preamble.
 
-- If I have ALREADY trained today (todays_completed_activities is non-empty): EVALUATE it. \
-Did I complete the planned session, a modified version, or something different? Judge the \
-actual numbers (distance, duration, HR, power/pace) against the target. Tell me how it went, \
-whether it hit the intent, and what it means for the rest of the week. If a second session \
-is still planned today and I haven't done it, say what's left. For structured intervals, use \
-`todays_interval_execution` bout by bout and NEVER use whole-session average HR as the grade.
-- If I have NOT trained yet today: give the morning briefing — readiness read with the key \
-signal, today's planned session and its main target, and the single most important thing to nail, \
-drawing on my load focus and where I'm behind for the race.
+- If I have ALREADY trained today (todays_completed_activities is non-empty): say in one line \
+whether it hit the intent of the plan, and anything still left today. Judge against the plan \
+privately (for structured intervals use `todays_interval_execution`, never whole-session average \
+HR), but do not recite the numbers.
+- If I have NOT trained yet today: say what today's session is and the one thing to nail. \
+Mention recovery only if it changes what I should do.
 
-Use the concise conversational style from your rules. \
-No paragraphs, no adjustment block."""
+Two or three short sentences total. No stats unless one is the instruction. \
+No lists, no adjustment block."""
 
 
 _RACE_FINISH_INSTRUCTION = """The configured goal race in `goal_race_completion` has just \
@@ -1969,17 +1973,13 @@ _NIGHTLY_INSTRUCTION = """It's evening — give me my nightly review of TODAY, n
 
 Use `local_time`, `todays_completed_activities`, `todays_planned_workout`, and today's \
 readiness/load context.
-- Recap what I actually trained today vs what was planned. Judge the real numbers \
-(distance, duration, HR, power/pace) against the target — did I hit the intent, over/under-do it? \
-For structured intervals, use `todays_interval_execution` bout by bout and NEVER use \
-whole-session average HR as the grade.
-- If I did NOT train today and a session was planned, say so plainly and whether it's worth \
-salvaging tomorrow or writing off.
-- Give one honest takeaway on where today leaves me for the week and the race, and one \
-concrete thing to prioritize tomorrow (including sleep/recovery if the markers warrant it).
+- Say in one line whether today hit the plan's intent (judge privately; for structured \
+intervals use `todays_interval_execution`, never whole-session average HR). Do not recite numbers.
+- If a planned session was missed, say whether to salvage it or let it go.
+- One concrete thing for tomorrow.
 
-Use the concise conversational style from your rules. \
-No paragraphs, no adjustment block."""
+Two or three short sentences total. No stats unless one is the instruction. \
+No lists, no adjustment block."""
 
 
 def _is_evening(now: datetime.datetime) -> bool:

@@ -2981,6 +2981,18 @@ function estDistanceKm(d){
     const run=_paceKm("run",rn,false);
     const km=bike+run; return km>0?km:null;
   }
+  if(disc==="run"){
+    // The plan states run distance ("23 km steady…, then the last 5 km…"): trust it.
+    const first=(st.main||"").split(/\.\s+(?=[A-Z])/)[0];
+    const kms=[...first.matchAll(/(\d+(?:\.\d+)?)\s*km\b/gi)].map(m=>parseFloat(m[1]));
+    if(kms.length){
+      const walk=s=>/\bwalk/i.test(s||"");
+      let km=kms.reduce((a,b)=>a+b,0);
+      if(!walk(st.warmup)) km+=_paceKm("run",_segMin(st.warmup),false);
+      if(!walk(st.cooldown)) km+=_paceKm("run",_segMin(st.cooldown),false);
+      return km;
+    }
+  }
   if(disc==="run"||disc==="bike"){
     if(!total) return null;
     const wu=_segMin(st.warmup),cd=_segMin(st.cooldown),mn=_segMin(st.main);
