@@ -2642,9 +2642,9 @@ function workoutBlocks(st, disc, intensity){
   return parts.map((text,i)=>{
     // Repeats lead the label. A recovery instruction such as "rest 15 s"
     // is metadata for the set, never the identity of the set itself.
-    const repeat=text.match(/\b(\d+)\s*[×x]\s*(\d+)\s*m?\b/i);
+    const repeat=text.match(/\b(\d+)\s*[×x]\s*(\d+(?:\.\d+)?)\s*(km|mi|min|sec|s|m)?\b/i);
     const count=(disc==="strength"&&repeat) ? `${repeat[1]} sets`
-      : repeat ? `${repeat[1]} × ${repeat[2]} m`
+      : repeat ? `${repeat[1]} × ${repeat[2]} ${(repeat[3]||"m").toLowerCase()}`
       : (text.match(/\b\d+\s*(?:km|min|m|s)\b/i)||[])[0]||"Set";
     const target=(text.match(/(?:HR\s*[^,;]+|@\s*[^,;]+|Z\d[^,;]*|no faster than[^,;]+)/i)||[])[0]
       || (disc==="strength" ? intensity||"controlled"

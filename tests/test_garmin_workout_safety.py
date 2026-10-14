@@ -397,6 +397,32 @@ class GarminWorkoutSafetyTests(unittest.TestCase):
             self.assertEqual(easy["targetValueTwo"], round(1000.0 / 326.0, 3))
         self.assertEqual(repeat["workoutSteps"][0]["targetValueTwo"], round(1000.0 / 256.0, 3))
 
+    def test_km_repeats_keep_reps_pace_and_jog(self) -> None:
+        # The real session from 2026-10-14 that pushed as one 2-minute step.
+        steps = self._marathon_run("Race-pace touch (moved from Tue)", "easy with goal-pace reps",
+                                   "10 min easy", "2x1 km at goal pace 4:59/km, 2 min jog between",
+                                   "8 min easy")
+        warm, repeat, cool = steps
+        self.assertEqual(repeat["type"], "RepeatGroupDTO")
+        self.assertEqual(repeat["numberOfIterations"], 2)
+        work, jog = repeat["workoutSteps"]
+        self.assertEqual((work["endCondition"]["conditionTypeKey"], work["endConditionValue"]),
+                         ("distance", 1000.0))
+        self.assertEqual((work["targetValueOne"], work["targetValueTwo"]),
+                         (round(1000.0 / 307.0, 3), round(1000.0 / 291.0, 3)))
+        self.assertEqual((jog["endCondition"]["conditionTypeKey"], jog["endConditionValue"]),
+                         ("time", 120.0))
+        for easy in (warm, jog, cool):
+            self.assertGreater(easy["targetValueOne"], 0.0)
+            self.assertEqual(easy["targetValueTwo"], round(1000.0 / 326.0, 3))
+
+    def test_strides_follow_the_easy_run_with_short_recoveries(self) -> None:
+        steps = self._marathon_run("Shakeout", "easy", "—", "20 min easy with 4x20s strides", "—")
+        easy, strides = steps
+        self.assertEqual(easy["endConditionValue"], 1200.0)
+        self.assertEqual(strides["numberOfIterations"], 4)
+        self.assertEqual([s["endConditionValue"] for s in strides["workoutSteps"]], [20.0, 60.0])
+
 
 if __name__ == "__main__":
     unittest.main()

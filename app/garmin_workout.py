@@ -317,41 +317,100 @@ def _bike_steps(main: str, intensity: str, order: int, title: str = "",
     return steps, o + 1
 
 
-_KM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*km\b", re.I)
-_PACE_KM_RE = re.compile(r"(\d{1,2}):([0-5]\d)\s*/\s*km", re.I)
+_DIST_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(km|mi|miles?|m)\b", re.I)
+_REPEAT_RE = re.compile(
+    r"(\d+)\s*[x×]\s*(\d+(?:\.\d+)?)\s*(km|mi|miles?|m|min|minutes?|s|sec|seconds?)\b", re.I)
+_PACE_RE = re.compile(r"(\d{1,2}):([0-5]\d)\s*/\s*(km|mi)\b", re.I)
+_GOAL_PACE_RE = re.compile(r"\b(goal|race|marathon)[\s-]*pace\b|\bMP\b", re.I)
+_RECOVERY_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(min|minutes?|s|sec|seconds?|km|m)\b\s*(?:easy\s+)?"
+    r"(jog|easy|recover\w*|rest|walk|float)", re.I)
 _PACE_BAND_SEC = 8.0   # ± around a stated "at X/km" pace
+
+
+def _metres(value: str, unit: str) -> float:
+    u = unit.lower()
+    return float(value) * (1000.0 if u == "km" else 1609.344 if u.startswith("mi") else 1.0)
+
+
+def _stated_pace(clause: str) -> tuple[dict[str, Any], str] | None:
+    """The pace written in a clause as a watch target + note, or None.
+
+    "at 4:59/km" → 4:59 ±8 s; "no faster than 5:26/km" → a ceiling; a bare
+    "goal pace" resolves to the athlete's goal pace from the active event."""
+    m = _PACE_RE.search(clause)
+    sec = None
+    if m:
+        sec = int(m.group(1)) * 60 + int(m.group(2))
+        if m.group(3).lower() == "mi":
+            sec /= 1.609344
+    elif _GOAL_PACE_RE.search(clause):
+        try:
+            from . import marathon_plan
+            g = marathon_plan.goal_pace_per_km()
+        except Exception:  # noqa: BLE001
+            g = None
+        if g and re.fullmatch(r"\d{1,2}:[0-5]\d", g):
+            sec = int(g[:-3]) * 60 + int(g[-2:])
+    if not sec:
+        return None
+    if re.search(r"no faster than|ceiling|at most|or slower", clause, re.I):
+        return _pace_ceiling(1000.0 / sec), f"CEILING {_pace_label(sec)}; do not go faster"
+    return (_pace_target(1000.0 / (sec + _PACE_BAND_SEC), 1000.0 / (sec - _PACE_BAND_SEC)),
+            f"{_pace_label(sec)} (±{int(_PACE_BAND_SEC)}s)")
 
 
 def _text_run_steps(main: str, intensity: str, order: int, title: str,
                     easy_target) -> tuple[list[dict[str, Any]], int] | None:
-    """Distance runs written the way the plan writes them.
+    """Runs written the way the plan and the coach write them.
 
     "18 km steady, no faster than 5:26/km, then the last 5 km at 4:59/km"
-    → 18 km under a 5:26 ceiling, then 5 km at 4:59 ±8 s. The paces the athlete
-    reads in the app are the paces encoded on the watch. Returns None when the
-    text is not distance-based, so the time-based parser handles it.
+    → 18 km under a 5:26 ceiling, then 5 km at 4:59 ±8 s.
+    "2x1 km at goal pace 4:59/km, 2 min jog between" → repeat ×2 of 1 km at
+    4:59 + 2 min easy jog. The paces the athlete reads in the app are the
+    paces encoded on the watch. Returns None when the text has neither a
+    distance nor a stated pace, so the time-based parser handles it.
     """
     first = re.split(r"\.\s+(?=[A-Z])", main.strip(), maxsplit=1)[0]
-    clauses = [c for c in re.split(r",?\s*\bthen\b", first, flags=re.I) if c.strip()]
+    clauses = [c for c in re.split(r"[,;]?\s*\bthen\b", first, flags=re.I) if c.strip()]
     steps: list[dict[str, Any]] = []
     o = order
     for clause in clauses:
-        km = _KM_RE.search(clause)
-        if not km:
-            continue
-        metres = float(km.group(1)) * 1000.0
-        pace = _PACE_KM_RE.search(clause)
-        if pace:
-            sec = int(pace.group(1)) * 60 + int(pace.group(2))
-            if re.search(r"no faster than|ceiling|at most|or slower", clause, re.I):
-                tg = _pace_ceiling(1000.0 / sec)
-                desc = f"CEILING {_pace_label(sec)}; do not go faster"
+        rep = _REPEAT_RE.search(clause)
+        stated = _stated_pace(clause)
+        if rep:
+            n, val, unit = int(rep.group(1)), rep.group(2), rep.group(3).lower()
+            is_time = unit.startswith(("min", "s"))
+            if is_time and not stated:
+                return None   # "4×6 min @ threshold": the zone-based parser owns it
+            work_tg, work_desc = stated or easy_target(intensity)
+            if is_time:
+                end, amount = "time", float(val) * (60 if unit.startswith("min") else 1)
             else:
-                tg = _pace_target(1000.0 / (sec + _PACE_BAND_SEC), 1000.0 / (sec - _PACE_BAND_SEC))
-                desc = f"{_pace_label(sec)} (±{int(_PACE_BAND_SEC)}s)"
-        else:
-            tg, desc = easy_target(intensity)
-        steps.append(_exec(o, "interval", "distance", metres, tg, desc=desc)); o += 1
+                end, amount = "distance", _metres(val, unit)
+            work = _exec(o + 1, "interval", end, amount, work_tg, desc=work_desc)
+            tail = clause[rep.end():]
+            rec = _RECOVERY_RE.search(tail)
+            group = [work]
+            if rec:
+                rv, ru, kind = rec.group(1), rec.group(2).lower(), rec.group(3).lower()
+                rest = kind in ("rest", "walk")
+                r_tg, r_desc = ((_no_target(), f"{kind}") if rest else easy_target("easy"))
+                if ru.startswith(("min", "s")):
+                    r_end, r_amt = "time", float(rv) * (60 if ru.startswith("min") else 1)
+                else:
+                    r_end, r_amt = "distance", _metres(rv, ru)
+                group.append(_exec(o + 2, "rest" if rest else "recovery", r_end, r_amt,
+                                   r_tg, desc=r_desc))
+            steps.append(_repeat(o, n, group)); o += 1 + len(group)
+            continue
+        dist = _DIST_RE.search(clause)
+        if not dist or float(dist.group(1)) <= 0:
+            continue
+        easy_clause = re.search(r"\b(easy|jog|recovery|steady|shakeout)\b", clause, re.I)
+        tg, desc = stated or easy_target("easy" if easy_clause else intensity)
+        steps.append(_exec(o, "interval", "distance", _metres(dist.group(1), dist.group(2)),
+                           tg, desc=desc)); o += 1
     return (steps, o) if steps else None
 
 
@@ -412,10 +471,22 @@ def _run_steps(main: str, intensity: str, thr: float | None, order: int,
         return steps, parsed[1]
 
     m = re.search(r"(\d+)\s*[x×]\s*(\d+)\s*(s|sec|min)", main)
+    if m and re.search(r"stride", main, re.I):
+        # "20 min easy with 4x20s strides": the run is the easy block; strides are
+        # short relaxed pick-ups after it, by feel, with a full jog back.
+        base = _mins(main[:m.start()]) or _mins(main)
+        if base:
+            steps.append(_exec(o, "interval", "time", base * 60, target("easy"), desc=note("easy")))
+            o += 1
+        secs = int(m.group(2)) * (1 if m.group(3).startswith("s") else 60)
+        stride = _exec(o + 1, "interval", "time", secs, _no_target(), desc="stride: fast but relaxed")
+        jog = _exec(o + 2, "recovery", "time", 60, _no_target(), desc="walk/jog back")
+        steps.append(_repeat(o, int(m.group(1)), [stride, jog]))
+        return steps, o + 3
     if m:
         reps = int(m.group(1)); val = int(m.group(2)); unit = m.group(3)
         secs = val if unit.startswith("s") else val * 60
-        rec = re.search(r"(\d+)\s*(s|sec|min)\s*(easy|jog|recover)", main)
+        rec = re.search(r"(\d+)\s*(s|sec|min)\s*(easy|jog|recover)", main[m.end():])
         rsecs = 90
         if rec:
             rsecs = int(rec.group(1)) * (1 if rec.group(2).startswith("s") else 60)
