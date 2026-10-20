@@ -165,8 +165,8 @@ the TSB target, hold the race-day taper between +5 and +15, name the tradeoff
 when cutting volume, give easy sessions a hard ceiling rather than a range, and
 progress run volume with a weekly cap and a real long run rather than a step
 change to hit a load number.
-The standing four-day split is preserved whenever Steve rebuilds a training
-week and placed around the key runs. Lifting prescriptions include exercise
+The standing three-day full-body split is preserved whenever Steve rebuilds a
+training week and placed around the key sessions. Lifting prescriptions include exercise
 order, sets, reps or duration, rest and effort while leaving unknown working
 weights unknown, and taper automatically as the race approaches — moderate
 inside three weeks, light inside two, nothing in the last two days. Strength
@@ -204,10 +204,14 @@ shower or commute buffers.
 
 ### Lifting
 
-The current Upper 1 / Lower 1 / Upper 2 / Lower 2 split comes first and can be
-edited in place or changed through Coach. Upper days enforce the athlete's
-shoulder constraints in code (one press per session, triceps isolation allowed),
-while lower days are programmed around the running load. A changed day can be
+The current Full Body A / B / C split comes first and can be edited in place or
+changed through Coach. Every day enforces the athlete's shoulder constraints in
+code (one press per session, triceps isolation allowed, no face pulls), and the
+leg load falls through the week: heavy A on Monday after the long run, unilateral
+B on Wednesday before the run quality day, light plyometric C on Friday before
+the long ride, with no press at all. The 70.3 plan attaches these three lifts to
+its swim days automatically and doses them by phase — heavy in base, held in
+build, two-set maintenance once race-specific work starts, light in the taper. A changed day can be
 sent to Hevy as a routine after explicit confirmation.
 
 The rest of the tab is evidence from completed Hevy workouts: recent sessions,
@@ -326,6 +330,8 @@ app/
                      to the builder the active event mode actually has
   marathon_plan.py   compressed marathon build: the long run carries the specific
                      adaptation, the bike carries aerobic volume
+  half_iron_plan.py  seven-month 70.3 build (recovery → base → build → specific →
+                     peak → taper) with three full-body lifts a week attached
   plan_adapt.py      closed-loop adaptation (session feedback, illness/travel reflow)
   suggest.py         today's session = plan + readiness advisory
   schedule_time.py   default workout times around the daily school block
@@ -499,6 +505,14 @@ A few problems here were more interesting than they first look:
   carries aerobic volume. The ladder is anchored to race day rather than to the
   day the plan was generated, which is what lets the plan be regenerated
   mid-block without silently rewriting long runs the athlete has already seen.
+
+- **A 70.3 straight after a marathon starts with recovery, not base.** The
+  block opens with two weeks of swimming and easy spinning (no running at all in
+  the first week, no lifting either), then counts every phase boundary back from
+  race day in whole weeks. A recovery week falls every fourth week of base and
+  build, with one full rest day. The swim — the weakest leg — keeps three
+  sessions a week in every phase, and the lifts sit on those swim days because
+  swimming barely touches the legs.
 
 - **The lifting placer optimised the wrong thing, and only one event exposed it.**
   Sessions were spread for maximum spacing, with day "freedom" used merely to

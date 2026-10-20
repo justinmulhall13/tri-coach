@@ -80,7 +80,7 @@ CREATE INDEX IF NOT EXISTS idx_plan_drafts_profile_status
     ON plan_drafts (event_profile_id, status, id DESC);
 
 CREATE TABLE IF NOT EXISTS lifting_split (
-    -- The athlete's standing four-day split. One row per event profile, so a
+    -- The athlete's standing lifting split. One row per event profile, so a
     -- marathon block and a triathlon block can carry different splits without
     -- one overwriting the other.
     event_profile_id TEXT NOT NULL,

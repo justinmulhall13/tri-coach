@@ -201,6 +201,22 @@ def _race_day_workout() -> dict[str, Any]:
     )
 
 
+def _event_builder():
+    """The plan builder for the active profile, or None for the bundled T100 one.
+
+    Dispatches on the same accessor every other module reads, so a mode is
+    never routed one way here and another way elsewhere.
+    """
+    mode = coaching_contract.current_mode()
+    if mode == "MARATHON":
+        from . import marathon_plan
+        return marathon_plan
+    if mode == "TRIATHLON" and not config.supports_t100_features():
+        from . import half_iron_plan
+        return half_iron_plan
+    return None
+
+
 WEEKDAY_NAME = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
@@ -220,11 +236,9 @@ def seed(start: datetime.date | None = None, *, overwrite_edited: bool = False) 
     Reseeding preserves days the user edited or the coach adjusted unless
     `overwrite_edited=True`.
     """
-    # Dispatch on the same accessor every other module reads, so a mode is
-    # never routed one way here and another way elsewhere.
-    if coaching_contract.current_mode() == "MARATHON":
-        from . import marathon_plan
-        return marathon_plan.seed(start, overwrite_edited=overwrite_edited)
+    builder = _event_builder()
+    if builder is not None:
+        return builder.seed(start, overwrite_edited=overwrite_edited)
     if not config.supports_t100_features():
         return {"error": (f"No plan builder is installed for event profile "
                           f"{coaching_contract.event_context().get('id') or 'unknown'}; "
@@ -264,9 +278,9 @@ def reconcile_seeded_plan(start: datetime.date | None = None) -> dict[str, Any]:
     explicit profile check below keeps that boundary intact under mocked or
     future data sources too.
     """
-    if coaching_contract.current_mode() == "MARATHON":
-        from . import marathon_plan
-        return marathon_plan.reconcile(start)
+    builder = _event_builder()
+    if builder is not None:
+        return builder.reconcile(start)
     if not config.supports_t100_features():
         return {
             "reconciled": 0,
@@ -332,15 +346,14 @@ def reconcile_seeded_plan(start: datetime.date | None = None) -> dict[str, Any]:
 
 def reconcile_event_day() -> bool:
     """Refresh a generated race row without losing its Calendar placement."""
-    marathon = coaching_contract.current_mode() == "MARATHON"
-    if not marathon and not config.supports_t100_features():
+    builder = _event_builder()
+    if builder is None and not config.supports_t100_features():
         return False
     existing = db.get_plan_day(config.race_date())
     if not existing or existing.get("source") != "seed":
         return False
-    if marathon:
-        from . import marathon_plan
-        day = marathon_plan.race_day()
+    if builder is not None:
+        day = builder.race_day()
     else:
         day = _race_day_workout()
     day.update({

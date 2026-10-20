@@ -10,13 +10,20 @@ class SplitShapeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.split = lsp.build()
 
-    def test_it_is_a_four_day_upper_lower_split(self) -> None:
-        self.assertEqual(self.split["sessions_per_week"], 4)
+    def test_it_is_a_three_day_full_body_split(self) -> None:
+        self.assertEqual(self.split["sessions_per_week"], 3)
         self.assertEqual([d["slot"] for d in self.split["days"]], list(lsp.SLOTS))
+        self.assertEqual({d["tag"] for d in self.split["days"]}, {"Full body"})
 
-    def test_upper_and_lower_alternate_through_the_week(self) -> None:
-        kinds = ["lower" if d["is_lower"] else "upper" for d in self.split["days"]]
-        self.assertEqual(kinds, ["upper", "lower", "upper", "lower"])
+    def test_every_day_trains_legs_and_a_pull(self) -> None:
+        for day in self.split["days"]:
+            groups = {e["group"] for e in day["exercises"]}
+            self.assertTrue(groups & {"quad", "hinge"}, day["name"])
+            self.assertIn("pull", groups, day["name"])
+
+    def test_the_friday_day_spares_the_shoulder_from_pressing(self) -> None:
+        friday = self.split["days"][-1]
+        self.assertEqual(friday["rule_status"]["press_count"], 0)
 
     def test_every_day_has_six_exercises(self) -> None:
         for day in self.split["days"]:
@@ -55,8 +62,10 @@ class CoverageTests(unittest.TestCase):
             self.assertGreater(counts.get(group, 0), 0, group)
 
     def test_a_gap_in_coverage_is_reported_rather_than_hidden(self) -> None:
-        # Drop both leg days; the week must say what it now misses.
-        upper_only = [d for d in lsp.DEFAULT_SPLIT if d["slot"].startswith("upper")]
+        # Keep only the upper-body work; the week must say what it now misses.
+        upper_only = [{**d, "exercises": [e for e in d["exercises"]
+                                          if lr.group_of(e) in {"push", "pull", "shoulder"}]}
+                      for d in lsp.DEFAULT_SPLIT]
         coverage = lsp.build(upper_only)["coverage"]
         self.assertFalse(coverage["complete"])
         self.assertIn("quad", coverage["missing"])
@@ -64,15 +73,21 @@ class CoverageTests(unittest.TestCase):
 
 
 class RunnerSpecificTests(unittest.TestCase):
-    """Leg days exist to support the running, not to compete with it."""
+    """Leg work exists to support the swim, bike and run, not to compete with them."""
 
     def setUp(self) -> None:
-        self.lower = [d for d in lsp.build()["days"] if d["is_lower"]]
+        self.lower = lsp.build()["days"]
 
-    def test_both_leg_days_train_calves(self) -> None:
-        for day in self.lower:
-            groups = [e["group"] for e in day["exercises"]]
-            self.assertIn("calf", groups, day["name"])
+    def test_calves_are_trained_at_least_twice_a_week(self) -> None:
+        days = [d for d in self.lower
+                if "calf" in [e["group"] for e in d["exercises"]]]
+        self.assertGreaterEqual(len(days), 2)
+
+    def test_leg_load_falls_through_the_week(self) -> None:
+        # A (Monday) is heaviest; C (Friday, before the long ride) is plyometric.
+        friday = " ".join(e["title"].lower() for e in self.lower[-1]["exercises"])
+        self.assertIn("jump", friday)
+        self.assertNotIn("squat", friday)
 
     def test_the_week_includes_eccentric_hamstring_work(self) -> None:
         titles = " ".join(e["title"].lower() for d in self.lower for e in d["exercises"])
@@ -82,7 +97,7 @@ class RunnerSpecificTests(unittest.TestCase):
         titles = " ".join(e["title"].lower() for d in self.lower for e in d["exercises"])
         self.assertTrue("split squat" in titles or "single leg" in titles, titles)
 
-    def test_leg_days_lean_posterior_rather_than_quad_heavy(self) -> None:
+    def test_leg_work_leans_posterior_rather_than_quad_heavy(self) -> None:
         groups = [e["group"] for d in self.lower for e in d["exercises"]]
         self.assertGreaterEqual(groups.count("hinge"), groups.count("quad"))
 
@@ -94,15 +109,15 @@ class RunnerSpecificTests(unittest.TestCase):
 
 
 class PlaneSeparationTests(unittest.TestCase):
-    def test_the_two_upper_days_are_not_the_same_session(self) -> None:
-        upper = [d for d in lsp.build()["days"] if not d["is_lower"]]
-        first = {e["title"] for e in upper[0]["exercises"]}
-        second = {e["title"] for e in upper[1]["exercises"]}
-        self.assertEqual(first & second, set())
+    def test_no_two_days_are_the_same_session(self) -> None:
+        days = lsp.build()["days"]
+        for i, a in enumerate(days):
+            for b in days[i + 1:]:
+                self.assertEqual({e["title"] for e in a["exercises"]}
+                                 & {e["title"] for e in b["exercises"]}, set())
 
-    def test_one_upper_day_pulls_vertically_and_the_other_horizontally(self) -> None:
-        upper = [d for d in lsp.build()["days"] if not d["is_lower"]]
-        patterns = [{e["pattern"] for e in d["exercises"]} for d in upper]
+    def test_the_week_pulls_both_vertically_and_horizontally(self) -> None:
+        patterns = [{e["pattern"] for e in d["exercises"]} for d in lsp.build()["days"]]
         self.assertTrue(any("pull_horizontal" in p for p in patterns))
         self.assertTrue(any("pull_vertical" in p for p in patterns))
 

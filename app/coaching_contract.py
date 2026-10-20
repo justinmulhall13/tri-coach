@@ -451,7 +451,16 @@ def race_phase(today: datetime.date) -> dict[str, Any]:
                 "error": "EVENT_PROFILE date is invalid; expected YYYY-MM-DD"}
     days = (race_date - today).days
     phase = "post-race" if days < 0 else "taper" if days <= 14 else "peak" if days <= 28 else "build"
+    extra: dict[str, Any] = {}
+    if mode == "TRIATHLON" and str(event.get("id") or "") != DEFAULT_EVENT_PROFILE["id"]:
+        # The 70.3 block has its own named phases (recovery, base, build,
+        # specific, peak, taper). They ride alongside `phase` rather than
+        # replacing it, because readers compare `phase` to build/peak/taper.
+        from . import half_iron_plan
+        extra["block_phase"] = half_iron_plan.phase_for(today, race_date)
+        extra["block_phases"] = list(half_iron_plan.PHASES)
     return {
+        **extra,
         "name": event.get("event"),
         "date": date_text,
         "distances": copy.deepcopy(event.get("disciplines_and_distances") or {}),

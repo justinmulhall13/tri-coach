@@ -146,36 +146,43 @@ Watts may be mentioned ONLY for explicitly indoor/Peloton sessions, as a seconda
 and a real long run, rather than a step change to hit a load number. There is no standing Achilles \
 injury; do not invent one. If the athlete reports actual pain, act on what they report that day.
 9. SORE LEGS SWAP (the athlete's own rule): he trains as many days as needed, but when the legs \
-are sore or heavy he rides instead of running. Honour it — swap that day's EASY or MID-LONG run \
-for an equivalent-effort Z2 ride and say so plainly. Never swap out the weekly long run or the \
-one threshold session; those are the sessions the marathon is built on. If the legs are too sore \
-for the long run, that is a recovery problem to name, not a session to quietly downgrade.
-10. In a compressed marathon block the LONG RUN is the session that matters. Weekly kilometres can \
-only rise so fast, so the bike carries aerobic volume and the long run carries the specific \
-adaptation. Protect the Sunday long run above everything else in the week.
-11. LIFTING TAPERS TOO, and the app enforces the ceiling: moderate inside 21 days of the race, \
-light inside 14, nothing at all in the last two days. Strength added this late does not arrive in \
-time to help; the fatigue it costs arrives immediately. Keep lifting in the block - it protects the \
-tissue - but say plainly that it is maintenance now, and never put a lower-body day on the long run, \
-the threshold run, or the morning before either.
+are sore or heavy he rides instead of running. Honour it — swap that day's EASY run for an \
+equivalent-effort Z2 ride and say so plainly. Never swap out the weekly long run, the long ride or \
+brick, or the week's run quality session; those are the sessions the race is built on. If the legs \
+are too sore for one of them, that is a recovery problem to name, not a session to quietly downgrade.
+10. In a 70.3 block (IRONMAN 70.3 Victoria, 2027-05-30) the plan runs recovery (two weeks after the \
+Oct 18 marathon, no running in week one) → base (Nov-Jan: aerobic volume, heavy lifting) → build \
+(Feb-Mar: threshold, bricks begin) → specific (Apr-mid May: long rides with 70.3-effort blocks, \
+longer bricks) → peak (one race rehearsal) → taper (two weeks). Every fourth week is a recovery \
+week. The SWIM is the weakest leg (non-competitive background): protect three swims a week. The \
+Saturday long ride/brick and Sunday long run are the key sessions; the bike is the longest leg and \
+the run is raced on legs the bike already spent. Read the phase from the plan, not from memory.
+11. LIFTING is three FULL-BODY sessions a week — Full Body A Monday (heaviest legs), B Wednesday \
+(unilateral, before Thursday's run quality), C Friday (light legs, no press, before the long ride) \
+— attached to the swim days. Heavy in base, held in build, maintenance in specific (two working sets, \
+never to failure), light in peak and taper. The app also enforces a ceiling: moderate inside 21 days \
+of the race, light inside 14, nothing in the last two days. Every session obeys the shoulder rules. \
+Never put a heavy lower-body day on the long run, the long ride, the run quality day, or the morning \
+before any of them.
 12. The athlete's stated time goal is what he races for. Give him the honest read against current \
 evidence ONCE when he asks, then plan and pace for the goal he chose. Do not relitigate it every \
 session; a coach who keeps arguing with the target is a coach he stops reading.
 
 LIFTING AND HEVY:
-- A lifting question does not change event mode. Do not insert lifting unprompted, but fully handle it
-when asked. Give exercise order, sets, reps or duration, rest, and effort; never invent working weight.
+- A lifting question does not change event mode. The three weekly full-body lifts are part of the plan
+(rule 11); do not add lifting beyond them unprompted, but fully handle it when asked. Give exercise order, sets, reps or duration, rest, and effort; never invent working weight.
 - SHOULDER RULES (injury constraints, enforced in code, never negotiable):
   at most ONE pressing movement per session; SIX exercises per session; alternate so no muscle
   group runs back to back; NO face pulls (use a rear delt fly); keep true back work to about one
   movement, not three. A chest fly is not a press, so a session may pair one press with a fly.
   Triceps isolation IS allowed on a pressing day - the one-press limit is the rule, not a ban on
   triceps. Because triceps is push-family work, it just must not sit directly beside the press.
-- `lifting_split` is the athlete's standing four-day split (Upper 1, Lower 1, Upper 2, Lower 2).
+- `lifting_split` is the athlete's standing three-day full-body split (Full Body A, B, C).
 Treat it as the source of truth for what each day contains. When asked to change a day, rebuild
-THAT day, keep six exercises, and keep the other three days untouched.
-- The athlete lifts FOUR times a week. When you build or rebuild a training week, place four
-strength days and say where they sit relative to the key runs. Never quietly drop to fewer.
+THAT day, keep six exercises, and keep the other two days untouched.
+- The athlete lifts THREE times a week, full body. When you build or rebuild a training week, place
+three strength days (default Mon/Wed/Fri) and say where they sit relative to the key sessions.
+Never quietly drop to fewer.
 - Leg days are running-specific by design: unilateral work, eccentric hamstrings, hip extension
 and calves, with the highest-damage lifts kept low in volume. Do not turn a leg day into a
 bodybuilding session; the running is the point and the lifting supports it.
@@ -242,7 +249,7 @@ the very end of your reply (and only then). Set "date" to that day's date (YYYY-
 {"date": "YYYY-MM-DD", "title": "...", "discipline": "swim|bike|run|brick|strength|recovery|rest", \
 "duration_min": <int>, "start_time": "HH:MM", "intensity": "...", "tsb_target": <projected RACE-DAY TSB +5 to +15>, \
 "structure": {"warmup": "...", "main": "...", "cooldown": "..."}, \
-"secondary_sessions": [{"title":"Upper 1","discipline":"strength","duration_min":45, \
+"secondary_sessions": [{"title":"Full Body A","discipline":"strength","duration_min":45, \
 "start_time":"HH:MM","intensity":"1-2 RIR","structure":{"warmup":"...","main":"...","cooldown":"..."}, \
 "why":"why this separate lift belongs today"}], \
 "why": "one sentence on the tradeoff"}

@@ -123,7 +123,7 @@
 
   /* phase timeline */
   #phase-strip{margin-bottom:16px;}
-  .phase-track{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
+  .phase-track{display:grid;grid-template-columns:repeat(var(--phase-cols,4),minmax(0,1fr));gap:6px;}
   .phase-seg{padding:9px 11px;border-radius:12px;background:rgba(16,18,22,.03);
     border:1px solid var(--line);position:relative;overflow:hidden;}
   .phase-seg .ps-top{font-family:var(--round);font-size:12.5px;color:var(--muted);}
@@ -131,6 +131,12 @@
   .phase-seg.on{background:rgba(var(--glow),.13);border-color:rgba(var(--glow),.45);}
   .phase-seg.on .ps-top{color:var(--a1);font-weight:700;}
   .phase-seg.on .ps-note{color:var(--muted);min-height:14px;margin-top:3px;}
+  @media (max-width:600px){
+    /* Seven 70.3 phases do not fit across a phone; scroll the strip itself. */
+    .phase-track{grid-template-columns:repeat(var(--phase-cols,4),minmax(84px,1fr));
+      overflow-x:auto;scroll-snap-type:x proximity;padding-bottom:2px;}
+    .phase-seg{scroll-snap-align:start;}
+  }
   #coach-card{display:flex;flex-direction:column;}
   .card.wide{grid-column:1 / -1;}
   @media(max-width:820px){.split,.rest{grid-template-columns:1fr;}}
@@ -451,7 +457,7 @@
   .lf-setname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .lf-setvals{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;}
   /* Split block: four days across on desktop, two-by-two on a phone. */
-  .splitgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+  .splitgrid{display:grid;grid-template-columns:repeat(var(--split-cols,3),1fr);gap:10px;}
   .splitday{display:flex;flex-direction:column;gap:6px;padding:11px;border-radius:14px;
     background:rgba(var(--glow),.07);border:1px solid rgba(var(--glow),.2);
     cursor:pointer;text-align:left;font:inherit;color:inherit;
@@ -2172,8 +2178,17 @@ function renderPhaseStrip(r){
     {k:"taper", label:"Taper", from:0,  note:"cut volume, stay fresh"},
     {k:"race",  label:"Race",  from:-1, note:"trust the work"},
   ];
-  const cur=r.is_past?"race":r.phase;
-  el.innerHTML=`<div class="phase-track">${phases.map(p=>{
+  // A 70.3 block names its own phases; show those instead of build/peak/taper.
+  const BLOCK={recovery:["Recovery","marathon recovery, easy only"],base:["Base","aerobic volume, heavy lifting"],
+    build:["Build","threshold work, bricks begin"],specific:["Specific","70.3-effort rides + bricks"],
+    peak:["Peak","race rehearsal"],taper:["Taper","cut volume, stay fresh"],race:["Race","trust the work"]};
+  const blockList=Array.isArray(r.block_phases)?r.block_phases.filter(k=>BLOCK[k]):null;
+  if(blockList&&blockList.length&&r.block_phase){
+    phases.length=0;
+    blockList.forEach(k=>phases.push({k,label:BLOCK[k][0],note:BLOCK[k][1]}));
+  }
+  const cur=r.is_past?"race":(blockList&&r.block_phase)||r.phase;
+  el.innerHTML=`<div class="phase-track" style="--phase-cols:${phases.length}">${phases.map(p=>{
     const on=p.k===cur;
     return `<div class="phase-seg ${on?"on":""}">
       <div class="ps-top">${p.label}${on&&typeof d==="number"&&d>=0?` · ${d}d`:""}</div>
@@ -3964,11 +3979,11 @@ async function renderLiftSplit(){
   $("lift-split-sub").textContent =
     `· ${d.sessions_per_week||days.length} days a week${d.source&&d.source!=="default"?" · edited":""}`;
   $("lift-split").innerHTML=`
-    <div class="splitgrid">${days.map(day=>{
+    <div class="splitgrid" style="--split-cols:${Math.max(1,Math.min(4,days.length))}">${days.map(day=>{
       const issues=((day.rule_status||{}).injury_violations||[]).length;
       return `<button class="splitday${day.is_lower?" lower":""}" data-slot="${esc(String(day.slot))}">
         <span class="sd-n">${esc(String(day.name))}</span>
-        <span class="sd-tag">${day.is_lower?"Lower":"Upper"}</span>
+        <span class="sd-tag">${esc(String(day.tag||(day.is_lower?"Lower":"Upper")))}</span>
         <span class="sd-f">${esc(String(day.focus||""))}</span>
         <span class="sd-l">${(day.exercises||[]).map(ex=>`
           <span class="sd-e"><i>${_liftFig(ex.pattern)}</i><span>${esc(String(ex.title))}</span></span>`).join("")}</span>

@@ -1,23 +1,30 @@
-"""The athlete's standing four-day lifting split.
+"""The athlete's standing three-day full-body split.
 
-Four sessions a week — Upper 1, Lower 1, Upper 2, Lower 2 — built to hold muscle
-through a marathon block rather than to add it. Two constraints shape every
-choice here:
+Three sessions a week — Full Body A, B and C — sitting on the Monday, Wednesday
+and Friday of the 70.3 plan. Full body rather than upper/lower because three
+sessions is the budget: an upper/lower split at three a week trains one half
+twice and the other once, while full body touches every group three times at a
+volume the swim, bike and run can absorb.
 
-**The running is the point.** Lifting supports it. That rules out the obvious
-bodybuilding lower day: heavy bilateral back squats to depth leave legs that
-cannot run well for two days. The leg days instead lean on the qualities that
-transfer to running — unilateral strength, eccentric hamstring work, hip
-extension, and calf/Achilles stiffness — and keep the highest-damage movements
-low in volume.
+**The triathlon is the point.** Lifting supports it. That rules out the
+bodybuilding leg day: heavy bilateral squats to failure leave legs that cannot
+ride or run well for two days. Leg work leans on what transfers — unilateral
+strength, eccentric hamstrings, hip extension, calf/Achilles stiffness — and
+the pulling work favours the lats and mid-back that carry the swim.
+
+The three days differ on purpose, and their order follows the week:
+
+* **A (Monday)** is the heaviest leg day. It follows the Sunday long run and
+  precedes a bike-only Tuesday, so the soreness lands on a concentric day.
+* **B (Wednesday)** is unilateral and moderate, because Thursday is the run
+  quality session.
+* **C (Friday)** is the lightest on the legs — low-damage plyometrics and
+  single-leg work — because Saturday is the long ride. It also carries no
+  press, which gives the shoulder a day off from pressing every week.
 
 **The shoulder is an injury constraint.** One press per session, six exercises,
 no group twice in a row, no face pulls. Every day here is checked against
 ``lifting_rules`` rather than trusted to have been written correctly.
-
-The two Upper days deliberately differ by plane: Upper 1 is horizontal, Upper 2
-is vertical. Running the same session twice a week covers one angle twice and
-leaves the other untrained.
 
 Exercise names are ordinary titles, not Hevy ids. ``hevy_exercises`` resolves
 them against the full catalogue and prefers the equipment variant the athlete
@@ -29,11 +36,10 @@ from typing import Any
 
 from . import lifting_rules
 
-SESSIONS_PER_WEEK = 4
+SESSIONS_PER_WEEK = 3
 
-# Slot order is the order they should fall in a week. Upper/Lower alternate so
-# neither half is worked on consecutive days.
-SLOTS = ("upper_1", "lower_1", "upper_2", "lower_2")
+# Slot order is the order they fall in a week: Monday, Wednesday, Friday.
+SLOTS = ("full_a", "full_b", "full_c")
 
 
 def _ex(title: str, sets: int, reps: str, rest: int, role: str, why: str) -> dict[str, Any]:
@@ -43,100 +49,83 @@ def _ex(title: str, sets: int, reps: str, rest: int, role: str, why: str) -> dic
 
 DEFAULT_SPLIT: tuple[dict[str, Any], ...] = (
     {
-        "slot": "upper_1",
-        "name": "Upper 1",
-        "focus": "Horizontal push and pull",
-        "why": ("The horizontal half of the upper body: rowing and pressing in the "
-                "same plane, with rear delt work to keep the shoulder balanced."),
+        "slot": "full_a",
+        "name": "Full Body A",
+        "focus": "Strength: squat, vertical pull, hinge",
+        "why": ("The heavy day. It follows the long run and comes before a "
+                "bike-only Tuesday, so the leg soreness lands where it costs least."),
         "exercises": (
-            _ex("Dumbbell Row", 3, "8-10", 120, "primary pull",
-                "Heaviest pull of the day while fresh; builds the mid-back that holds "
-                "posture together late in a long run."),
+            _ex("Front Squat", 3, "5-6", 150, "primary quad",
+                "Upright squat, so the load lands on the quads rather than the lower "
+                "back that also has to hold an aero position."),
+            _ex("Lat Pulldown", 3, "8-10", 120, "vertical pull",
+                "Lats through a full overhead range: the catch and pull of every "
+                "freestyle stroke."),
+            _ex("Romanian Deadlift", 3, "6-8", 150, "primary hinge",
+                "Hamstring and glute strength through the hip, which holds the run "
+                "stride together late in a 70.3."),
             _ex("Incline Bench Press", 3, "6-8", 150, "the one press",
                 "The single pressing movement. Incline keeps the shoulder in a "
                 "friendlier position than a flat bar."),
-            _ex("Rear Delt Reverse Fly", 3, "12-15", 75, "shoulder health",
-                "Rear delt work in place of face pulls, which aggravate this shoulder."),
-            _ex("Chest Fly", 3, "12-15", 75, "chest, non-press",
-                "Adds chest volume without spending a second pressing slot."),
-            _ex("Bicep Curl", 3, "10-12", 60, "arms",
-                "Direct arm work the compound pulls do not finish."),
+            _ex("Standing Calf Raise", 3, "10-12", 60, "calf and Achilles",
+                "Stiffer calves and Achilles return more energy per stride and "
+                "tolerate run volume off the bike."),
             _ex("Dead Bug", 3, "8-10 each side", 45, "core",
-                "Anti-extension bracing that carries directly into running posture."),
+                "Anti-extension bracing that carries into aero position and running "
+                "posture."),
         ),
     },
     {
-        "slot": "lower_1",
-        "name": "Lower 1",
-        "focus": "Posterior chain, running-specific",
-        "why": ("Hamstrings, glutes and calves — the tissues that fail first in "
-                "marathon training. Unilateral and eccentric work, no heavy bilateral "
-                "squatting, so this does not cost the next run."),
+        "slot": "full_b",
+        "name": "Full Body B",
+        "focus": "Unilateral: split squat, row, hip extension",
+        "why": ("Single-leg and moderate, because Thursday is the run quality "
+                "session. Swimming and running are both one side at a time."),
         "exercises": (
-            _ex("Romanian Deadlift", 3, "6-8", 150, "primary hinge",
-                "Hamstring strength through the hip, which protects the stride at the "
-                "point where a tired runner starts to reach."),
             _ex("Bulgarian Split Squat", 3, "8-10 each leg", 120, "unilateral quad",
                 "Running is a single-leg sport; this loads that pattern without the "
                 "systemic cost of a heavy back squat."),
-            _ex("Nordic Hamstring Curl", 3, "5-6", 120, "eccentric hamstring",
-                "The single best-evidenced hamstring injury reducer. Keep the reps low "
-                "and the lowering slow."),
-            _ex("Calf Extension", 3, "12-15", 60, "calf and Achilles",
-                "Stiffer calves and Achilles return more energy per stride and tolerate "
-                "mileage better."),
+            _ex("Single Arm Cable Row", 3, "10-12", 90, "horizontal pull",
+                "One side at a time, which evens out the stronger arm — the same "
+                "asymmetry that shows up as a crossover in the swim."),
             _ex("Hip Thrust", 3, "8-10", 120, "glute / hip extension",
-                "Direct hip extension: the propulsive half of the stride."),
-            _ex("Dead Bug", 3, "8-10 each side", 45, "core",
-                "Keeps the pelvis quiet under fatigue."),
-        ),
-    },
-    {
-        "slot": "upper_2",
-        "name": "Upper 2",
-        "focus": "Vertical push and pull",
-        "why": ("The vertical half: pulling overhead and pressing overhead, plus the "
-                "arm work the horizontal day does not cover. Running Upper 1 twice "
-                "would train one plane twice and leave this one untrained."),
-        "exercises": (
-            _ex("Lat Pulldown", 3, "8-10", 120, "primary vertical pull",
-                "Lats through a full overhead range, which the rowing day never reaches."),
+                "Direct hip extension: the propulsive half of the stride and of the "
+                "pedal stroke."),
             _ex("Half Kneeling Landmine Press", 3, "8-10", 150, "the one press",
-                "Vertical pressing on an arc the shoulder tolerates far better than a "
-                "strict overhead barbell."),
-            _ex("Lateral Raise", 3, "12-15", 60, "shoulder",
-                "Side delt volume with a light load and no pressing cost."),
-            _ex("Single Arm Cable Row", 3, "10-12", 90, "secondary pull",
-                "One side at a time, which evens out the stronger arm."),
-            _ex("Triceps Rope Pushdown", 3, "10-12", 60, "arms",
-                "Triceps work is fine on a pressing day; only a second press is not."),
+                "Pressing on an arc the shoulder tolerates far better than a strict "
+                "overhead barbell."),
+            _ex("Nordic Hamstring Curl", 3, "5-6", 120, "eccentric hamstring",
+                "The best-evidenced hamstring injury reducer. Keep the reps low and "
+                "the lowering slow."),
             _ex("Pallof Press", 3, "10-12 each side", 45, "core",
                 "Anti-rotation, which is exactly what the torso resists while running."),
         ),
     },
     {
-        "slot": "lower_2",
-        "name": "Lower 2",
-        "focus": "Power, quads and calves, running-specific",
-        "why": ("The knee-dominant and elastic half. Jumping first while fresh for "
-                "tendon stiffness, then quads and calves. Deliberately lighter in "
-                "volume than a bodybuilding leg day so the week's running survives it."),
+        "slot": "full_c",
+        "name": "Full Body C",
+        "focus": "Power and shoulder health, light on the legs",
+        "why": ("The day before the long ride, so the legs get elastic work and "
+                "single-leg balance, not damage. No press: the shoulder gets a "
+                "pressing-free day every week, and rear delt work balances the swim."),
         "exercises": (
             _ex("Box Jump", 4, "3", 90, "power / elasticity",
                 "Low reps, full recovery. Trains tendon stiffness, which is free "
                 "running economy, and creates almost no muscle damage."),
+            _ex("Dumbbell Row", 3, "8-10", 120, "horizontal pull",
+                "Mid-back strength that holds posture in the aero bars and late in "
+                "the run."),
             _ex("Single Leg Landmine Hinge", 3, "8-10 each leg", 120, "unilateral hinge",
                 "Single-leg hip extension with a balance demand, close to the stride."),
-            _ex("Front Squat", 3, "5-6", 150, "quad strength",
-                "More upright than a back squat, so the load lands on the quads rather "
-                "than the lower back that also has to absorb the long run."),
-            _ex("Standing Calf Raise", 4, "10-12", 60, "calf",
-                "Straight-leg calf work to pair with the bent-knee version on Lower 1; "
+            _ex("Rear Delt Reverse Fly", 3, "12-15", 75, "shoulder health",
+                "Rear delt work in place of face pulls, which aggravate this shoulder. "
+                "Swimming is all internal rotation; this pulls it back."),
+            _ex("Calf Extension", 3, "12-15", 60, "calf",
+                "Bent-knee calf work to pair with the straight-leg raise on A; "
                 "together they cover both heads."),
-            _ex("Good Morning", 3, "8-10", 120, "hinge",
-                "Hamstring and lower back under a light load, controlled."),
-            _ex("Pallof Press", 3, "10-12 each side", 45, "core",
-                "Anti-rotation to finish."),
+            _ex("Side Plank", 3, "30-40 s each side", 45, "core",
+                "Lateral hip and trunk stability, the thing that stops the hips "
+                "dropping when the run gets long."),
         ),
     },
 )
@@ -168,6 +157,11 @@ def _is_customised(day: dict[str, Any]) -> bool:
     return _comparable(day) != _comparable(default)
 
 
+# Card label by slot family. A stored split from the old upper/lower layout
+# keeps its labels; anything else is a full-body day.
+_TAGS = {"upper": "Upper", "lower": "Lower", "full": "Full body"}
+
+
 def _day_summary(day: dict[str, Any]) -> dict[str, Any]:
     exercises = [dict(e) for e in day.get("exercises") or []]
     for exercise in exercises:
@@ -179,6 +173,7 @@ def _day_summary(day: dict[str, Any]) -> dict[str, Any]:
         "exercise_count": len(exercises),
         "rule_status": lifting_rules.summary(exercises),
         "is_lower": str(day.get("slot", "")).startswith("lower"),
+        "tag": _TAGS.get(str(day.get("slot", "")).split("_")[0], "Full body"),
         "is_customised": _is_customised(day),
     }
 
@@ -222,11 +217,13 @@ def build(days: Any = None) -> dict[str, Any]:
         "violations": problems,
         "ok": not problems and coverage["complete"],
         "principles": [
-            "Four sessions a week: Upper 1, Lower 1, Upper 2, Lower 2.",
-            "Upper days split by plane — horizontal, then vertical — so neither "
-            "is trained twice while the other is skipped.",
-            "Leg days are built for a runner: unilateral work, eccentric hamstrings, "
-            "hip extension and calves, with the highest-damage lifts kept low in volume.",
+            "Three full-body sessions a week: A Monday, B Wednesday, C Friday.",
+            "Leg load falls through the week — heavy A after the long run, "
+            "unilateral B before the run quality day, light C before the long ride.",
+            "Built for a triathlete: lats and mid-back for the swim, unilateral legs, "
+            "eccentric hamstrings, hip extension and calves; no bodybuilding leg day.",
+            "Heavy in base (Nov-Jan), maintenance once race-specific work starts, "
+            "light in the taper.",
             "One press per session, six exercises, no group twice in a row, no face pulls.",
         ],
     }

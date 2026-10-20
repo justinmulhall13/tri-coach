@@ -181,7 +181,9 @@ class PersistedEventProfileSwitchTests(unittest.TestCase):
         # MARATHON now has its own builder, so the leak test is that the plan
         # it writes belongs to THIS event: no swim, no T100 anything, and race
         # day named from the persisted profile rather than a hardcoded race.
-        seeded = plan.seed()
+        # Seed from a fixed date inside the block: the real clock has passed
+        # this race, and the test is about isolation, not about today.
+        seeded = plan.seed(datetime.date(2026, 9, 8))
         self.assertNotIn("error", seeded)
         self.assertEqual(seeded["seeded_through"], "2026-10-18")
         written = db.get_plan("2026-01-01", "2026-12-31")

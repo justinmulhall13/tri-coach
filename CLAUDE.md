@@ -4,7 +4,7 @@ This file is the durable continuation point for the current Tri Coach work. Read
 
 ## Non-negotiable user intent
 
-- The active event profile is the **TCS Toronto Waterfront Marathon, 2026-10-18** (`tcs-toronto-waterfront-marathon-2026-10-18-29641bea562e`), goal `sub-3:30`. T100 Vancouver is past; the old `t100-vancouver-2026` rows stay in the database, inert, scoped out by profile id. Do not activate another event while testing — pin a profile in the test instead (see below).
+- The active event profile is **IRONMAN 70.3 Victoria, 2027-05-30** (mode TRIATHLON, 1.9/90/21.1 km), activated 2026-10-20, two days after the Toronto marathon. No finish-time goal yet; the profile carries `recovery_until: 2026-11-01`. The T100 and marathon rows stay in the database, inert, scoped out by profile id. Do not activate another event while testing — pin a profile in the test instead (see below).
 - Event switches must be persisted, provenance-tagged, and committed before any success message.
 - Generated schedules must be durable drafts with a `plan_id` before they are shown.
 - Preserve every existing app feature. Do not deploy unless the full suite, Python compilation, JavaScript syntax check, and database integrity check pass.
@@ -42,7 +42,7 @@ Before deployment, verify without mutating state:
 SELECT active_profile_id, pending_profile_json FROM event_profile_state WHERE singleton_id=1;
 ```
 
-Expected active ID: `tcs-toronto-waterfront-marathon-2026-10-18-29641bea562e`; expected pending
+Expected active ID: the `ironman-70-3-victoria-2027-05-30-…` profile; expected pending
 value: `NULL`.
 
 
@@ -544,3 +544,31 @@ Uvicorn's startup handler reconciles Google Calendar, and Fly reconciles the
 same plan: running both is how duplicate events appear. For a visual check,
 render the page's CSS into a static harness and screenshot it with headless
 Chrome (`--headless=new --screenshot`).
+
+
+## Session 2026-10-20 — the 70.3 block and three full-body lifts
+
+### `app/half_iron_plan.py`
+Any TRIATHLON profile other than the bundled T100 one now dispatches here
+(`plan._event_builder`). Phases are counted back from race week in whole weeks
+(`weeks_out`): taper n<=1, peak n=2, specific 3-8, build 9-16, base beyond, and
+`recovery` for every date up to the profile's `recovery_until`. Deload when
+`n >= 7 and (n - 3) % 4 == 0`; the deload Friday is a full rest day.
+
+`coaching_contract.race_phase` adds `block_phase` / `block_phases` for this
+profile **alongside** `phase` — several readers compare `phase` to
+build/peak/taper, so it was not repurposed. The phase strip prefers
+`block_phase` when present.
+
+### Lifts are seeded, not proposed
+The builder writes a `plan_strength` row (slot `full`, `source="seed"`, no Hevy
+routine) on Mon/Wed/Fri from the stored or default split. Reseed/reconcile only
+touches lifts still marked `seed`, and keeps their calendar placement and any
+Hevy id. No lift in the first post-marathon week; race week keeps Monday only.
+Box jumps are dropped in recovery weeks, so that day is five exercises — the
+`exercise_count` rule is a programming note, not an injury rule.
+
+### The split is three full-body days
+`lifting_split.DEFAULT_SPLIT` is Full Body A/B/C (`full_a`/`full_b`/`full_c`).
+Leg load falls through the week; C has no press. Days carry a `tag` for the
+card label, and the grid's column count follows the number of days.

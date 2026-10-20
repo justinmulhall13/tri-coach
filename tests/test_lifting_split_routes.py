@@ -28,8 +28,8 @@ class LiftingSplitRouteTests(unittest.TestCase):
     def test_the_default_split_is_served_before_anything_is_saved(self) -> None:
         payload = self.client.get("/api/lifting/split").json()
         self.assertEqual(payload["source"], "default")
-        self.assertEqual(payload["sessions_per_week"], 4)
-        self.assertEqual(len(payload["days"]), 4)
+        self.assertEqual(payload["sessions_per_week"], 3)
+        self.assertEqual(len(payload["days"]), 3)
         self.assertTrue(payload["ok"])
 
     def test_each_day_carries_its_reasoning_for_the_tab(self) -> None:
@@ -87,8 +87,10 @@ class SplitUITests(unittest.TestCase):
         tab = tab[:tab.index("</main>")]
         self.assertLess(tab.index('id="lift-split"'), tab.index('id="lift-head"'))
 
-    def test_it_is_four_across_on_desktop_and_two_by_two_on_a_phone(self) -> None:
-        self.assertIn(".splitgrid{display:grid;grid-template-columns:repeat(4,1fr)", self.html)
+    def test_it_is_one_row_on_desktop_and_two_across_on_a_phone(self) -> None:
+        # Desktop column count follows the number of days in the split.
+        self.assertIn(".splitgrid{display:grid;grid-template-columns:repeat(var(--split-cols,3),1fr)", self.html)
+        self.assertIn('style="--split-cols:${Math.max(1,Math.min(4,days.length))}"', self.html)
         self.assertIn("@media (max-width:820px){", self.html)
         self.assertIn(".splitgrid{grid-template-columns:repeat(2,1fr);}", self.html)
 
@@ -178,7 +180,7 @@ class SplitPushTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_a_push_without_confirmation_is_refused(self) -> None:
-        response = self.client.post("/api/lifting/split/upper_1/push", json={})
+        response = self.client.post("/api/lifting/split/full_a/push", json={})
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.json()["created"])
 
@@ -194,11 +196,11 @@ class SplitPushTests(unittest.TestCase):
         with (patch.object(main.hevy_connector, "status",
                            return_value={"connected": True}),
               patch.object(main.hevy_actions, "resolve_routine_exercises",
-                           return_value=({"title": "Upper 1", "exercises": []},
+                           return_value=({"title": "Full Body A", "exercises": []},
                                          [{"title": "Chest Fly",
                                            "exercise_template_id": None,
                                            "resolution": "failed"}]))):
-            response = self.client.post("/api/lifting/split/upper_1/push",
+            response = self.client.post("/api/lifting/split/full_a/push",
                                         json={"confirmed": True})
         self.assertEqual(response.status_code, 422)
         self.assertFalse(response.json()["created"])
@@ -247,15 +249,15 @@ class PushVisibilityTests(unittest.TestCase):
         days[0] = {**days[0], "exercises": list(days[0]["exercises"])[:5]}
         saved = self.client.put("/api/lifting/split", json={"days": days}).json()
         flags = {d["name"]: d["is_customised"] for d in saved["days"]}
-        self.assertTrue(flags["Upper 1"])
-        self.assertFalse(flags["Lower 1"])
-        self.assertFalse(flags["Upper 2"])
+        self.assertTrue(flags["Full Body A"])
+        self.assertFalse(flags["Full Body B"])
+        self.assertFalse(flags["Full Body C"])
 
     def test_a_changed_rep_scheme_counts_as_a_change(self) -> None:
         from app import lifting_split
         days = [dict(d) for d in lifting_split.DEFAULT_SPLIT]
         first = [dict(e) for e in days[0]["exercises"]]
-        first[0] = {**first[0], "reps": "5-6"}
+        first[0] = {**first[0], "reps": "3-5"}
         days[0] = {**days[0], "exercises": first}
         saved = self.client.put("/api/lifting/split", json={"days": days}).json()
         self.assertTrue(saved["days"][0]["is_customised"])
