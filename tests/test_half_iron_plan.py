@@ -180,5 +180,54 @@ class HalfIronBlockTests(unittest.TestCase):
         self.assertEqual(db.get_plan_strength(date)["title"], "My own session")
 
 
+GOAL = {"target": "5:00", "modelled_duration_min": 300,
+        "split": {"swim": "0:37", "T1+T2": "0:08", "bike": "2:36", "run": "1:39"}}
+TARGETS = {"pacing_targets": {"run_goal_min_per_km": "4:41", "swim_goal_per_100m": "1:57",
+                              "bike_hr_bpm": [142, 152], "bike_goal_kmh": 34.6}}
+
+
+class GoalRefinementTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._old_path, self._old_local = db._DB_PATH, db._local
+        self._tmp = tempfile.TemporaryDirectory()
+        db._DB_PATH = pathlib.Path(self._tmp.name) / "goal.db"
+        db._local = threading.local()
+        _activate_703()
+        plan.seed(START)
+
+    def tearDown(self) -> None:
+        connection = getattr(db._local, "conn", None)
+        if connection is not None:
+            connection.close()
+        db._DB_PATH, db._local = self._old_path, self._old_local
+        self._tmp.cleanup()
+
+    def test_setting_a_goal_keeps_the_profile_and_its_plan(self) -> None:
+        before = coaching_contract.event_profile_id()
+        db.refine_active_event_goal(GOAL, TARGETS)
+        self.assertEqual(coaching_contract.event_profile_id(), before)
+        self.assertEqual(coaching_contract.event_context()["goal"]["target"], "5:00")
+        self.assertTrue(db.get_plan(START.isoformat(), RACE.isoformat()))
+        self.assertEqual(coaching_contract.event_context()["recovery_until"],
+                         RECOVERY_UNTIL.isoformat())
+
+    def test_race_effort_sessions_carry_the_goal_pace_after_reconcile(self) -> None:
+        db.refine_active_event_goal(GOAL, TARGETS)
+        plan.reconcile_seeded_plan(START)
+        rows = {r["date"]: r for r in db.get_plan(START.isoformat(), RACE.isoformat())}
+        self.assertIn("4:41/km", rows["2027-04-01"]["structure"]["main"])      # specific run
+        self.assertIn("4:41/km", rows["2027-04-03"]["structure"]["run"])       # brick leg
+        self.assertIn("HR 142-152", rows["2027-04-03"]["structure"]["main"])   # race bike HR
+        self.assertIn("1:57/100m", rows["2027-04-02"]["structure"]["main"])    # race-effort swim
+        race = rows[RACE.isoformat()]
+        self.assertIn("swim 0:37, T1+T2 0:08, bike 2:36, run 1:39 = 5:00",
+                      race["structure"]["main"])
+        self.assertEqual(race["duration_min"], 300)
+
+    def test_without_a_goal_no_pace_is_invented(self) -> None:
+        rows = {r["date"]: r for r in db.get_plan(START.isoformat(), RACE.isoformat())}
+        self.assertNotIn("/km", rows["2027-04-01"]["structure"]["main"])
+
+
 if __name__ == "__main__":
     unittest.main()

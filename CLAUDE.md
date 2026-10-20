@@ -4,7 +4,7 @@ This file is the durable continuation point for the current Tri Coach work. Read
 
 ## Non-negotiable user intent
 
-- The active event profile is **IRONMAN 70.3 Victoria, 2027-05-30** (mode TRIATHLON, 1.9/90/21.1 km), activated 2026-10-20, two days after the Toronto marathon. No finish-time goal yet; the profile carries `recovery_until: 2026-11-01`. The T100 and marathon rows stay in the database, inert, scoped out by profile id. Do not activate another event while testing — pin a profile in the test instead (see below).
+- The active event profile is **IRONMAN 70.3 Victoria, 2027-05-30** (mode TRIATHLON, 1.9/90/21.1 km), activated 2026-10-20, two days after the Toronto marathon. Goal **5:00** (set 2026-10-20; split swim 0:37 / T 0:08 / bike 2:36 / run 1:39), with `pacing_targets` run 4:41/km, swim 1:57/100m, bike HR 142-152; the profile also carries `recovery_until: 2026-11-01`. The athlete chose 5:00 after the honest read (August form extrapolates to ~5:35-5:40, the bike is the biggest gap) — do not relitigate it. The T100 and marathon rows stay in the database, inert, scoped out by profile id. Do not activate another event while testing — pin a profile in the test instead (see below).
 - Event switches must be persisted, provenance-tagged, and committed before any success message.
 - Generated schedules must be durable drafts with a `plan_id` before they are shown.
 - Preserve every existing app feature. Do not deploy unless the full suite, Python compilation, JavaScript syntax check, and database integrity check pass.
@@ -572,3 +572,13 @@ Box jumps are dropped in recovery weeks, so that day is five exercises — the
 `lifting_split.DEFAULT_SPLIT` is Full Body A/B/C (`full_a`/`full_b`/`full_c`).
 Leg load falls through the week; C has no press. Days carry a `tag` for the
 card label, and the grid's column count follows the number of days.
+
+### Goal refinement keeps the profile id
+`_server_profile_id` hashes the goal, so re-activating to set a finish time would
+mint a new namespace and orphan the seeded plan, lifts and chat.
+`db.refine_active_event_goal(goal, extras)` updates goal/extras in place for the
+SAME race. A different race still goes through stage + activate.
+`half_iron_plan` reads `pacing_targets` (`run_goal_min_per_km`,
+`swim_goal_per_100m`, `bike_hr_bpm`) and writes explicit paces such as
+"4:41/km" so `garmin_workout._stated_pace` targets them on the watch. With no
+goal set, no pace appears.

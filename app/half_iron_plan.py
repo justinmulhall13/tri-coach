@@ -87,6 +87,35 @@ def _hr(intensity: str) -> str:
     return f"{intensity} by HR (Garmin cycling zones required)"
 
 
+def _targets() -> dict[str, Any]:
+    t = _event().get("pacing_targets")
+    return t if isinstance(t, dict) else {}
+
+
+def _run_goal() -> str | None:
+    """The 70.3 run pace the athlete's finish goal implies, or None.
+
+    Read from the profile's ``pacing_targets``, which are derived from the goal
+    split. With no goal set the sessions talk about effort, never a number.
+    """
+    pace = str(_targets().get("run_goal_min_per_km") or "").strip()
+    return pace or None
+
+
+def _run_effort() -> str:
+    """'70.3 run effort', with the goal pace written so the watch can target it."""
+    pace = _run_goal()
+    return f"70.3 run effort, {pace}/km" if pace else "70.3 run effort"
+
+
+def _race_hr() -> str:
+    """Bike race effort: the profile's race HR band, else the tempo zone."""
+    band = _targets().get("bike_hr_bpm")
+    if isinstance(band, (list, tuple)) and len(band) == 2:
+        return f"HR {band[0]}-{band[1]}"
+    return _hr("tempo")
+
+
 def _easy() -> str:
     try:
         r = zones.pace_range("easy")
@@ -235,7 +264,9 @@ def _swim(wd: int, n: int, phase: str, deload: bool) -> dict[str, Any]:
         main = f"{cont} continuous steady, breathing every 3; 4×100 pull buoy, 15s rest"
     else:
         cont = int(round(race_m * (0.6 if deload else _ramp(n, 16, 3, 0.8, 1.1)), -2))
-        main = (f"{cont} continuous @ race effort, sighting every 6 strokes; "
+        swim_goal = str(_targets().get("swim_goal_per_100m") or "").strip()
+        effort = f"race effort ({swim_goal}/100m)" if swim_goal else "race effort"
+        main = (f"{cont} continuous @ {effort}, sighting every 6 strokes; "
                 "4×50 fast, 20s rest")
         if phase == "specific":
             main += ". Open water if the lakes are swimmable — wetsuit on."
@@ -280,7 +311,7 @@ def _bike_quality(n: int, phase: str, deload: bool) -> dict[str, Any]:
         return _wo("brick", "Bike — race effort + run off", "race-specific",
                    25 + 2 * mins + 5 + 15,
                    "15 min Z2 build",
-                   f"2×{mins} min @ 70.3 effort ({_hr('tempo')}) w/ 5 min easy",
+                   f"2×{mins} min @ 70.3 effort ({_race_hr()}) w/ 5 min easy",
                    "5 min spin",
                    "Midweek brick: race effort, then the first kilometres off the bike, "
                    "which is where a 70.3 run is won or lost.",
@@ -324,12 +355,12 @@ def _run_quality(n: int, phase: str, deload: bool) -> dict[str, Any]:
         mins = int(_ramp(n, 8, 3, 20, 35))
         return _wo("run", "Run — race effort", "tempo", 30 + mins,
                    "15 min easy + 4 strides",
-                   f"{mins} min @ 70.3 run effort (steady tempo, just under threshold)",
+                   f"{mins} min @ {_run_effort()} (steady tempo, just under threshold)",
                    "10 min easy",
                    "Rehearses the effort you will hold for 21 km off the bike.")
     if phase == "peak":
         return _wo("run", "Run — race effort", "tempo", 50, "15 min easy",
-                   "3×8 min @ 70.3 run effort w/ 2 min jog", "10 min easy",
+                   f"3×8 min @ {_run_effort()} w/ 2 min jog", "10 min easy",
                    "Last real run session. Crisp, not deep.")
     return _wo("run", "Run — strides", "race pace", 35,
                f"10 min easy; {_easy()}",
@@ -350,12 +381,12 @@ def _long_ride(n: int, phase: str, deload: bool) -> dict[str, Any]:
         if phase == "build":
             mins = _ramp(n, 16, 9, 165, 210)
             block = int(_ramp(n, 16, 9, 20, 30))
-            body = f"2×{block} min @ 70.3 effort ({_hr('tempo')}) inside the ride"
+            body = f"2×{block} min @ 70.3 effort ({_race_hr()}) inside the ride"
             run_min = int(_ramp(n, 16, 9, 10, 20))
         else:
             mins = _ramp(n, 8, 3, 210, 240)
             block = int(_ramp(n, 8, 3, 40, 75))
-            body = (f"{block} min continuous @ 70.3 effort ({_hr('tempo')}) in the "
+            body = (f"{block} min continuous @ 70.3 effort ({_race_hr()}) in the "
                     "second half, on aero bars")
             run_min = int(_ramp(n, 8, 3, 20, 30))
         mins = _r5(mins * (0.65 if deload else 1))
@@ -370,22 +401,22 @@ def _long_ride(n: int, phase: str, deload: bool) -> dict[str, Any]:
                    "10 min easy spin",
                    f"The cornerstone of the week: race-day fuelling and the bike legs "
                    f"for {bike_km:g} km, then running on them.",
-                   run=f"{run_min} min run off the bike @ 70.3 run effort")
+                   run=f"{run_min} min run off the bike @ {_run_effort()}")
     if phase == "peak":
         return _wo("brick", "Race rehearsal", "race-specific", 180,
                    "20 min Z2 build",
-                   f"130 min with 90 min @ 70.3 effort ({_hr('tempo')}); race kit, "
+                   f"130 min with 90 min @ 70.3 effort ({_race_hr()}); race kit, "
                    "race breakfast, race fuelling", "10 min spin",
                    "Dress rehearsal: everything you will do on race day, at slightly "
                    "under race duration.",
-                   run="30 min run off the bike @ 70.3 run effort")
+                   run=f"30 min run off the bike @ {_run_effort()}")
     if n == 1:
         return _wo("brick", "Taper brick", "race pace", 110, "15 min Z2",
-                   f"75 min Z2 with 3×10 min @ 70.3 effort ({_hr('tempo')})",
+                   f"75 min Z2 with 3×10 min @ 70.3 effort ({_race_hr()})",
                    "10 min spin", "Keep the race feel while volume drops.",
-                   run="15 min run off the bike @ 70.3 run effort")
+                   run=f"15 min run off the bike @ {_run_effort()}")
     return _wo("brick", "Race-week shakeout", "race pace", 45, "10 min easy",
-               f"20 min easy with 3×1 min @ 70.3 effort ({_hr('tempo')})", "",
+               f"20 min easy with 3×1 min @ 70.3 effort ({_race_hr()})", "",
                "Check the bike, wake the legs, then rest.",
                run="10 min run off the bike, relaxed")
 
@@ -405,7 +436,7 @@ def _long_run(n: int, phase: str, deload: bool) -> dict[str, Any]:
     km = round(km * (0.75 if deload else 1))
     finish = ""
     if phase in ("build", "specific") and not deload and km >= 16:
-        finish = " Last 4 km @ 70.3 run effort."
+        finish = f" Last 4 km @ {_run_effort()}."
     return _wo("run", f"Long run — {km:g} km", "long", int(km * 6.1),
                "10 min easy build",
                f"{km:g} km steady, {_easy()}.{finish}",
@@ -417,11 +448,21 @@ def _long_run(n: int, phase: str, deload: bool) -> dict[str, Any]:
 
 def race_day() -> dict[str, Any]:
     swim, bike, run = _distances()
-    return _wo("race", f"\U0001F3C1 RACE DAY — {_race_name()}", "race", 330,
+    goal = _event().get("goal") or {}
+    split = goal.get("split") if isinstance(goal, dict) else None
+    plan_line = ""
+    if isinstance(split, dict) and split:
+        # Stored JSON sorts keys alphabetically; print legs in race order.
+        order = {"swim": 0, "t1+t2": 1, "t1": 1, "bike": 2, "t2": 3, "run": 4}
+        legs = sorted(split.items(), key=lambda kv: order.get(str(kv[0]).lower(), 9))
+        plan_line = (" Goal split: " + ", ".join(f"{k} {v}" for k, v in legs)
+                     + f" = {goal.get('target')}.")
+    duration = int(goal.get("modelled_duration_min") or 330) if isinstance(goal, dict) else 330
+    return _wo("race", f"\U0001F3C1 RACE DAY — {_race_name()}", "race", duration,
                "Race-morning routine + 10 min swim warmup",
                f"{swim:g} km swim, {bike:g} km bike, {run:g} km run. Bike at 70.3 effort "
-               f"({_hr('tempo')}) and no harder; the run starts at the first aid "
-               "station, not the dismount line.",
+               f"({_race_hr()}) and no harder; run at {_run_effort()} — it starts at "
+               f"the first aid station, not the dismount line.{plan_line}",
                "", "Everything in this block was for today.")
 
 

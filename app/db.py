@@ -441,6 +441,33 @@ def clear_pending_event_profile() -> None:
     c.commit()
 
 
+def refine_active_event_goal(goal: dict[str, Any],
+                             extras: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Set the active event's goal (and merge extras) WITHOUT changing its id.
+
+    A full switch derives the profile id from the goal, which is right when the
+    athlete changes events — but a finish time chosen for the same race is a
+    refinement, not a new event. Re-activating would mint a new namespace and
+    orphan the seeded plan, lifts and chat already stamped with the old id.
+    """
+    import datetime
+    if not isinstance(goal, dict) or not goal:
+        raise ValueError("goal must be a non-empty object")
+    c = _conn()
+    record = get_active_event_profile_record()
+    record["goal"] = goal
+    record["extras"] = {**(record.get("extras") or {}), **(extras or {})}
+    record["provenance"] = {**(record.get("provenance") or {}), "goal": "confirmed_by_user"}
+    params = _event_profile_params(record, datetime.datetime.now().isoformat(timespec="seconds"))
+    c.execute(
+        """UPDATE event_profiles SET goal_json=:goal_json, extras_json=:extras_json,
+               provenance_json=:provenance_json, updated_at=:updated_at WHERE id=:id""",
+        params,
+    )
+    c.commit()
+    return get_active_event_profile_record()
+
+
 def activate_pending_event_profile() -> dict[str, Any]:
     """Atomically save and activate a complete, explicitly confirmed profile."""
     import datetime

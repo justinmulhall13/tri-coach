@@ -331,7 +331,8 @@ app/
   marathon_plan.py   compressed marathon build: the long run carries the specific
                      adaptation, the bike carries aerobic volume
   half_iron_plan.py  seven-month 70.3 build (recovery → base → build → specific →
-                     peak → taper) with three full-body lifts a week attached
+                     peak → taper) with three full-body lifts a week attached;
+                     race-effort sessions carry paces derived from the goal split
   plan_adapt.py      closed-loop adaptation (session feedback, illness/travel reflow)
   suggest.py         today's session = plan + readiness advisory
   schedule_time.py   default workout times around the daily school block
