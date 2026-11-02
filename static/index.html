@@ -3372,10 +3372,16 @@ function addHevyRoutine(routine,operationId,view){
         btn.textContent="✓ Created in Hevy";
         status.textContent="Routine created once. Open Hevy to review it.";
       }else{
-        btn.textContent="Create status unknown";
         const detail=(r&&Array.isArray(r.details)&&r.details.length&&r.details[0].reason)
           ? ` (${r.details[0].reason})` : "";
-        status.textContent=((r&&r.instruction)||`Not created: ${(r&&r.error)||"unknown Hevy error"}.`)+detail;
+        if(r&&r.retry_safe&&!r.partial_write){
+          // Nothing reached Hevy, so the same operation can simply be retried.
+          attempted=false; btn.disabled=false; btn.textContent="Try again";
+          status.textContent=`Hevy didn't answer cleanly, nothing was created: ${r.error||"unknown Hevy error"}.`+detail;
+        }else{
+          btn.textContent="Create status unknown";
+          status.textContent=((r&&r.instruction)||`Not created: ${(r&&r.error)||"unknown Hevy error"}.`)+detail;
+        }
       }
     }catch(e){
       btn.textContent="Create status unknown";

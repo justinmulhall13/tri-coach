@@ -618,3 +618,15 @@ asked, with no refusal, swap, warning or "your call" flag. Nothing in code ever
 blocked the Hevy create (the rules only annotate the card), so this was a prompt
 change in `_SYSTEM`; `tests/test_athlete_lift_override.py` pins it. Do not
 reintroduce "never negotiable".
+
+## Session 2026-11-02 — "Hevy API returned invalid JSON"
+
+A confirmed routine create failed with `HevyAPIError: Hevy API returned invalid
+JSON`. Re-running every read for that routine on Fly a few minutes later returned
+clean JSON, so it was a one-off non-JSON reply from Hevy (gateway error page), not
+a bad key or template. `HevyAPIConnector._request` now retries GETs up to 3 times
+on invalid JSON, 429/5xx and connection errors (0.5s, 1.5s backoff); 4xx and all
+writes stay single-attempt. `HevyAPIError.transient` marks what is retryable.
+When the create response is `retry_safe` with no `partial_write`, the card
+re-enables as "Try again" instead of locking on "Create status unknown".
+`tests/test_hevy_read_retry.py` pins both.

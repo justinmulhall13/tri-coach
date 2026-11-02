@@ -31,6 +31,10 @@ class HevyUnavailableError(RuntimeError):
 class HevyAPIError(RuntimeError):
     """A checked Hevy API failure that never includes the API key."""
 
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient
+
 
 class HevyConnector(Protocol):
     def status(self) -> dict[str, Any]: ...
@@ -115,8 +119,27 @@ class HevyAPIConnector:
         self._catalog_lock = threading.Lock()
         self._lock = threading.Lock()
 
+    # A read is safe to repeat. Hevy occasionally answers with a gateway error
+    # page instead of JSON, and one such blip used to fail a whole routine
+    # create with "invalid JSON" even though the next request was fine.
+    READ_ATTEMPTS = 3
+    READ_BACKOFF_S = (0.5, 1.5)
+
     def _request(self, method: str, path: str, *, params: dict[str, Any] | None = None,
                  body: dict[str, Any] | None = None) -> dict[str, Any]:
+        if method.upper() != "GET":
+            return self._request_once(method, path, params=params, body=body)
+        for attempt in range(self.READ_ATTEMPTS):
+            try:
+                return self._request_once(method, path, params=params, body=body)
+            except HevyAPIError as exc:
+                if not exc.transient or attempt == self.READ_ATTEMPTS - 1:
+                    raise
+                time.sleep(self.READ_BACKOFF_S[min(attempt, len(self.READ_BACKOFF_S) - 1)])
+        raise AssertionError("unreachable")
+
+    def _request_once(self, method: str, path: str, *, params: dict[str, Any] | None = None,
+                      body: dict[str, Any] | None = None) -> dict[str, Any]:
         url = f"{self._base_url}/{path.lstrip('/')}"
         if params:
             url += "?" + urlencode({k: v for k, v in params.items() if v is not None})
@@ -142,16 +165,18 @@ class HevyAPIConnector:
             except Exception:  # noqa: BLE001
                 pass
             suffix = f": {detail}" if detail else ""
-            raise HevyAPIError(f"Hevy API returned HTTP {exc.code}{suffix}") from exc
+            raise HevyAPIError(f"Hevy API returned HTTP {exc.code}{suffix}",
+                               transient=exc.code == 429 or exc.code >= 500) from exc
         except (URLError, TimeoutError) as exc:
             # A POST may have reached Hevy before a timeout. Never retry it here.
-            raise HevyAPIError(f"Hevy API connection failed: {type(exc).__name__}") from exc
+            raise HevyAPIError(f"Hevy API connection failed: {type(exc).__name__}",
+                               transient=True) from exc
         if not raw:
             return {}
         try:
             data = json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise HevyAPIError("Hevy API returned invalid JSON") from exc
+            raise HevyAPIError("Hevy API returned invalid JSON", transient=True) from exc
         if not isinstance(data, dict):
             raise HevyAPIError("Hevy API returned an unexpected payload")
         return data

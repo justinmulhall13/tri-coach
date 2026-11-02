@@ -343,7 +343,7 @@ app/
 
   coach.py           "Coach Steve" agent (chat, event briefs, private memory)
   coaching_contract.py fixed athlete/rules blocks + the one swappable event profile
-  hevy_connector.py  official Hevy REST reads + confirmation-gated routine writes
+  hevy_connector.py  official Hevy REST reads (retried on blips) + single-attempt writes
   hevy_actions.py    exercise resolution, weight provenance, non-retrying creates
   hevy_exercises.py  full-catalogue matching + confirmed custom-template creation
   calendar_agent.py  natural-language calendar assistant
