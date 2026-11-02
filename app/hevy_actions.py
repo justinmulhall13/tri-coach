@@ -1,7 +1,10 @@
 """Validation and explicit-confirmation boundary for Hevy routine writes."""
 from __future__ import annotations
 
+import datetime
 import math
+import threading
+import time
 from typing import Any
 
 from . import hevy_connector
@@ -457,15 +460,24 @@ def create_confirmed_routine(raw: dict[str, Any], *, operation_id: str,
     }
 
 
-def _reps_label(item: dict[str, Any]) -> str:
-    rep_range = item.get("rep_range")
-    if isinstance(rep_range, dict) and rep_range.get("start") is not None:
-        start, end = rep_range.get("start"), rep_range.get("end")
-        return f"{start}-{end}" if end not in (None, start) else str(start)
-    if item.get("reps") is not None:
-        return str(item["reps"])
-    if item.get("duration_seconds") is not None:
-        return f"{item['duration_seconds']}s"
+def _reps_label(sets: list[dict[str, Any]]) -> str:
+    """One reps label across the working sets: "5-6", or "8-12" for a ramp."""
+    reps: list[int] = []
+    seconds: list[int] = []
+    for item in sets:
+        rep_range = item.get("rep_range")
+        if isinstance(rep_range, dict) and rep_range.get("start") is not None:
+            reps += [int(v) for v in (rep_range.get("start"), rep_range.get("end"))
+                     if isinstance(v, (int, float))]
+        elif isinstance(item.get("reps"), (int, float)):
+            reps.append(int(item["reps"]))
+        elif isinstance(item.get("duration_seconds"), (int, float)):
+            seconds.append(int(item["duration_seconds"]))
+    if reps:
+        low, high = min(reps), max(reps)
+        return f"{low}-{high}" if high != low else str(low)
+    if seconds:
+        return f"{min(seconds)}s" if min(seconds) == max(seconds) else f"{min(seconds)}-{max(seconds)}s"
     return ""
 
 
@@ -478,13 +490,75 @@ def routine_summary(routine: dict[str, Any],
     """
     exercises = []
     for exercise in routine.get("exercises") or []:
+        if not isinstance(exercise, dict):
+            continue
         sets = [item for item in exercise.get("sets") or []
                 if isinstance(item, dict) and item.get("type") != "warmup"]
         template_id = str(exercise.get("exercise_template_id") or "")
         exercises.append({
             "title": template_titles.get(template_id) or str(exercise.get("title") or template_id),
             "sets": len(sets),
-            "reps": _reps_label(sets[0]) if sets else "",
+            "reps": _reps_label(sets),
             "rest_seconds": exercise.get("rest_seconds"),
         })
     return {"title": str(routine.get("title") or ""), "exercises": exercises}
+
+
+_SPLIT_SYNC = {"at": None}
+_SPLIT_SYNC_LOCK = threading.Lock()
+
+
+def _instant(value: Any) -> datetime.datetime | None:
+    try:
+        stamp = datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return stamp if stamp.tzinfo else stamp.replace(tzinfo=datetime.timezone.utc)
+
+
+def sync_split_from_routines(*, max_age_s: float = 600, force: bool = False) -> list[str]:
+    """Pull split days the athlete changed in Hevy back into the Lifting tab.
+
+    A Hevy routine named after a split day ("Full Body A") that was saved after
+    the split last changed is the athlete's current version of that day: he
+    edits it in Hevy, often by saving a finished workout back to the routine.
+    The newer side wins, so an edit made on the tab afterwards is not undone.
+    Throttled, and never raises: a Hevy outage just leaves the split as it was.
+    """
+    from . import db, lifting_split, plan  # local: plan imports this module's peers
+
+    now = time.monotonic()
+    with _SPLIT_SYNC_LOCK:
+        last = _SPLIT_SYNC["at"]
+        if not force and last is not None and now - last < max_age_s:
+            return []
+        _SPLIT_SYNC["at"] = now
+    try:
+        if not hevy_connector.status().get("connected"):
+            return []
+        client = hevy_connector.connector()
+        routines = (client.get_routines(page=1, page_size=10) or {}).get("routines") or []
+        stored = db.get_lifting_split()
+        days = stored["days"] if stored else None
+        split_at = _instant((stored or {}).get("updated_at")) if stored else None
+        changed: list[str] = []
+        ordered = sorted((r for r in routines if isinstance(r, dict)),
+                         key=lambda r: str(r.get("updated_at") or ""))
+        for routine in ordered:  # oldest first, so the newest same-named routine wins
+            routine_at = _instant(routine.get("updated_at"))
+            if routine_at is None or (split_at is not None and routine_at <= split_at):
+                continue
+            titles = {str(e.get("exercise_template_id")): str(e.get("title") or "")
+                      for e in routine.get("exercises") or [] if isinstance(e, dict)}
+            applied = lifting_split.apply_routine(days, routine_summary(routine, titles))
+            if applied is None:
+                continue
+            days, slot = applied
+            if slot not in changed:
+                changed.append(slot)
+        if changed:
+            db.save_lifting_split(days, source="hevy")
+            plan.reconcile_seeded_plan()
+        return changed
+    except Exception:  # noqa: BLE001 - the split must still render
+        return []

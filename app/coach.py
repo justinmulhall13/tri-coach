@@ -884,6 +884,7 @@ def _context_block(user_query: str = "") -> str:
             strength=strength,
         )
         payload["todays_lifting_effort"] = effort
+        hevy_actions.sync_split_from_routines()
         payload["lifting_split"] = lifting_split.build(
             (db.get_lifting_split() or {}).get("days"))
         with _EFFORT_LOCK:

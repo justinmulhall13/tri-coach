@@ -92,6 +92,7 @@ class UnavailableHevyConnector:
     create_workout = _unavailable
     create_exercise_template = _unavailable
     all_exercise_templates = _unavailable
+    get_routines = _unavailable
 
 
 class HevyAPIConnector:
@@ -216,6 +217,11 @@ class HevyAPIConnector:
         return self._request("GET", "workouts", params={
             "page": max(1, int(page)),
             "pageSize": max(1, min(10, int(page_size))),
+        })
+
+    def get_routines(self, *, page: int = 1, page_size: int = 10) -> dict[str, Any]:
+        return self._request("GET", "routines", params={
+            "page": max(1, int(page)), "pageSize": max(1, min(int(page_size), 10)),
         })
 
     def get_workout(self, workout_id: str) -> dict[str, Any]:

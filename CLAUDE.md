@@ -645,3 +645,16 @@ match; edited/coach lift rows survive. Gotcha found live: the Lifting tab PUTs
 the WHOLE split from its in-memory copy, so a page loaded before a server-side
 change reverted it. `_saveSplit` now re-GETs the split before replacing its day.
 Tests: `tests/test_split_follows_hevy_create.py`.
+
+## Session 2026-11-02 — split days also follow routines edited IN Hevy
+
+The athlete did Full Body A, changed exercises, and saved the workout back to the
+"Full Body A" routine in Hevy; the split did not follow, since only Coach-created
+routines were mirrored. `hevy_actions.sync_split_from_routines()` (throttled 10 min,
+never raises) reads `GET /routines` and applies any routine named after a split day
+whose `updated_at` is newer than the split's, saves with source "hevy", then
+reconciles seeded lift days. Newer side wins, so a later tab edit is not undone.
+Called from `GET /api/lifting/split` and the Coach context build.
+`routine_summary` reps now span all working sets ("8-12" for a ramp).
+Note: seeded calendar lifts cap sets at the phase dose (`min(e.sets, phase sets)`),
+so a 4-set exercise shows 3 sets in base and 2 in a recovery week, by design.

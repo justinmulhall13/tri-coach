@@ -94,5 +94,40 @@ class CreateRouteSyncTests(unittest.TestCase):
         self.assertIn("Explosive Landmine Press", monday["structure"]["main"])
 
 
+    def _sync_with(self, routines: list[dict]) -> list[str]:
+        class Fake:
+            def status(self):
+                return {"connected": True}
+
+            def get_routines(self, *, page, page_size):
+                return {"routines": routines}
+        with (patch.object(hevy_actions.hevy_connector, "status",
+                           return_value={"connected": True}),
+              patch.object(hevy_actions.hevy_connector, "connector", return_value=Fake())):
+            return hevy_actions.sync_split_from_routines(force=True)
+
+    def test_a_routine_edited_in_hevy_flows_back_to_the_tab(self) -> None:
+        db.save_lifting_split([dict(d) for d in lifting_split.DEFAULT_SPLIT], source="edited")
+        routine = {"title": "Full Body A", "updated_at": "2999-01-01T00:00:00Z", "exercises": [
+            {"exercise_template_id": "rdl", "title": "Single Leg Romanian Deadlift (Dumbbell)",
+             "rest_seconds": 120, "sets": [{"type": "normal", "reps": 10}] * 2},
+            {"exercise_template_id": "calf", "title": "Calf Extension (Machine)",
+             "rest_seconds": 60, "sets": [{"type": "normal", "reps": r} for r in (8, 10, 12)]},
+        ]}
+        self.assertEqual(self._sync_with([routine]), ["full_a"])
+        stored = db.get_lifting_split()
+        self.assertEqual(stored["source"], "hevy")
+        self.assertEqual([(e["title"], e["sets"], e["reps"]) for e in stored["days"][0]["exercises"]],
+                         [("Single Leg Romanian Deadlift (Dumbbell)", 2, "10"),
+                          ("Calf Extension (Machine)", 3, "8-12")])
+
+    def test_a_tab_edit_newer_than_the_routine_is_kept(self) -> None:
+        db.save_lifting_split([dict(d) for d in lifting_split.DEFAULT_SPLIT], source="edited")
+        old = {"title": "Full Body A", "updated_at": "2000-01-01T00:00:00Z", "exercises": [
+            {"exercise_template_id": "x", "title": "Old Thing", "sets": [{"type": "normal", "reps": 5}]}]}
+        self.assertEqual(self._sync_with([old]), [])
+        self.assertEqual(db.get_lifting_split()["source"], "edited")
+
+
 if __name__ == "__main__":
     unittest.main()

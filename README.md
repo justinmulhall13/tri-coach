@@ -209,8 +209,9 @@ shower or commute buffers.
 
 The current Full Body A / B / C split comes first and can be edited in place or
 changed through Coach. A routine created in Hevy from a Coach card and named after
-a split day ("Full Body A") replaces that day on the tab, and the calendar's
-upcoming lift days are regenerated to match. Every day the coach designs follows the athlete's shoulder defaults in
+a split day ("Full Body A") replaces that day on the tab, and so does a routine
+edited in Hevy itself (for example by saving a finished workout back to it): the
+newer of the two wins. The calendar's upcoming lift days are regenerated to match. Every day the coach designs follows the athlete's shoulder defaults in
 code (one press per session, triceps isolation allowed, no face pulls), and the
 leg load falls through the week: heavy A on Monday after the long run, unilateral
 B on Wednesday before the run quality day, light plyometric C on Friday before

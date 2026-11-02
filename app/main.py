@@ -673,7 +673,8 @@ def lifting_stats_view() -> JSONResponse:
 
 @app.get("/api/lifting/split")
 def lifting_split_view() -> JSONResponse:
-    """The active four-day split, validated, with its reasoning attached."""
+    """The active split, validated, with its reasoning attached."""
+    hevy_actions.sync_split_from_routines()
     stored = db.get_lifting_split()
     payload = lifting_split.build(stored["days"] if stored else None)
     payload["source"] = stored["source"] if stored else "default"
