@@ -1145,11 +1145,37 @@ def _extract_hevy_routine(text: str) -> tuple[dict[str, Any] | None, dict[str, A
     return routine, notes
 
 
+def _card_names(notes: dict[str, Any] | None) -> tuple[dict[str, str], dict[str, str]]:
+    """Template id -> display title (and muscle group) for a proposal card.
+
+    The validated routine carries only template ids for resolved exercises, so
+    every name on the card has to come from somewhere the server trusts:
+
+    * ``catalog_titles`` — the whole cached Hevy catalogue (may be empty if cold)
+    * ``history_titles`` — exercises from recent logged workouts
+    * ``notes["resolution"]`` — one report per exercise resolved this turn, each
+      with ``exercise_template_id`` and ``matched_title`` (the catalogue name
+      the requested title matched) or ``title`` (what the model asked for)
+    """
+    catalog_titles, catalog_muscles = hevy_connector.catalog_names()
+    history_titles, history_muscles = hevy_connector.known_exercises()
+    reports = [r for r in ((notes or {}).get("resolution") or []) if isinstance(r, dict)]
+    muscles = {**history_muscles, **catalog_muscles}
+    # Hevy's own name wins, because that is what the athlete will see in Hevy;
+    # the model's requested title is only a fallback when Hevy offers none.
+    requested = {str(r["exercise_template_id"]): str(r["title"])
+                 for r in reports if r.get("exercise_template_id") and r.get("title")}
+    matched = {str(r["exercise_template_id"]): str(r["matched_title"])
+               for r in reports if r.get("exercise_template_id") and r.get("matched_title")}
+    titles = {**requested, **history_titles, **catalog_titles, **matched}
+    return titles, muscles
+
+
 def _hevy_routine_view(routine: dict[str, Any],
                        notes: dict[str, Any] | None = None) -> dict[str, Any] | None:
     """Build the chat card model for a proposed routine, never raising."""
     try:
-        titles, muscles = hevy_connector.known_exercises()
+        titles, muscles = _card_names(notes)
         with _EFFORT_LOCK:
             fresh = _EFFORT_CACHE.get("date") == config.local_today().isoformat()
             effort = _EFFORT_CACHE.get("data") if fresh else None

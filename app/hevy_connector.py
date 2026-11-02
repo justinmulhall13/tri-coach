@@ -487,6 +487,36 @@ def known_exercises() -> tuple[dict[str, str], dict[str, str]]:
     return titles, muscles
 
 
+def catalog_names() -> tuple[dict[str, str], dict[str, str]]:
+    """Titles and muscle groups for every template in the CACHED catalogue.
+
+    ``known_exercises`` only covers recent history, so a proposal containing a
+    movement the athlete has never logged had no name to show and rendered as
+    "Exercise 2". Resolution has usually just warmed the catalogue, so this
+    reads it without making a request; a cold cache returns empty maps.
+    """
+    titles: dict[str, str] = {}
+    muscles: dict[str, str] = {}
+    try:
+        client = connector()
+    except Exception:  # noqa: BLE001 - naming a card must never fail a reply
+        return titles, muscles
+    lock = getattr(client, "_catalog_lock", None)
+    if lock is None:
+        return titles, muscles
+    with lock:
+        catalog = list(getattr(client, "_template_catalog", None) or [])
+    for template in catalog:
+        if not isinstance(template, dict) or not template.get("id"):
+            continue
+        template_id = str(template["id"])
+        if template.get("title"):
+            titles[template_id] = str(template["title"])
+        if template.get("primary_muscle_group"):
+            muscles[template_id] = str(template["primary_muscle_group"])
+    return titles, muscles
+
+
 def connector() -> HevyConnector:
     """The active Hevy connector, built from the environment on first use.
 

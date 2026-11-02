@@ -582,3 +582,16 @@ SAME race. A different race still goes through stage + activate.
 `swim_goal_per_100m`, `bike_hr_bpm`) and writes explicit paces such as
 "4:41/km" so `garmin_workout._stated_pace` targets them on the watch. With no
 goal set, no pace appears.
+
+
+## Session 2026-11-02 — Hevy cards showed "Exercise N"
+
+`validate_routine` keeps only `exercise_template_id` for a resolved exercise
+(the Hevy POST must not carry a title), and `_hevy_routine_view` named exercises
+from `known_exercises()` — recent history only, in a cache warmed by lifting
+turns. Never-logged movements rendered as `Exercise N`; a cold cache blanked them
+all. `coach._card_names` now merges, lowest to highest priority: the model's
+requested title, history, `hevy_connector.catalog_names()` (cached catalogue, no
+request), and the resolver's `matched_title`. `tests/test_hevy_card_names.py`.
+When the card was blank, Steve invented an explanation ("the old stored
+session"); it cannot see the card, so treat such claims as unreliable.

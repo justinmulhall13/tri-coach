@@ -524,6 +524,13 @@ A few problems here were more interesting than they first look:
   selects the candidate pool and spacing only breaks ties among days that cost
   the same, and race day is unusable at any price.
 
+- **A valid routine can still render as "Exercise 2".** Once an exercise
+  resolves to a Hevy template id, the API payload carries only the id, and the
+  chat card named it from recent workout history. Any movement never logged
+  before showed as a numbered placeholder, and after a restart every exercise
+  did. The card now names exercises from the resolver's matched title and the
+  cached catalogue first, so it shows the name Hevy will actually save.
+
 - **Classification that respects intent.** A Peloton stretch syncs from Garmin as
   `strength_training`; counting it as a completed strength lift is wrong, so
   mobility/yoga/stretch work is reclassified to its own category and never
