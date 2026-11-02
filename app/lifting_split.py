@@ -109,9 +109,10 @@ DEFAULT_SPLIT: tuple[dict[str, Any], ...] = (
                 "single-leg balance, not damage. No press: the shoulder gets a "
                 "pressing-free day every week, and rear delt work balances the swim."),
         "exercises": (
-            _ex("Box Jump", 4, "3", 90, "power / elasticity",
-                "Low reps, full recovery. Trains tendon stiffness, which is free "
-                "running economy, and creates almost no muscle damage."),
+            _ex("Trap Bar Jump", 4, "3", 90, "power / elasticity",
+                "Light load, low reps, full recovery. Trains rate of force and "
+                "tendon stiffness, which is free running economy, with almost no "
+                "muscle damage. Chosen over box jumps at the athlete's request."),
             _ex("Dumbbell Row", 3, "8-10", 120, "horizontal pull",
                 "Mid-back strength that holds posture in the aero bars and late in "
                 "the run."),

@@ -87,6 +87,7 @@ class RunnerSpecificTests(unittest.TestCase):
         # A (Monday) is heaviest; C (Friday, before the long ride) is plyometric.
         friday = " ".join(e["title"].lower() for e in self.lower[-1]["exercises"])
         self.assertIn("jump", friday)
+        self.assertNotIn("box jump", friday)   # the athlete does not want box jumps
         self.assertNotIn("squat", friday)
 
     def test_the_week_includes_eccentric_hamstring_work(self) -> None:

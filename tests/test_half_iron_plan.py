@@ -168,7 +168,7 @@ class HalfIronBlockTests(unittest.TestCase):
         for date, lift in self.lifts.items():
             titles = [part.split(" — ")[0] for part in lift["structure"]["main"].split("; ")]
             violations = lifting_rules.check([{"title": t} for t in titles])
-            # Recovery weeks drop the box jumps, so exercise count may be five.
+            # Recovery weeks drop the jumps, so exercise count may be five.
             injury = [v for v in violations if v.get("rule") != "exercise_count"]
             self.assertEqual(injury, [], date)
 
