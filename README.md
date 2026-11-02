@@ -130,6 +130,9 @@ finish-line celebration and then returns to its normal event-driven behavior.
 Replies stream into the conversation as Steve writes them. While fresh Garmin
 context is being assembled, a compact glowing-avatar and bouncing-dot state keeps
 the composer stable and makes the wait explicit without blocking the rest of the UI.
+Long asks (a full strength block, a reshaped month) never come back cut off: thinking
+and the visible reply share one output budget, so a reply that hits it is retried
+with double the room (32K, 64K, then 128K tokens) and only the finished answer is shown.
 The composer also has microphone dictation on browsers that expose the Web Speech
 API. Interim words appear in the normal message box, and the athlete reviews and
 sends the transcript explicitly; stopping dictation never auto-submits a coaching

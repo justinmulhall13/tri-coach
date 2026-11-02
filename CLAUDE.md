@@ -595,3 +595,15 @@ requested title, history, `hevy_connector.catalog_names()` (cached catalogue, no
 request), and the resolver's `matched_title`. `tests/test_hevy_card_names.py`.
 When the card was blank, Steve invented an explanation ("the old stored
 session"); it cannot see the card, so treat such claims as unreliable.
+
+## Session 2026-11-02 — truncated coach replies
+
+Adaptive thinking spends from the same `max_tokens` as the visible reply, so with
+the old 8000-token chat budget a long prompt (a full strength-block spec) used up
+the budget thinking and came back empty, and the coach said "I ran long on that
+one — ask me to continue". `chat_events` now starts at `_CHAT_MAX_TOKENS` (32000)
+and on `stop_reason == "max_tokens"` retries with `_budgets()` doubling to the
+128000 ceiling; `_stream_reply` (briefs, activity detail) does the same. The UI only
+renders the final `done` reply, so discarded partial deltas never show. Prefill
+is rejected on Sonnet 5, which is why this retries instead of continuing. The
+"ask me to continue" fallback is gone; `tests/test_coach_truncation.py` pins it.

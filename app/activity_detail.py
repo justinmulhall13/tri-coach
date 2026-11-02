@@ -245,7 +245,7 @@ def analyze(activity_id: int) -> dict[str, Any]:
     messages = [{"role": "user", "content":
                  f"<context>\n{context}\n</context>\n\n<activity>\n{json.dumps(slim, default=str)}\n</activity>\n\n{_analyze_prompt()}"}]
     try:
-        msg = coach._stream_reply(3000, messages)
+        msg = coach._stream_reply(8000, messages)
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
     text = "".join(b.text for b in msg.content if b.type == "text").strip()

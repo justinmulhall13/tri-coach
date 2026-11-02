@@ -473,20 +473,40 @@ def _message_kwargs(max_tokens: int, messages: list[dict[str, Any]], *,
     return kwargs
 
 
+# Adaptive thinking spends from the same max_tokens as the visible reply, so a
+# long prompt can exhaust a small budget before any text arrives. A truncated
+# reply is retried with the next budget rather than shown to the athlete.
+_MAX_OUTPUT_TOKENS = 128000
+
+
+def _budgets(start: int) -> list[int]:
+    """Escalating output budgets: start, then doubling up to the model ceiling."""
+    budgets = [min(start, _MAX_OUTPUT_TOKENS)]
+    while budgets[-1] < _MAX_OUTPUT_TOKENS:
+        budgets.append(min(budgets[-1] * 2, _MAX_OUTPUT_TOKENS))
+    return budgets
+
+
 def _stream_reply(max_tokens: int, messages: list[dict[str, Any]]) -> Any:
-    """Stream a completion with a retry on transient network/streaming errors."""
+    """Stream a completion, retrying transient errors and truncated replies."""
     client = _anthropic_client()
+    budgets = _budgets(max_tokens)
     last: Exception | None = None
-    for _ in range(3):
+    transient_retries = 0
+    while True:
         try:
-            with client.messages.stream(**_message_kwargs(max_tokens, messages)) as stream:
-                return stream.get_final_message()
+            with client.messages.stream(**_message_kwargs(budgets[0], messages)) as stream:
+                msg = stream.get_final_message()
         except Exception as e:  # noqa: BLE001
             last = e
-            if type(e).__name__ in _TRANSIENT:
+            if type(e).__name__ in _TRANSIENT and transient_retries < 2:
+                transient_retries += 1
                 continue
             raise
-    raise last  # type: ignore[misc]
+        if msg.stop_reason == "max_tokens" and len(budgets) > 1:
+            budgets.pop(0)
+            continue
+        return msg
 
 
 def invalidate_context_cache() -> None:
@@ -1823,8 +1843,6 @@ def _finish_chat(user_message: str, today: str, msg: Any, *,
             reply_clean = "Here's the change — accept it below to lock it in."
         elif hevy_routine:
             reply_clean = "Review this lifting routine, then confirm the Hevy create below."
-        elif msg.stop_reason == "max_tokens":
-            reply_clean = "I ran long on that one — ask me to continue and I'll finish the thought."
         else:
             reply_clean = "Got it."
 
@@ -1894,6 +1912,9 @@ def _public_chat_failure(error: Exception | None) -> dict[str, Any]:
     }
 
 
+_CHAT_MAX_TOKENS = 32000
+
+
 def chat_events(user_message: str,
                 log_as_constraint: bool = False) -> Iterator[dict[str, Any]]:
     """Yield status/text/final events so the UI can render the answer immediately."""
@@ -1933,11 +1954,13 @@ def chat_events(user_message: str,
         return
     first_token_ms: int | None = None
     last: Exception | None = None
-    for attempt in range(3):
+    budgets = _budgets(_CHAT_MAX_TOKENS)
+    transient_retries = 0
+    while True:
         sent_text = False
         try:
             with client.messages.stream(
-                **_message_kwargs(8000, messages, enable_web=enable_web)
+                **_message_kwargs(budgets[0], messages, enable_web=enable_web)
             ) as stream:
                 for text in stream.text_stream:
                     if not text:
@@ -1947,6 +1970,12 @@ def chat_events(user_message: str,
                         first_token_ms = round((time.monotonic() - started_at) * 1000)
                     yield {"type": "delta", "text": text.replace("—", "-")}
                 msg = stream.get_final_message()
+            if msg.stop_reason == "max_tokens" and len(budgets) > 1:
+                # The UI renders only the final reply, so the partial draft is
+                # simply replaced by the complete one.
+                budgets.pop(0)
+                yield {"type": "status", "message": "Still working through that"}
+                continue
             result = _finish_chat(user_message, today, msg, web_enabled=enable_web)
             result["timing_ms"] = {
                 "context": context_ms,
@@ -1957,7 +1986,8 @@ def chat_events(user_message: str,
             return
         except Exception as e:  # noqa: BLE001
             last = e
-            if type(e).__name__ in _TRANSIENT and not sent_text and attempt < 2:
+            if type(e).__name__ in _TRANSIENT and not sent_text and transient_retries < 2:
+                transient_retries += 1
                 yield {"type": "status", "message": "Connection hiccup — retrying"}
                 continue
             break
@@ -2049,7 +2079,7 @@ def morning_brief() -> dict[str, Any]:
     messages = [{"role": "user",
                  "content": f"<context>\n{context}\n</context>\n\n{instruction}"}]
     try:
-        msg = _stream_reply(5000, messages)
+        msg = _stream_reply(16000, messages)
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}", "source": "anthropic"}
 
