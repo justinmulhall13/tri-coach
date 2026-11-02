@@ -607,3 +607,14 @@ and on `stop_reason == "max_tokens"` retries with `_budgets()` doubling to the
 renders the final `done` reply, so discarded partial deltas never show. Prefill
 is rejected on Sonnet 5, which is why this retries instead of continuing. The
 "ask me to continue" fallback is gone; `tests/test_coach_truncation.py` pins it.
+
+## Session 2026-11-02 — the athlete overrides the shoulder rules
+
+The coach refused "explosive landmine press + incline DB bench" as two presses and
+kept refusing after "just run the one I told you". The athlete's position: his
+shoulder is his problem. The shoulder rules are now DEFAULTS for sessions the coach
+designs or rebuilds unprompted; an explicit athlete request is built exactly as
+asked, with no refusal, swap, warning or "your call" flag. Nothing in code ever
+blocked the Hevy create (the rules only annotate the card), so this was a prompt
+change in `_SYSTEM`; `tests/test_athlete_lift_override.py` pins it. Do not
+reintroduce "never negotiable".

@@ -208,7 +208,7 @@ shower or commute buffers.
 ### Lifting
 
 The current Full Body A / B / C split comes first and can be edited in place or
-changed through Coach. Every day enforces the athlete's shoulder constraints in
+changed through Coach. Every day the coach designs follows the athlete's shoulder defaults in
 code (one press per session, triceps isolation allowed, no face pulls), and the
 leg load falls through the week: heavy A on Monday after the long run, unilateral
 B on Wednesday before the run quality day, light plyometric C on Friday before
@@ -412,6 +412,10 @@ A few problems here were more interesting than they first look:
   remark about triceps as a second rule when it was emphasis on the first —
   over-constraining is its own failure mode, and it took the athlete correcting it
   to notice. Rules like these are worth reading back to the person before encoding.
+  The last correction went further: the coach refused a session the athlete asked
+  for by name (two presses) and kept refusing after "just run the one I told you".
+  The rules now shape what the coach designs on its own; an explicit request from
+  the athlete is built exactly as asked, without a warning. It's his shoulder.
 
 - **"Not found" usually means "looked in the wrong place".** The coach kept
   reporting that ordinary exercises had no Hevy template and quietly shipping a

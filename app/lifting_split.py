@@ -22,7 +22,7 @@ The three days differ on purpose, and their order follows the week:
   single-leg work — because Saturday is the long ride. It also carries no
   press, which gives the shoulder a day off from pressing every week.
 
-**The shoulder is an injury constraint.** One press per session, six exercises,
+**The shoulder rules are the default for these days.** One press per session, six exercises,
 no group twice in a row, no face pulls. Every day here is checked against
 ``lifting_rules`` rather than trusted to have been written correctly.
 
