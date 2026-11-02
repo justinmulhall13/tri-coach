@@ -630,3 +630,18 @@ writes stay single-attempt. `HevyAPIError.transient` marks what is retryable.
 When the create response is `retry_safe` with no `partial_write`, the card
 re-enables as "Try again" instead of locking on "Create status unknown".
 `tests/test_hevy_read_retry.py` pins both.
+
+## Session 2026-11-02 — Lifting tab follows routines created from Coach
+
+Creating "Full Body A" in Hevy from a Coach card did not change the Lifting tab.
+Now `create_confirmed_routine` returns a `summary` (template titles from the
+verification GETs, working-set count, reps label, rest), and the
+`/api/integrations/hevy/routines` route calls `lifting_split.apply_routine`: a
+routine whose title contains a split day's name replaces that day's exercises
+(kept exercises keep role/why; focus/why of the day stay), saved with
+source "coach", response `split_updated: <slot>`. Any split change (PUT, DELETE,
+coach sync) then runs `plan.reconcile_seeded_plan()` so seeded calendar lift days
+match; edited/coach lift rows survive. Gotcha found live: the Lifting tab PUTs
+the WHOLE split from its in-memory copy, so a page loaded before a server-side
+change reverted it. `_saveSplit` now re-GETs the split before replacing its day.
+Tests: `tests/test_split_follows_hevy_create.py`.

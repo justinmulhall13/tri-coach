@@ -355,6 +355,7 @@ def create_confirmed_routine(raw: dict[str, Any], *, operation_id: str,
                 "created_exercises": created_exercises,
             }
         verified = []
+        template_titles: dict[str, str] = {}
         for exercise in routine["exercises"]:
             template_id = exercise["exercise_template_id"]
             payload = client.get_exercise_template(template_id)
@@ -367,6 +368,7 @@ def create_confirmed_routine(raw: dict[str, Any], *, operation_id: str,
                     "created": False,
                 }
             verified.append(template_id)
+            template_titles[template_id] = str(template.get("title") or "").strip()
         weighted_sets = [
             (exercise["exercise_template_id"], item)
             for exercise in routine["exercises"]
@@ -451,4 +453,38 @@ def create_confirmed_routine(raw: dict[str, Any], *, operation_id: str,
         "verified_template_ids": verified,
         "resolution": reports,
         "created_exercises": created_exercises,
+        "summary": routine_summary(routine, template_titles),
     }
+
+
+def _reps_label(item: dict[str, Any]) -> str:
+    rep_range = item.get("rep_range")
+    if isinstance(rep_range, dict) and rep_range.get("start") is not None:
+        start, end = rep_range.get("start"), rep_range.get("end")
+        return f"{start}-{end}" if end not in (None, start) else str(start)
+    if item.get("reps") is not None:
+        return str(item["reps"])
+    if item.get("duration_seconds") is not None:
+        return f"{item['duration_seconds']}s"
+    return ""
+
+
+def routine_summary(routine: dict[str, Any],
+                    template_titles: dict[str, str]) -> dict[str, Any]:
+    """The created routine in split-day shape: title, sets, reps, rest.
+
+    Lets the Lifting tab mirror exactly what went to Hevy. Warm-up sets are
+    not working sets, so they are not counted.
+    """
+    exercises = []
+    for exercise in routine.get("exercises") or []:
+        sets = [item for item in exercise.get("sets") or []
+                if isinstance(item, dict) and item.get("type") != "warmup"]
+        template_id = str(exercise.get("exercise_template_id") or "")
+        exercises.append({
+            "title": template_titles.get(template_id) or str(exercise.get("title") or template_id),
+            "sets": len(sets),
+            "reps": _reps_label(sets[0]) if sets else "",
+            "rest_seconds": exercise.get("rest_seconds"),
+        })
+    return {"title": str(routine.get("title") or ""), "exercises": exercises}

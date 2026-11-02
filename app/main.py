@@ -215,6 +215,32 @@ def hevy_exercise_template_search(q: str = "") -> JSONResponse:
     return JSONResponse({"query": query, "exercise_templates": templates[:25]})
 
 
+def _refresh_planned_lifts() -> None:
+    """Re-seed generated lift days so the calendar matches the changed split.
+
+    Days the athlete edited are left alone by the reconcile.
+    """
+    try:
+        plan.reconcile_seeded_plan()
+    except Exception as exc:  # noqa: BLE001 - the split itself is already saved
+        print(f"[split] planned-lift refresh skipped: {exc}")
+
+
+def _sync_split_from_routine(summary: Any) -> str | None:
+    """Mirror a created routine named after a split day onto the Lifting tab."""
+    try:
+        stored = db.get_lifting_split()
+        applied = lifting_split.apply_routine(stored["days"] if stored else None, summary)
+        if applied is None:
+            return None
+        days, slot = applied
+        db.save_lifting_split(days, source="coach")
+        _refresh_planned_lifts()
+        return slot
+    except Exception:  # noqa: BLE001 - the Hevy create already succeeded
+        return None
+
+
 @app.post("/api/integrations/hevy/routines")
 def hevy_create_routine(body: dict = Body(default={})) -> JSONResponse:
     """Create one proposed routine only after explicit athlete confirmation.
@@ -245,6 +271,7 @@ def hevy_create_routine(body: dict = Body(default={})) -> JSONResponse:
         routine, operation_id=operation_id, confirmed=True,
     )
     if result.get("created"):
+        result["split_updated"] = _sync_split_from_routine(result.get("summary"))
         return JSONResponse(result)
     status_code = 502 if result.get("retry_safe") is False else 400
     if not hevy_connector.status().get("connected"):
@@ -668,6 +695,7 @@ def lifting_split_save(body: dict = Body(default={})) -> JSONResponse:
         stored = db.save_lifting_split(days, source=str(body.get("source") or "edited"))
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
+    _refresh_planned_lifts()
     payload = lifting_split.build(stored["days"])
     payload["source"] = stored["source"]
     payload["updated_at"] = stored["updated_at"]
@@ -676,7 +704,9 @@ def lifting_split_save(body: dict = Body(default={})) -> JSONResponse:
 
 @app.delete("/api/lifting/split")
 def lifting_split_reset() -> JSONResponse:
-    return JSONResponse({"ok": True, "reset": db.reset_lifting_split()})
+    reset = db.reset_lifting_split()
+    _refresh_planned_lifts()
+    return JSONResponse({"ok": True, "reset": reset})
 
 
 def _reps_to_sets(exercise: dict, count: int) -> list[dict]:

@@ -32,6 +32,7 @@ already uses, so this file stays readable and does not rot when ids change.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from . import lifting_rules
@@ -228,3 +229,39 @@ def build(days: Any = None) -> dict[str, Any]:
             "One press per session, six exercises, no group twice in a row, no face pulls.",
         ],
     }
+
+
+def apply_routine(days: Any, summary: Any) -> tuple[list[dict[str, Any]], str] | None:
+    """Replace the split day a created Hevy routine is named after.
+
+    A routine called "Full Body A" built in Coach is the athlete's new Full
+    Body A, so the Lifting tab must show it. Returns the updated days and the
+    slot changed, or None when the routine is not named after a split day.
+    Focus and reasoning stay; an exercise kept from the old day keeps its
+    role and why.
+    """
+    if not isinstance(summary, dict) or not summary.get("exercises"):
+        return None
+    title = str(summary.get("title") or "")
+    source = [dict(d) for d in (days if isinstance(days, (list, tuple)) and days
+                                else DEFAULT_SPLIT) if isinstance(d, dict)]
+    for index, day in enumerate(source):
+        name = str(day.get("name") or "").strip()
+        if not name or not re.search(rf"(?<!\w){re.escape(name)}(?!\w)", title, re.IGNORECASE):
+            continue
+        previous = {str(e.get("title") or "").casefold(): e
+                    for e in day.get("exercises") or [] if isinstance(e, dict)}
+        exercises = []
+        for item in summary["exercises"]:
+            old = previous.get(str(item.get("title") or "").casefold(), {})
+            exercises.append({
+                "title": item.get("title"),
+                "sets": item.get("sets") or old.get("sets") or 3,
+                "reps": item.get("reps") or old.get("reps") or "",
+                "rest_seconds": item.get("rest_seconds") or old.get("rest_seconds"),
+                "role": old.get("role", ""),
+                "why": old.get("why", ""),
+            })
+        source[index] = {**day, "exercises": exercises}
+        return source, str(day.get("slot") or "")
+    return None

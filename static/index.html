@@ -3370,7 +3370,9 @@ function addHevyRoutine(routine,operationId,view){
         body:JSON.stringify({routine,operation_id:operation,confirmed:true})});
       if(r&&r.created){
         btn.textContent="✓ Created in Hevy";
-        status.textContent="Routine created once. Open Hevy to review it.";
+        status.textContent="Routine created once. Open Hevy to review it."
+          +(r.split_updated?" Your Lifting tab split now uses this session.":"");
+        if(r.split_updated){ try{ renderLiftSplit(); }catch(e){} }
       }else{
         const detail=(r&&Array.isArray(r.details)&&r.details.length&&r.details[0].reason)
           ? ` (${r.details[0].reason})` : "";
@@ -4085,7 +4087,10 @@ function _splitEditedDay(){
 }
 async function _saveSplit(edited){
   // The whole split is sent, with this day replaced, so the stored shape always
-  // matches what the tab renders.
+  // matches what the tab renders. Re-read it first: Coach may have changed
+  // another day (a routine created in Hevy) since this page loaded, and the
+  // stale copy would quietly put the old day back.
+  try{ _splitData=await j("/api/lifting/split"); }catch(e){}
   const days=((_splitData||{}).days||[]).map(d=>
     String(d.slot)===String(edited.slot)?edited:d).map(d=>({
       slot:d.slot, name:d.name, focus:d.focus, why:d.why,
