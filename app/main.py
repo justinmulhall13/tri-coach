@@ -846,6 +846,26 @@ def plan_revert(history_id: int) -> JSONResponse:
     return JSONResponse({"ok": True, "day": reverted})
 
 
+@app.post("/api/plan/undo")
+def plan_undo(body: dict = Body(...)) -> JSONResponse:
+    """Undo one Coach change: revert every history row it wrote, newest first."""
+    ids = body.get("history_ids")
+    if (not isinstance(ids, list) or not ids
+            or any(isinstance(i, bool) or not isinstance(i, int) for i in ids)):
+        return JSONResponse({"error": "history_ids must be a list of ids"}, status_code=400)
+    restored = []
+    for history_id in sorted(set(ids), reverse=True):
+        day = db.revert_plan_history(history_id)
+        if day:
+            restored.append(day.get("date"))
+    if not restored:
+        return JSONResponse({"error": "nothing to undo"}, status_code=404)
+    db.set_meta("brief_sig", "")
+    coach.invalidate_context_cache()
+    _bg_sync()
+    return JSONResponse({"ok": True, "dates": sorted(set(restored))})
+
+
 # --- Completions / constraints ------------------------------------------------
 @app.post("/api/completions")
 def add_completion(body: dict = Body(...)) -> JSONResponse:
@@ -1071,6 +1091,8 @@ def coach_chat(body: dict = Body(...)) -> JSONResponse:
     if not message:
         return JSONResponse({"error": "message is required"}, status_code=400)
     result = coach.chat(message, log_as_constraint=bool(body.get("log_as_constraint")))
+    if (result.get("applied_change") or {}).get("ok"):
+        _bg_sync()
     status = 502 if result.get("error") else 200
     return JSONResponse(result, status_code=status)
 
@@ -1085,6 +1107,9 @@ def coach_chat_stream(body: dict = Body(...)):
     def lines():
         for event in coach.chat_events(
                 message, log_as_constraint=bool(body.get("log_as_constraint"))):
+            if (event.get("type") == "done"
+                    and ((event.get("result") or {}).get("applied_change") or {}).get("ok")):
+                _bg_sync()
             yield json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n"
 
     return StreamingResponse(
@@ -1203,10 +1228,71 @@ def nutrition_day() -> JSONResponse:
 
 @app.post("/api/nutrition/log")
 def nutrition_log(body: dict = Body(...)) -> JSONResponse:
+    """Log a food. The form sends structured per-serving values (`name` plus
+    macros); a free-text line with explicit macros still works."""
+    if "name" in body:
+        result = nutrition.log_entry(body)
+        return JSONResponse(result, status_code=400 if result.get("error") else 200)
     text = (body.get("text") or "").strip()
     if not text:
         return JSONResponse({"error": "text is required"}, status_code=400)
     result = nutrition.log_food(text)
+    return JSONResponse(result, status_code=502 if result.get("error") else 200)
+
+
+@app.get("/api/nutrition/foods")
+def nutrition_foods() -> JSONResponse:
+    return JSONResponse({"foods": db.list_foods(100)})
+
+
+@app.post("/api/nutrition/foods/{food_id}/log")
+def nutrition_food_log(food_id: int, body: dict = Body(default={})) -> JSONResponse:
+    result = nutrition.log_saved_food(food_id, body.get("servings") or 1, body.get("meal") or "")
+    return JSONResponse(result, status_code=200 if result.get("ok") else 404
+                        if "no longer" in str(result.get("error")) else 400)
+
+
+@app.post("/api/nutrition/foods/{food_id}/favorite")
+def nutrition_food_favorite(food_id: int, body: dict = Body(default={})) -> JSONResponse:
+    ok = db.set_food_favorite(food_id, bool(body.get("favorite", True)))
+    return JSONResponse({"ok": ok, "foods": db.list_foods(100)}, status_code=200 if ok else 404)
+
+
+@app.delete("/api/nutrition/foods/{food_id}")
+def nutrition_food_delete(food_id: int) -> JSONResponse:
+    ok = db.delete_food(food_id)
+    return JSONResponse({"ok": ok, "foods": db.list_foods(100)}, status_code=200 if ok else 404)
+
+
+@app.post("/api/nutrition/water")
+def nutrition_water(body: dict = Body(default={})) -> JSONResponse:
+    ml = body.get("ml")
+    if isinstance(ml, bool) or not isinstance(ml, (int, float)) or not 0 < ml <= 3000:
+        return JSONResponse({"error": "ml must be between 1 and 3000"}, status_code=400)
+    db.add_water(config.local_today().isoformat(), int(round(ml)))
+    return JSONResponse({"ok": True, "day": nutrition.get_day()})
+
+
+@app.delete("/api/nutrition/water/last")
+def nutrition_water_undo() -> JSONResponse:
+    ok = db.undo_water(config.local_today().isoformat())
+    return JSONResponse({"ok": ok, "day": nutrition.get_day()})
+
+
+@app.get("/api/nutrition/week")
+def nutrition_week() -> JSONResponse:
+    return JSONResponse(nutrition.week_summary())
+
+
+@app.post("/api/nutrition/label")
+def nutrition_label(body: dict = Body(...)) -> JSONResponse:
+    """Read a nutrition-facts photo into the log form. Nothing is saved here."""
+    img = body.get("image_b64")
+    if not img or not isinstance(img, str):
+        return JSONResponse({"error": "image_b64 is required"}, status_code=400)
+    if len(img) > 7_000_000:
+        return JSONResponse({"error": "image is too large"}, status_code=413)
+    result = nutrition.read_label(img, body.get("media_type") or "image/jpeg")
     return JSONResponse(result, status_code=502 if result.get("error") else 200)
 
 
@@ -1479,7 +1565,7 @@ def service_worker() -> FileResponse:
 def manifest() -> JSONResponse:
     return JSONResponse({
         "name": "Training", "short_name": "Training", "start_url": "/",
-        "display": "standalone", "background_color": "#080b10", "theme_color": "#080b10",
+        "display": "standalone", "background_color": "#0b0b0b", "theme_color": "#0b0b0b",
         "icons": [{"src": "/static/icon.png", "sizes": "512x512", "type": "image/png",
                    "purpose": "any maskable"}],
     }, media_type="application/manifest+json")

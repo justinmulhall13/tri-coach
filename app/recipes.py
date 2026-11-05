@@ -293,9 +293,11 @@ def _search_sources(query: str, day: dict[str, Any] | None, limit: int) -> list[
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY, max_retries=2)
     message = client.messages.create(
         model=config.FAST_MODEL,
-        max_tokens=800,
+        max_tokens=4000,
+        output_config={"effort": "low"},
         messages=[{"role": "user", "content": prompt}],
-        tools=[web_lookup.tool_definition(max_uses=3, allowed_domains=RECIPE_DOMAINS)],
+        tools=[web_lookup.tool_definition(max_uses=3, allowed_domains=RECIPE_DOMAINS,
+                                          dynamic=False)],
     )
     return web_lookup.citation_sources(message)
 

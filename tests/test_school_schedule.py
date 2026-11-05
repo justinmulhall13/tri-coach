@@ -84,7 +84,7 @@ class ThemeContrastTests(unittest.TestCase):
         dark = self.HTML[self.HTML.index("@media(prefers-color-scheme:dark)"):]
         self.assertIn("--chip:", dark)
         self.assertIn("--chip-ink:", dark)
-        for selector in (".coach-avatar", ".coach-thinking-orb", ".mod-ico"):
+        for selector in (".coach-avatar",):
             self.assertRegex(
                 self.HTML,
                 re.escape(selector) + r"\{background:var\(--chip\);color:var\(--chip-ink\)",

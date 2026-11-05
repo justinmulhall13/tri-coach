@@ -16,6 +16,20 @@ from . import baselines, config, fitness_trend, garmin_source, rings
 _RANK = {"high": 0, "warn": 1, "info": 2, "good": 3}
 
 
+
+
+def _n(v):
+    """A marker value without a trailing .0 (42.0 ms reads as 42 ms)."""
+    return int(round(v)) if isinstance(v, (int, float)) else v
+
+
+def _hm(hours):
+    """Hours as h:mm (7.77 h is 7:46)."""
+    if not isinstance(hours, (int, float)):
+        return hours
+    m = int(round(hours * 60))
+    return f"{m // 60}:{m % 60:02d}"
+
 def _safe(fn, default=None):
     try:
         return fn()
@@ -70,22 +84,20 @@ def get_insights(*, baseline_data: dict[str, Any] | None = None,
     hrv_run = _trailing_run(hrv_series, down=True)
     if hrv.get("status") == "bad":
         b = hrv.get("baseline") or {}
-        add("warn", "🫀", "HRV below your baseline",
-            f"{hrv.get('today')} ms vs your {b.get('mean')} ms norm ({hrv.get('delta'):+} ms). "
-            "Autonomic recovery is lagging — favour aerobic over intensity.")
+        add("warn", "", "HRV is low",
+            f"{_n(hrv.get('today'))} ms, usually {_n(b.get('mean'))}. Keep today aerobic.")
     elif hrv_run >= 3:
-        add("warn", "🫀", f"HRV down {hrv_run} days running",
-            "A sustained downward drift often precedes fatigue. Watch load the next 48h.")
+        add("warn", "", f"HRV down {hrv_run} days running",
+            "Fatigue is building. Go easy for the next two days.")
     elif hrv.get("status") == "good":
-        add("good", "🫀", "HRV above baseline", "Autonomic system is fresh — green to push.")
+        add("good", "", "HRV is high", "You're fresh. Good day for the hard work.")
 
     # --- Resting HR elevated ---
     rhr = markers.get("resting_hr") or {}
     if rhr.get("status") == "bad":
         b = rhr.get("baseline") or {}
-        add("warn", "❤️", "Resting HR elevated",
-            f"{rhr.get('today')} bpm vs {b.get('mean')} bpm norm ({rhr.get('delta'):+}). "
-            "Classic early flag for fatigue or a bug coming on.")
+        add("warn", "", "Resting HR is up",
+            f"{_n(rhr.get('today'))} bpm, usually {_n(b.get('mean'))}. Fatigue or something coming on.")
 
     # --- Sleep debt (3-night average vs baseline) ---
     sleep = markers.get("sleep") or {}
@@ -94,9 +106,8 @@ def get_insights(*, baseline_data: dict[str, Any] | None = None,
     if base_sleep and len(sl_series) >= 3:
         avg3 = sum(sl_series[-3:]) / 3
         if avg3 < base_sleep - 1:
-            add("warn", "😴", "Sleep debt building",
-                f"Last 3 nights averaged {avg3:.1f} h vs your {base_sleep} h norm. "
-                "Recovery capacity is compromised — protect tonight's sleep.")
+            add("warn", "", "Short on sleep",
+                f"About {_hm(avg3)} a night lately, usually {_hm(base_sleep)}. Get to bed early tonight.")
 
     # --- Form (TSB) danger / race-timing ---
     cur = (pmc.get("current") or {}) if isinstance(pmc, dict) else {}
@@ -105,17 +116,17 @@ def get_insights(*, baseline_data: dict[str, Any] | None = None,
     dleft = race.get("days_remaining")
     if isinstance(tsb, (int, float)):
         if tsb <= -30:
-            add("high", "📉", "Form deeply negative",
-                f"TSB {tsb:.0f} — you're carrying heavy fatigue. Sustainable only briefly; plan a down day.")
+            add("high", "", "Carrying a lot of fatigue",
+                f"Form is {tsb:.0f}. Plan an easy day soon.")
         if isinstance(dleft, int) and 0 <= dleft <= 10 and tsb < 0:
-            add("high", "🏁", "Not freshening for race day",
-                f"{dleft} days out with Form still {tsb:.0f}. Taper needs to bite — cut volume now.")
+            add("high", "", "Not fresh for race day yet",
+                f"{dleft} days out and form is {tsb:.0f}. Cut volume now.")
     if isinstance(ramp, (int, float)) and ramp < -3 and race.get("phase") != "taper":
-        add("warn", "📉", "Fitness bleeding",
-            f"CTL down {ramp:.1f}/week outside a taper — you're detraining. Add consistency.")
+        add("warn", "", "Fitness is slipping",
+            "Fitness has dropped this week. Consistent sessions will turn it around.")
     elif isinstance(ramp, (int, float)) and ramp > 7:
-        add("warn", "⚠️", "Ramping fast",
-            f"Fitness climbing {ramp:.1f}/week — strong, but a fast ramp raises injury/overreach risk.")
+        add("warn", "", "Building fast",
+            "Fitness is climbing quickly. Watch for niggles and sleep well.")
 
     # --- ACWR ---
     tl_freshness = tl.get("freshness") if isinstance(tl, dict) else None
@@ -124,11 +135,11 @@ def get_insights(*, baseline_data: dict[str, Any] | None = None,
         acwr = None
     if isinstance(acwr, (int, float)):
         if acwr > 1.5:
-            add("high", "🚧", "Load ramp in the danger zone",
-                f"ACWR {acwr:.2f} (>1.5). Acute load far outruns chronic — highest injury-risk band.")
+            add("high", "", "Load jumped too fast",
+                f"This week is well above your usual (ratio {acwr:.1f}). Back off before something breaks.")
         elif acwr < 0.8:
-            add("info", "🌱", "Load ratio low",
-                f"ACWR {acwr:.2f} — room to build safely if recovery allows.")
+            add("info", "", "Room to build",
+                "Recent load is below your usual. Safe to add a bit if you feel good.")
 
     # --- Active-goal weakness stalling ---
     event_ready = rg.get("event_ready") or {}
@@ -136,17 +147,17 @@ def get_insights(*, baseline_data: dict[str, Any] | None = None,
     comp = (event_ready.get("components") or {}).get(low_bucket) or {}
     if low_bucket and isinstance(comp.get("pct"), (int, float)) and comp["pct"] < 60:
         if low_bucket == "run":
-            detail = (f"Run is at {comp['pct']}% of its 14-day bucket. Build it back with a "
-                      "progressive week (~10% up) and a real long run, not a single big day.")
+            detail = (f"Running is at {comp['pct']}% of target for the last two weeks. "
+                      "Build back gradually with a proper long run.")
         else:
-            detail = (f"{low_bucket.title()} is at {comp['pct']}% of its 14-day bucket. "
-                      f"Bias safe {low_bucket} work only if recovery and the active plan allow it.")
-        add("info", "🎯", f"{low_bucket.title()} volume bucket below target", detail)
+            detail = (f"{low_bucket.title()} is at {comp['pct']}% of target for the last two weeks. "
+                      f"Add {low_bucket} time when recovery allows.")
+        add("info", "", f"{low_bucket.title()} is behind", detail)
 
     signals.sort(key=lambda s: _RANK.get(s["severity"], 9))
     if not signals:
-        add("good", "✅", "All systems green",
-            "No adverse trends in recovery, form, or load. Execute the plan.")
+        add("good", "", "All good",
+            "Recovery, form and load all look fine. Do the plan.")
 
     top = signals[:6]
     worst = min((s["severity"] for s in top), key=lambda s: _RANK.get(s, 9)) if top else "good"

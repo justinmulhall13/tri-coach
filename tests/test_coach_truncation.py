@@ -41,6 +41,7 @@ class _Client:
 
     def _stream(self, **kwargs) -> _Stream:
         self.budgets.append(kwargs["max_tokens"])
+        self.models = getattr(self, "models", []) + [kwargs.get("model")]
         return _Stream(self._replies.pop(0))
 
 
@@ -48,7 +49,8 @@ class TruncationRetryTests(unittest.TestCase):
     def _patches(self, client: _Client):
         return (patch.object(coach, "_anthropic_client", return_value=client),
                 patch.object(coach, "_message_kwargs",
-                             side_effect=lambda budget, messages, **_: {"max_tokens": budget}))
+                             side_effect=lambda budget, messages, model=None, **_:
+                             {"max_tokens": budget, "model": model}))
 
     def test_chat_retries_with_a_bigger_budget_until_it_finishes(self) -> None:
         client = _Client(_message("max_tokens"), _message("max_tokens", "half a"),
@@ -73,6 +75,28 @@ class TruncationRetryTests(unittest.TestCase):
             msg = coach._stream_reply(16000, [])
         self.assertEqual(client.budgets, [16000, 32000])
         self.assertEqual(msg.content[0].text, "Brief.")
+
+    def test_refusal_is_retried_once_on_the_fallback_model(self) -> None:
+        client = _Client(_message("refusal"), _message("end_turn", "Answer."))
+        a, b = self._patches(client)
+        with (a, b,
+              patch.object(coach.config, "COACH_FALLBACK_MODEL", "claude-sonnet-5"),
+              patch.object(coach, "_explicit_mode_switch", return_value=None),
+              patch.object(coach, "_key_error", return_value=None),
+              patch.object(coach, "_prepare_chat", return_value=("2026-11-02", [])),
+              patch.object(coach, "_finish_chat",
+                           side_effect=lambda u, t, msg, **_: {"reply": msg.content[0].text})):
+            events = list(coach.chat_events("How hard should Thursday be?"))
+        self.assertEqual(client.models, [None, "claude-sonnet-5"])
+        self.assertEqual(events[-1]["result"]["reply"], "Answer.")
+
+    def test_brief_refusal_falls_back_then_stops(self) -> None:
+        client = _Client(_message("refusal"), _message("refusal"))
+        a, b = self._patches(client)
+        with a, b, patch.object(coach.config, "COACH_FALLBACK_MODEL", "claude-sonnet-5"):
+            msg = coach._stream_reply(16000, [])
+        self.assertEqual(client.models, [None, "claude-sonnet-5"])
+        self.assertEqual(msg.stop_reason, "refusal")
 
     def test_budgets_stop_at_the_model_ceiling(self) -> None:
         self.assertEqual(coach._budgets(32000), [32000, 64000, 128000])

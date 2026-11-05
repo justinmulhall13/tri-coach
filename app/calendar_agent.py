@@ -95,7 +95,8 @@ def command(text: str) -> dict[str, Any]:
     client = anthropic.Anthropic(api_key=key, max_retries=2)
     try:
         msg = client.messages.create(
-            model=config.FAST_MODEL, max_tokens=900, system=_SYSTEM,
+            model=config.FAST_MODEL, max_tokens=4000, system=_SYSTEM,
+            output_config={"effort": "low"},
             messages=[{"role": "user", "content": f"<context>\n{_context()}\n</context>\n\n{text}"}],
         )
     except Exception as e:
@@ -159,7 +160,7 @@ def command(text: str) -> dict[str, Any]:
             done.append(_apply(a, touched))
             applied += 1
         except Exception as e:  # noqa: BLE001
-            done.append(f"⚠ couldn't apply {a.get('type')}: {e}")
+            done.append(f"Couldn't apply {a.get('type')}: {e}")
 
     # Push ONLY the workout days we changed (add/delete events already hit Google
     # directly) — no slow full reconcile.

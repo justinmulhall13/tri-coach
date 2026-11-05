@@ -658,3 +658,51 @@ Called from `GET /api/lifting/split` and the Coach context build.
 `routine_summary` reps now span all working sets ("8-12" for a ramp).
 Note: seeded calendar lifts cap sets at the phase dose (`min(e.sets, phase sets)`),
 so a 4-set exercise shows 3 sets in base and 2 in a recovery week, by design.
+
+## Session 2026-11-05 — monochrome redesign, nutrition tracker, auto-applied plan changes
+
+The athlete asked for: a nutrition tab as good as the paid apps, a UI that
+doesn't look AI-made ("i hate colours"), rings that don't scroll sideways on a
+phone, shorter answers, and every plan-changing Coach answer to actually change
+the plan.
+
+- **Design contract (load-bearing).** Monochrome only: `--ink`/`--muted`/gray
+  ramp `--g1..--g5`, solid fills via `--chip`/`--chip-ink`. `--good/--warn/--bad`
+  and `--a1` all map to ink. No accent colours, emoji, glow, gradients,
+  confetti, scroll-reveal or web fonts (system stack). Status is spelled out in
+  words ("Low readiness", "Done"). `app/ring_detail.py` colours are CSS-var
+  strings; the frontend keeps a server colour only if it starts with `var(`.
+  Avoid em-dashes in UI copy; plain sentences.
+- **Home**: header is wordmark + date + bell + refresh (no countdown/day chip;
+  the race card owns days-to-go). Rings are a 2×2 grid at ≤820px. Phase strip is
+  bare segments plus one "current phase" line.
+- **Coach auto-apply**: `coach._finish_chat` applies adjustment/weekplan blocks
+  and returns `applied_change {ok, kind, days, undo_ids}`; the chat renders
+  `addAppliedChange` with one Undo → `POST /api/plan/undo {history_ids}`.
+  `proposed_*` are null when applied; a failed apply falls back to the manual
+  card. Tests: `tests/test_coach_auto_apply.py`.
+- **Model**: `COACH_MODEL=claude-sonnet-5-5` (fly.toml + config default) with a
+  one-shot retry on `COACH_FALLBACK_MODEL` (claude-sonnet-5) when
+  `stop_reason == "refusal"`. `FAST_MODEL=claude-haiku-5-5`.
+- **Nutrition backend** (`app/nutrition.py`, `app/db.py`): `foods` library
+  (per-serving, upserted on log, favorites), `hydration_log`, `meal_plan()`
+  (timed carb-coded slots around the session; largest-remainder split so every
+  column sums to the daily target; notes contain no digits), `hydration()`,
+  `week_summary()` against daily target snapshots in meta
+  `nutrition_targets:{date}`, structured `log_entry()`, `log_saved_food()`,
+  `read_label()` (vision + strict JSON schema; prefill only, never auto-log;
+  non-label photos refused). Endpoints under `/api/nutrition/*` (foods, water,
+  week, label). Tests: `tests/test_nutrition_tracker.py`.
+- **Nutrition frontend**: summary (kcal left, goal segment, 4 bars), timeline,
+  structured form (Auto meal = latest started slot), My foods one-tap servings,
+  grouped log, water, session fuel (mix recipe collapsed), Chef Gordo, week bars,
+  recipes + grocery in `details.more`.
+- Removed dead code: `renderReadiness`, `renderBaselines`, `renderLoad`,
+  `applyTheme`, `sessionVibe` (now `sessionLine`), `_DISC_ICO` (use `DISC_ICON`),
+  scroll reveal + header compaction, confetti, `/api/baselines` fetch from Home,
+  the free-text/photo food logger UI.
+- Test venv: the project `.venv` is iCloud-evicted and hangs on import; a fresh
+  venv from `requirements.txt` in a scratch dir works.
+- Google Calendar event titles still carry discipline emoji
+  (`calendar_source._DISC_EMOJI`); left alone so a deploy doesn't rewrite every
+  synced event.

@@ -263,6 +263,33 @@ CREATE TABLE IF NOT EXISTS saved_recipes (
     updated_at  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS foods (
+    -- The athlete's own food library: every exact-macro log becomes a reusable
+    -- food so a staple is one tap to log again. Values are per one serving,
+    -- exactly as entered or read from a label; nothing here is estimated.
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    normalized  TEXT NOT NULL UNIQUE,
+    serving     TEXT,
+    kcal        REAL,
+    protein_g   REAL,
+    carb_g      REAL,
+    fat_g       REAL,
+    sodium_mg   REAL,
+    source      TEXT NOT NULL DEFAULT 'self-reported',
+    favorite    INTEGER NOT NULL DEFAULT 0,
+    uses        INTEGER NOT NULL DEFAULT 0,
+    last_used   TEXT,
+    created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS hydration_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    date        TEXT NOT NULL,
+    ml          INTEGER NOT NULL,
+    created_at  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS grocery_items (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     item_text      TEXT NOT NULL,
@@ -289,6 +316,7 @@ _MIGRATIONS = {
                   ("pos_updated_at", "TEXT"), ("tsb_target", "REAL"),
                   ("event_profile_id", "TEXT")],
     "plan_history": [("event_profile_id", "TEXT")],
+    "nutrition_log": [("sodium_mg", "REAL"), ("food_id", "INTEGER"), ("servings", "REAL")],
     "constraints_log": [("event_profile_id", "TEXT")],
     "chat_history": [("event_profile_id", "TEXT")],
     # Strength used to be a decorative routine attached to a date. These fields
@@ -682,6 +710,21 @@ def _record_plan_history(date: str, prev_day: dict[str, Any], source: str, reaso
     c.commit()
 
 
+def max_plan_history_id() -> int:
+    """Highest plan_history id so far: the mark before a change, for its undo."""
+    r = _conn().execute("SELECT COALESCE(MAX(id), 0) AS m FROM plan_history").fetchone()
+    return int(r["m"] or 0)
+
+
+def plan_history_since(mark: int) -> list[int]:
+    """History ids written after `mark` for the active profile, newest first."""
+    rows = _conn().execute(
+        "SELECT id FROM plan_history WHERE id>? AND event_profile_id=? ORDER BY id DESC",
+        (mark, _active_profile_id()),
+    ).fetchall()
+    return [int(r["id"]) for r in rows]
+
+
 def get_plan_history(limit: int = 40) -> list[dict[str, Any]]:
     rows = _conn().execute(
         "SELECT * FROM plan_history WHERE event_profile_id=? ORDER BY id DESC LIMIT ?",
@@ -712,9 +755,54 @@ def revert_plan_history(history_id: int) -> dict[str, Any] | None:
         return None
     fields = {k: prev.get(k) for k in
               ("discipline", "title", "structure", "duration_min", "intensity", "tsb_target", "why", "is_rest", "phase")}
+    # A move changes the start time too; undoing it must put the time back.
+    if "start_time" in prev:
+        fields["start_time"] = prev.get("start_time")
     # record the revert itself so it too can be undone, restore original source tag
-    return edit_plan_day(r["date"], fields, source=prev.get("source", "edited"),
-                         reason="reverted to earlier version")
+    restored = edit_plan_day(r["date"], fields, source=prev.get("source", "edited"),
+                             reason="reverted to earlier version")
+    if restored and ("_strength" in prev or "_secondary" in prev):
+        _restore_sessions(r["date"], prev)
+    return restored
+
+
+def _session_snapshot(connection: sqlite3.Connection, profile_id: str,
+                      date: str) -> dict[str, Any]:
+    """A date's lift and extra sessions, stored with its plan_history row so an
+    undo restores the whole day, not just the primary workout."""
+    strength = connection.execute(
+        "SELECT * FROM plan_strength WHERE event_profile_id=? AND date=?",
+        (profile_id, date),
+    ).fetchone()
+    secondary = connection.execute(
+        """SELECT * FROM plan_secondary WHERE event_profile_id=? AND date=?
+           ORDER BY session_order,id""",
+        (profile_id, date),
+    ).fetchall()
+    return {"_strength": _row_to_strength(strength) if strength else None,
+            "_secondary": [_row_to_secondary(row) for row in secondary]}
+
+
+def _restore_sessions(date: str, prev: dict[str, Any]) -> None:
+    import datetime
+    c = _conn()
+    profile_id = _active_profile_id(c)
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    try:
+        c.execute("BEGIN IMMEDIATE")
+        if "_strength" in prev:
+            strength = prev.get("_strength")
+            if strength:
+                _write_plan_strength(c, profile_id, {**strength, "date": date}, now)
+            else:
+                c.execute("DELETE FROM plan_strength WHERE event_profile_id=? AND date=?",
+                          (profile_id, date))
+        if "_secondary" in prev:
+            _replace_plan_secondary(c, profile_id, date, prev.get("_secondary") or [], now)
+        c.commit()
+    except Exception:
+        c.rollback()
+        raise
 
 
 def plan_summary() -> dict[str, Any]:
@@ -911,6 +999,7 @@ def activate_plan_draft(plan_id: int | str) -> dict[str, Any]:
                                         separators=(",", ":"))
             if current:
                 previous = _row_to_day(current)
+                previous.update(_session_snapshot(c, profile_id, date))
                 c.execute(
                     """INSERT INTO plan_history
                        (event_profile_id,date,prev,source,reason,created_at)
@@ -1218,16 +1307,107 @@ def delete_manual_activity(entry_id: int) -> bool:
 # --- Nutrition log (Chef Gordo) ----------------------------------------------
 def add_nutrition(date: str, description: str, *, eaten_at: str = "", meal: str = "",
                   kcal: float | int | None = None, protein_g: float | int | None = None,
-                  carb_g: float | int | None = None, fat_g: float | int | None = None) -> int:
+                  carb_g: float | int | None = None, fat_g: float | int | None = None,
+                  sodium_mg: float | int | None = None, food_id: int | None = None,
+                  servings: float | None = None,
+                  remember_as: dict[str, Any] | None = None) -> int:
+    """Log one entry. `remember_as` (a food name, serving and per-serving values)
+    also saves the food to the library in the same transaction."""
     import datetime
     c = _conn()
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    if remember_as and remember_as.get("name"):
+        food_id = _upsert_food(c, remember_as, now)
+    elif food_id is not None:
+        c.execute("UPDATE foods SET uses=uses+1,last_used=? WHERE id=?", (now, food_id))
     cur = c.execute(
-        "INSERT INTO nutrition_log (date,eaten_at,meal,description,kcal,protein_g,carb_g,fat_g,created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO nutrition_log (date,eaten_at,meal,description,kcal,protein_g,carb_g,fat_g,"
+        "sodium_mg,food_id,servings,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (date, eaten_at, meal, description, kcal, protein_g, carb_g, fat_g,
-         datetime.datetime.now().isoformat(timespec="seconds")))
+         sodium_mg, food_id, servings, now))
     c.commit()
     return cur.lastrowid
+
+
+def normalize_food_name(name: str) -> str:
+    import re
+    return re.sub(r"[^a-z0-9]+", " ", str(name or "").lower()).strip()
+
+
+def _upsert_food(c: sqlite3.Connection, food: dict[str, Any], now: str) -> int:
+    name = str(food.get("name") or "").strip()[:120]
+    key = normalize_food_name(name)
+    values = (food.get("serving"), food.get("kcal"), food.get("protein_g"), food.get("carb_g"),
+              food.get("fat_g"), food.get("sodium_mg"), food.get("source") or "self-reported")
+    row = c.execute("SELECT id FROM foods WHERE normalized=?", (key,)).fetchone()
+    if row:
+        c.execute("""UPDATE foods SET name=?,serving=?,kcal=?,protein_g=?,carb_g=?,fat_g=?,
+                     sodium_mg=?,source=?,uses=uses+1,last_used=? WHERE id=?""",
+                  (name, *values, now, row["id"]))
+        return int(row["id"])
+    cur = c.execute("""INSERT INTO foods (name,normalized,serving,kcal,protein_g,carb_g,fat_g,
+                       sodium_mg,source,favorite,uses,last_used,created_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,0,1,?,?)""", (name, key, *values, now, now))
+    return int(cur.lastrowid)
+
+
+def list_foods(limit: int = 40) -> list[dict[str, Any]]:
+    """Favorites first, then most recently used."""
+    rows = _conn().execute(
+        "SELECT * FROM foods ORDER BY favorite DESC, last_used DESC, id DESC LIMIT ?",
+        (max(1, min(int(limit), 200)),)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_food(food_id: int) -> dict[str, Any] | None:
+    row = _conn().execute("SELECT * FROM foods WHERE id=?", (food_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def set_food_favorite(food_id: int, favorite: bool) -> bool:
+    c = _conn()
+    cur = c.execute("UPDATE foods SET favorite=? WHERE id=?", (int(bool(favorite)), food_id))
+    c.commit()
+    return cur.rowcount > 0
+
+
+def delete_food(food_id: int) -> bool:
+    c = _conn()
+    cur = c.execute("DELETE FROM foods WHERE id=?", (food_id,))
+    c.commit()
+    return cur.rowcount > 0
+
+
+def get_nutrition_range(start: str, end: str) -> list[dict[str, Any]]:
+    return [dict(r) for r in _conn().execute(
+        "SELECT * FROM nutrition_log WHERE date BETWEEN ? AND ? ORDER BY date,id",
+        (start, end)).fetchall()]
+
+
+def add_water(date: str, ml: int) -> int:
+    import datetime
+    c = _conn()
+    cur = c.execute("INSERT INTO hydration_log (date,ml,created_at) VALUES (?,?,?)",
+                    (date, int(ml), datetime.datetime.now().isoformat(timespec="seconds")))
+    c.commit()
+    return cur.lastrowid
+
+
+def undo_water(date: str) -> bool:
+    c = _conn()
+    row = c.execute("SELECT id FROM hydration_log WHERE date=? ORDER BY id DESC LIMIT 1",
+                    (date,)).fetchone()
+    if not row:
+        return False
+    c.execute("DELETE FROM hydration_log WHERE id=?", (row["id"],))
+    c.commit()
+    return True
+
+
+def water_total(date: str) -> int:
+    r = _conn().execute("SELECT COALESCE(SUM(ml),0) AS ml FROM hydration_log WHERE date=?",
+                        (date,)).fetchone()
+    return int(r["ml"] or 0)
 
 
 def get_nutrition(date: str) -> list[dict[str, Any]]:
@@ -1538,8 +1718,9 @@ def edit_plan_day_with_sessions(date: str, fields: dict[str, Any], *,
             """INSERT INTO plan_history
                (event_profile_id,date,prev,source,reason,created_at)
                VALUES (?,?,?,?,?,?)""",
-            (profile_id, date, json.dumps(day, default=str), source,
-             "updated independent same-day workouts", now),
+            (profile_id, date,
+             json.dumps({**day, **_session_snapshot(c, profile_id, date)}, default=str),
+             source, "updated independent same-day workouts", now),
         )
         day.update({k: v for k, v in fields.items() if k in {
             "discipline", "title", "structure", "duration_min", "intensity",

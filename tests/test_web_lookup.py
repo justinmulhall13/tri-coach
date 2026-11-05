@@ -52,7 +52,9 @@ class WebLookupTests(unittest.TestCase):
 
     def test_search_is_bounded_and_localized(self) -> None:
         tool = web_lookup.tool_definition()
-        self.assertEqual(tool["type"], "web_search_20250305")
+        self.assertEqual(tool["type"], "web_search_20260209")
+        self.assertEqual(web_lookup.tool_definition(dynamic=False)["type"],
+                         "web_search_20250305")
         self.assertEqual(tool["max_uses"], 3)
         self.assertEqual(tool["user_location"]["timezone"], "America/Vancouver")
 

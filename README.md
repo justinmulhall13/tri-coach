@@ -8,8 +8,9 @@ It pulls live Garmin recovery and training data, models readiness, runs a
 periodized plan toward a race, and keeps two AI agents in the loop: a
 conversational coach that can reprogram the plan, and a natural-language
 calendar assistant that schedules workouts around a real calendar with two-way
-Google sync. It runs as a responsive, installable PWA with an iOS-inspired
-glass interface and is deployed on Fly.io. Built solo, with Claude Code and
+Google sync. It runs as a responsive, installable PWA with a deliberately plain
+monochrome interface (ink on paper, no accent colours, no emoji) and is
+deployed on Fly.io. Built solo, with Claude Code and
 OpenAI Codex doing most of the typing — see
 [Built with AI, deliberately](#built-with-ai-deliberately).
 
@@ -69,7 +70,8 @@ The A-race hero carries the goal, the countdown, and where you sit in the block.
 Below it the readiness score reads out of Garmin — HRV against your own rolling
 baseline, sleep, resting HR, and form (TSB) — with a plain-English verdict rather
 than a number to interpret. Then today's sessions, the four WHOOP-style rings
-(each clickable into a full breakdown), proactive signals and recent activities.
+(a 2×2 grid on a phone, never a sideways scroll; each one opens a full
+breakdown), plain-language signals and recent activities.
 Training load lives in Analytics, where there is enough room to explain it
 properly instead of compressing it into another Home card.
 
@@ -85,6 +87,20 @@ A conversational coach (Claude) with the full picture: Garmin data, the plan, th
 week's load, prior coaching turns, and your own stated constraints. It is direct
 by design and cannot invent numbers — a missing metric is reported as missing.
 
+**A reply that changes the plan changes the plan.** There is no Accept tap. When
+Steve's answer moves, swaps, eases or rebuilds sessions, the backend applies the
+change as soon as the reply is finished and the chat shows a "Plan updated" card
+listing every day that moved, with one Undo that restores all of them (time,
+lift and separate sessions included). If a reply says it changed something but
+forgot the machine-readable block, the backend asks once more for just the
+block. A change that fails validation falls back to a manual card so nothing is
+silently lost. Replies lead with the call in a sentence or two; stats appear only
+when asked for.
+
+The coach runs on Claude Sonnet 5.5. If its safety classifier declines a request
+(`stop_reason: "refusal"`), the request is retried once on Sonnet 5 so an
+ordinary training question never dead-ends.
+
 Steve now runs against one shared coaching contract instead of scattered prompt
 fragments. It fixes the athlete constraints, source-labelled fueling conversions,
 TSB rules and lifting behavior separately from the active event profile. Ordinary
@@ -97,7 +113,7 @@ write, while edited drafts and API clients still face the strict +5 to +15
 boundary. A current-day form value therefore cannot discard an otherwise valid
 generated week or be mistaken for the eventual taper objective.
 
-Body mass is live rather than frozen. Coach and Fuel read the newest dated Garmin
+Body mass is live rather than frozen. Coach and Nutrition read the newest dated Garmin
 weight entry, including its date and the grams-to-kilograms arithmetic, and label
 it self-reported via Garmin because the athlete maintains it there. If Garmin has
 no dated reading, they explicitly fall back to the
@@ -226,15 +242,39 @@ muscle balance, consistency and stale-load calibration. Garmin strength
 activities establish that lifting happened when Hevy was not logged, but Hevy
 remains the source for exercises, sets and weights.
 
-### Fuel
-![Fuel tab](docs/screenshots/fuel.png)
+### Nutrition
+![Nutrition tab](docs/screenshots/fuel.png)
 
-Daily targets scale to the day's training and shift with a calorie goal
-(deficit / maintain / surplus) that takes its cut from fat and non-training
-carbohydrate while protecting protein. They are labelled assumed coaching
-targets, not measured requirements. Food logs accept exact self-reported serving
-macros; vague text or a plate photo leaves portions and macros unknown and asks
-for the measured recipe or label instead of saving an estimate.
+Modelled on what the paid trackers do well (MacroFactor's fast logging,
+Cronometer's exactness, the timed carb-coded meal plans of athlete apps like
+Fuelin), without their guesswork:
+
+- **Calories left, then four bars.** One big number, and carbs, protein, fat and
+  water against today's targets. The Lose / Maintain / Gain switch re-derives the
+  targets, taking a deficit from fat and non-training carbohydrate while
+  protecting protein.
+- **Today's plan, timed around the session.** The day's targets are split into
+  meals placed around the planned start time (an early session gets a pre-snack
+  and a recovery breakfast; an evening one gets a carb-led lunch and a recovery
+  dinner). Each meal has a one-to-three-dot carb code and a plain food idea;
+  every column sums exactly to the daily target, and during-session carbs come
+  from the fuelling plan. Logged food fills the matching meal.
+- **One-tap repeat logging.** Every food logged is saved per serving. "My foods"
+  logs ½×, 1×, 1.5× or 2× in one tap, with pinning and removal.
+- **Label scan.** Photograph a nutrition panel; Claude reads it with a strict
+  JSON schema and the values pre-fill the form for you to check. A scan is never
+  logged on its own, and a photo that isn't a label is refused.
+- **Water** with +250 / +500 / +750 and undo, against a target from body mass
+  plus the session's sweat loss.
+- **This week**: eaten against each day's target as it was at the time, with
+  protein and carb hit counts. Targets are snapshotted daily, never back-filled.
+- **Ask Chef Gordo** for a straight answer ("can I have pizza tonight?"), plus
+  recipe search and a grocery list.
+
+The rule underneath all of it: numbers are exact or absent. Values come from the
+athlete or a printed label. Vague text or a plate photo leaves portions and
+macros unknown and asks for the measured recipe or label instead of saving an
+estimate, and the meal-plan food notes carry no portion numbers at all.
 
 The part that matters is intra-session fuelling, which is built against
 intestinal transport limits rather than a flat carb number. Glucose is capped at
@@ -249,7 +289,7 @@ only, never the run or whole-event duration. Every plan shows its arithmetic,
 labels each input source, and carries an abort protocol that introduces nothing
 untested.
 
-Custom fueling questions use a shared audit contract in both Fuel and Coach:
+Custom fueling questions use a shared audit contract in both Nutrition and Coach:
 resolve the exact race/training leg, distinguish table-salt mass from sodium,
 inventory every bottle/flask/gel, reconcile totals with hourly rates, then place
 only those doses at the Athlete Guide's actual aid stations. Concentrate flasks are

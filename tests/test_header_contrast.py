@@ -9,22 +9,20 @@ class HeaderContrastTests(unittest.TestCase):
     def setUp(self) -> None:
         self.html = (main.STATIC_DIR / "index.html").read_text()
 
-    def test_brand_uses_a_legible_typographic_mark(self) -> None:
-        self.assertIn('<span class="emblem" aria-hidden="true">TC</span>', self.html)
-        self.assertIn('<span class="logo">TRI COACH</span>', self.html)
+    def test_brand_is_a_plain_wordmark_with_the_date(self) -> None:
+        header = self.html[self.html.index("<header>"):self.html.index("</header>")]
+        self.assertIn('<span class="logo">Tri Coach</span>', header)
+        self.assertIn('id="hdate"', header)
         self.assertNotIn('M8 30c6-15 12-20 24-20', self.html)
 
-    def test_dark_day_chip_never_keeps_the_light_background(self) -> None:
-        self.assertIn(
-            '.todaychip{background:#20221e;color:#f1f0ea;',
-            self.html,
-        )
+    def test_the_header_has_no_duplicate_countdown_or_day_chip(self) -> None:
+        # The race card already shows days to go; the header repeated it.
+        for gone in ('id="todaychip"', 'id="cd-n"', 'id="phase"'):
+            self.assertNotIn(gone, self.html)
 
-    def test_dark_microphone_has_a_dark_surface_and_light_icon(self) -> None:
-        self.assertIn(
-            '.coach-mic{background:#242620;color:#f1f0ea;',
-            self.html,
-        )
+    def test_dark_microphone_flips_with_the_theme(self) -> None:
+        self.assertIn(".coach-mic{background:transparent;border:0;color:var(--muted);}", self.html)
+        self.assertIn(".coach-mic.listening{background:var(--chip);color:var(--chip-ink);", self.html)
 
 
 if __name__ == "__main__":

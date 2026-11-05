@@ -192,7 +192,7 @@ def _race_day_workout() -> dict[str, Any]:
     distances = event.get("disciplines_and_distances") or {}
     goal = event.get("goal") or {}
     return _wo(
-        "race", f"🏁 RACE DAY: {event.get('event')}", "race",
+        "race", f"Race day: {event.get('event')}", "race",
         int(goal["modelled_duration_min"]),
         "Race-morning routine + swim warmup",
         (f"{distances['swim_km']:g} km swim, {distances['bike_km']:g} km bike, "

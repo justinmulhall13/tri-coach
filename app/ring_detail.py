@@ -76,9 +76,11 @@ def _series(rows: list[dict], col: str, days: int = 7) -> list[dict[str, Any]]:
 
 
 def _recovery_color(score: float | None) -> str:
+    """Monochrome: a stronger score draws darker ink. The number carries the
+    meaning; the shade only separates bars."""
     if not isinstance(score, (int, float)):
-        return "#8aa0b6"
-    return "#34d399" if score >= 66 else "#fbbf24" if score >= 34 else "#f87171"
+        return "var(--g4)"
+    return "var(--ink)" if score >= 66 else "var(--g2)" if score >= 34 else "var(--g3)"
 
 
 # --- Recovery / Readiness -----------------------------------------------------
@@ -206,10 +208,10 @@ def _sleep() -> dict[str, Any]:
     ]
 
     stages = [
-        {"label": "Deep", "hours": hrs(deep), "color": "#3b82f6"},
-        {"label": "REM", "hours": hrs(rem), "color": "#a855f7"},
-        {"label": "Light", "hours": hrs(light), "color": "#60a5fa"},
-        {"label": "Awake", "hours": hrs(awake), "color": "#6b7280"},
+        {"label": "Deep", "hours": hrs(deep), "color": "var(--ink)"},
+        {"label": "REM", "hours": hrs(rem), "color": "var(--g2)"},
+        {"label": "Light", "hours": hrs(light), "color": "var(--g3)"},
+        {"label": "Awake", "hours": hrs(awake), "color": "var(--g4)"},
     ]
 
     hours_series = _series(rows, "sleep_h", 7)
@@ -222,7 +224,7 @@ def _sleep() -> dict[str, Any]:
     resp = _safe(lambda: garmin_source.get_client().get_respiration_data(today)) or {}
     return {
         "name": "sleep", "title": "Sleep",
-        "score": overall, "unit": "/100", "color": "#7ca8e6",
+        "score": overall, "unit": "/100", "color": "var(--ink)",
         "label": f"{hrs(total)} h",
         "contributors": contributors, "stages": stages, "charts": charts,
         "insight": _sleep_insight(need, overall),
@@ -283,15 +285,15 @@ def _strain() -> dict[str, Any]:
 
     return {
         "name": "strain", "title": "Day strain",
-        "score": strain.get("score"), "unit": "/100", "color": "#fb923c",
+        "score": strain.get("score"), "unit": "/100", "color": "var(--ink)",
         "label": strain.get("label"),
         "contributors": contributors, "stages": stages, "charts": charts,
         "insight": _strain_insight(strain, zones),
     }
 
 
-_ZONE_META = [("Zone 1", "#60a5fa"), ("Zone 2", "#34d399"), ("Zone 3", "#fbbf24"),
-              ("Zone 4", "#fb923c"), ("Zone 5", "#f87171")]
+_ZONE_META = [("Zone 1", "var(--g4)"), ("Zone 2", "var(--g3)"), ("Zone 3", "var(--g2)"),
+              ("Zone 4", "var(--ink2)"), ("Zone 5", "var(--ink)")]
 
 
 def _todays_zones(c, today: str) -> list[dict[str, Any]]:
@@ -379,11 +381,11 @@ def _event_ready() -> dict[str, Any]:
         if not block:
             continue
         points.append({"label": name.title(), "value": block.get("pct") or 0,
-                       "color": {"swim": "#22d3ee", "bike": "#f59e0b", "run": "#fb7185"}[name],
+                       "color": "var(--ink)",
                        "sub": f"{block.get('km_14d')}/{block.get('target')} km"})
     if long_run and long_run.get("pct") is not None:
         points.append({"label": "Long run", "value": long_run.get("pct") or 0,
-                       "color": "#c084fc",
+                       "color": "var(--g2)",
                        "sub": f"{long_run.get('longest_km')}/{long_run.get('target')} km"})
     charts = [{"kind": "bars", "title": "Preparedness vs target", "unit": "%",
                "max": 100, "points": points}] if points else []
@@ -391,7 +393,7 @@ def _event_ready() -> dict[str, Any]:
     label = result.get("event_label") or "Race"
     return {
         "name": "event_ready", "title": f"{label} readiness",
-        "score": result.get("score"), "unit": "/100", "color": "#c084fc",
+        "score": result.get("score"), "unit": "/100", "color": "var(--ink)",
         "label": f"{result.get('label')} · {race.get('days_remaining','?')} days out",
         "contributors": contributors, "stages": [], "charts": charts,
         # The limiter is the most useful sentence on the sheet: it says why the

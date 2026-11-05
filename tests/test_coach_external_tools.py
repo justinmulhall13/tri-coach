@@ -22,7 +22,7 @@ class CoachExternalToolTests(unittest.TestCase):
         searched = coach._message_kwargs(200, messages, enable_web=True)
 
         self.assertNotIn("tools", ordinary)
-        self.assertEqual(searched["tools"][0]["type"], "web_search_20250305")
+        self.assertEqual(searched["tools"][0]["type"], "web_search_20260209")
         self.assertEqual(searched["tools"][0]["max_uses"], 3)
 
     @patch("app.coach.db.add_chat")

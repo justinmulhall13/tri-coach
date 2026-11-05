@@ -41,11 +41,13 @@ def should_enable(message: str) -> bool:
                           or _CURRENT_HELP_RE.search(text)))
 
 
-def tool_definition(*, max_uses: int = 3,
-                    allowed_domains: list[str] | None = None) -> dict[str, Any]:
-    """Conservative basic-search tool supported by current Anthropic SDKs."""
+def tool_definition(*, max_uses: int = 3, allowed_domains: list[str] | None = None,
+                    dynamic: bool = True) -> dict[str, Any]:
+    """Web search tool. The dynamic-filtering version needs Sonnet/Opus; Haiku
+    callers (recipe discovery) pass dynamic=False for the basic version, whose
+    raw result blocks recipe verification reads directly."""
     tool = {
-        "type": "web_search_20250305",
+        "type": "web_search_20260209" if dynamic else "web_search_20250305",
         "name": "web_search",
         "max_uses": max(1, min(int(max_uses), 8)),
         "user_location": {

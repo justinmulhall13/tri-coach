@@ -95,14 +95,18 @@ NUTRITION_PREFS = _get("NUTRITION_PREFS", "No restrictions — suggest anything 
 
 # --- Anthropic ----------------------------------------------------------------
 ANTHROPIC_API_KEY = _get("ANTHROPIC_API_KEY")
-COACH_MODEL = _get("COACH_MODEL", "claude-opus-4-8")
+COACH_MODEL = _get("COACH_MODEL", "claude-sonnet-5-5")
+# Sonnet 5.5's safety classifiers can decline a request with stop_reason
+# "refusal"; the request is retried once on this model before giving up.
+COACH_FALLBACK_MODEL = _get("COACH_FALLBACK_MODEL", "claude-sonnet-5")
 # Medium keeps adaptive reasoning for real plan changes without paying the
 # default high-effort latency on every ordinary coaching question.
 COACH_EFFORT = _get("COACH_EFFORT", "medium").lower()
 if COACH_EFFORT not in {"low", "medium", "high", "xhigh", "max"}:
     COACH_EFFORT = "medium"
-# Fast, cheap model for structured/low-reasoning tasks (calendar command parsing).
-FAST_MODEL = _get("FAST_MODEL", "claude-haiku-4-5-20251001")
+# Fast, cheap model for structured/low-reasoning tasks (calendar command
+# parsing, recipe search). Haiku 5.5 thinks by default; callers pass effort low.
+FAST_MODEL = _get("FAST_MODEL", "claude-haiku-5-5")
 
 # --- Google Calendar ----------------------------------------------------------
 GOOGLE_CREDENTIALS_FILE = _get("GOOGLE_CREDENTIALS_FILE", "./data/credentials.json")

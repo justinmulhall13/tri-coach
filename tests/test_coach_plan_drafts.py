@@ -89,16 +89,18 @@ class CoachPlanDraftTests(unittest.TestCase):
         schedule = _schedule()
         result = coach._finish_chat("Build next week", _TODAY_ISO, _message(schedule))
         self.assertIsInstance(result["plan_id"], int)
-        self.assertEqual(result["proposed_week"], schedule)
-        self.assertIn(f"plan #{result['plan_id']}", result["reply"])
+        # The week is applied straight away; the durable draft stays fetchable
+        # by id and the result carries what Undo needs.
+        self.assertTrue(result["applied_change"]["ok"])
+        self.assertEqual(result["applied_change"]["kind"], "week")
+        self.assertIsNone(result["proposed_week"])
+        self.assertEqual(result["plan_draft"]["schedule"], schedule)
+        self.assertNotIn("plan #", result["reply"])
 
         self._new_connection()
-        latest = _body(main.coach_plan_draft_latest())["draft"]
         by_id = _body(main.coach_plan_draft_get(result["plan_id"]))["draft"]
-
-        self.assertEqual(latest["plan_id"], result["plan_id"])
-        self.assertEqual(latest["schedule"], schedule)
         self.assertEqual(by_id["schedule"], schedule)
+        self.assertEqual(db.get_plan_day("2026-08-18")["title"], "Easy swim")
 
     def test_drafts_are_isolated_by_active_event_profile(self) -> None:
         first = {
@@ -136,7 +138,7 @@ class CoachPlanDraftTests(unittest.TestCase):
             "Plan my week", _TODAY_ISO, _message(schedule),
         )
 
-        self.assertEqual([day["tsb_target"] for day in result["proposed_week"]], [10, 10])
+        self.assertEqual([day["tsb_target"] for day in result["plan_draft"]["schedule"]], [10, 10])
         stored = db.get_plan_draft(result["plan_id"])
         self.assertEqual([day["tsb_target"] for day in stored["schedule"]], [10, 10])
 
@@ -189,7 +191,7 @@ class CoachPlanDraftTests(unittest.TestCase):
 
         result = coach._finish_chat("Pick the calendar", _TODAY_ISO, message)
 
-        self.assertEqual(result["proposed_week"], schedule)
+        self.assertEqual(result["plan_draft"]["schedule"], schedule)
         self.assertNotIn("once feet feel normal", result["reply"].lower())
         self.assertNotIn("not on a fixed day", result["reply"].lower())
         self.assertIn("Tuesday stays easy", result["reply"])
