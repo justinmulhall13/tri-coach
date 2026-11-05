@@ -53,6 +53,10 @@ def goal_pace_per_km() -> str | None:
     explicit = str((event.get("pacing_targets") or {}).get("run_goal_min_per_km") or "").strip()
     if explicit:
         return explicit
+    if str(event.get("mode") or "").upper() == "TRIATHLON":
+        # A triathlon finish time covers three legs: dividing it by the run
+        # distance gave the T100 profile a 20:00/km "race pace".
+        return None
     goal = event.get("goal")
     text = goal.get("target") if isinstance(goal, dict) else goal
     match = _GOAL_TIME.search(str(text or ""))

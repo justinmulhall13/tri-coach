@@ -1775,7 +1775,8 @@ function splitSessions(s){
   const out=[{kind:"main", disc:primary, title:w.title, dur:w.duration_min,
     matchKey:"primary", startTime:w.start_time,
     intensity:w.intensity, is_rest:w.is_rest,
-    structure:{warmup:st.warmup, main:st.main, cooldown:st.cooldown}, why:w.why}];
+    structure:{warmup:st.warmup, main:st.main, cooldown:st.cooldown,
+      ...(primary==="brick"?{run:st.run}:{})}, why:w.why}];
   (Array.isArray(w.secondary_sessions)?w.secondary_sessions:[]).forEach(session=>{
     if(!session||typeof session!=="object") return;
     const disc=String(session.discipline||"strength").toLowerCase();
@@ -1949,7 +1950,8 @@ function refreshPlanEverywhere(){
 let _woOpenIdx=0;
 function workoutBlocks(st, disc, intensity){
   if(Array.isArray(st.blocks)&&st.blocks.length) return st.blocks;
-  const raw=[st.warmup,st.main,st.cooldown].filter(v=>v&&v!=="—");
+  // A brick's run leg is part of the session the watch runs, so it is shown too.
+  const raw=[st.warmup,st.main,st.cooldown,st.run].filter(v=>v&&v!=="—");
   // Semicolons separate prescribed sets in legacy plan data. Each interval
   // remains intact, so 6×100 stays one actionable block rather than six rows.
   const parts=raw.flatMap(v=>String(v).replace(/,\s*then\s+/gi,"; ")
@@ -2321,7 +2323,7 @@ function openPlanPreview(date){
                  ["Run off the bike",st.run],["2nd session · Strength",st.strength]]
       .filter(([,v])=>v&&v!=="—");
     $("pv-steps").innerHTML=steps.length
-      ? steps.map(([k,v])=>`<div class="pv-step sport-${d.discipline||"other"}"><div class="pv-k">${k}</div><div class="pv-v">${v}</div></div>`).join("")
+      ? steps.map(([k,v])=>`<div class="pv-step sport-${esc(d.discipline||"other")}"><div class="pv-k">${k}</div><div class="pv-v">${esc(String(v))}</div></div>`).join("")
       : `<div class="pv-restnote">No structured steps recorded for this session.</div>`;
   }
   $("pv-why").textContent=d.why||"—";

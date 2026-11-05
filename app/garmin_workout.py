@@ -16,6 +16,7 @@ so it syncs to the watch. Anything unparseable still yields a valid workout.
 """
 from __future__ import annotations
 
+import copy
 import re
 from typing import Any
 
@@ -125,12 +126,12 @@ def _hr_note(intensity: str, discipline: str, title: str = "") -> str:
 # Indoor sessions are the only place watts are meaningful for this athlete (the
 # FTP is trainer-specific and doesn't transfer to the road).
 _INDOOR_RE = re.compile(r"\b(peloton|trainer|indoor|zwift|erg|smart bike|turbo)\b", re.I)
-_WATT_RANGE_RE = re.compile(
-    r"\d{2,4}(?:\s*[–\-—]\s*\d{2,4})?\s*(?:W|watts?)\b", re.I,
-)
+# "W" is case-sensitive and never followed by "/": "HR 139-158 w/ 4 min easy"
+# is a recovery, and reading it as watts used to delete every outdoor recovery.
+_WATT_UNIT = r"(?:W(?![/\w])|[Ww]atts?\b)"
+_WATT_RANGE_RE = re.compile(r"\d{2,4}(?:\s*[–\-—]\s*\d{2,4})?\s*" + _WATT_UNIT)
 _WATT_CUE_RE = re.compile(
-    r"(?:(?:@|at)\s*)?\d{2,4}(?:\s*[–\-—]\s*\d{2,4})?\s*(?:W|watts?)\b", re.I,
-)
+    r"(?:(?:@|at)\s*)?\d{2,4}(?:\s*[–\-—]\s*\d{2,4})?\s*" + _WATT_UNIT)
 
 
 def _is_indoor(*texts: str | None) -> bool:
@@ -222,7 +223,7 @@ def _exec(order: int, kind: str, end: str, value: float, target: dict[str, Any],
         "stepType": {"stepTypeId": sid, "stepTypeKey": skey, "displayOrder": sid},
         "description": desc,
         "endCondition": {"conditionTypeId": cid, "conditionTypeKey": ckey, "displayOrder": cid, "displayable": True},
-        "endConditionValue": float(value),
+        "endConditionValue": None if end == "lap" else float(value),
         "targetValueUnit": None,
         **target,
     }
@@ -237,13 +238,6 @@ def _repeat(order: int, iterations: int, steps: list[dict[str, Any]]) -> dict[st
     return {"type": "RepeatGroupDTO", "stepOrder": order,
             "stepType": {"stepTypeId": 6, "stepTypeKey": "repeat", "displayOrder": 6},
             "numberOfIterations": iterations, "smartRepeat": False, "workoutSteps": steps}
-
-
-def _mins(text: str | None) -> int | None:
-    if not text:
-        return None
-    m = re.search(r"(\d+)\s*min", text)
-    return int(m.group(1)) if m else None
 
 
 # --- pace helpers -------------------------------------------------------------
@@ -274,70 +268,342 @@ def _fmt_pace(sec: float) -> str:
     return f"{int(sec // 60)}:{int(sec % 60):02d}"
 
 
-# --- per-discipline builders --------------------------------------------------
-def _bike_steps(main: str, intensity: str, order: int, title: str = "",
-                indoor: bool | None = None) -> tuple[list[dict[str, Any]], int]:
-    """Bike is prescribed by HEART RATE (the athlete's FTP is trainer-specific and
-    doesn't transfer to hilly outdoor riding). Watts appear only as a secondary
-    note when the session is explicitly indoor."""
-    steps: list[dict[str, Any]] = []
-    o = order
-    indoor = _is_indoor(main, title) if indoor is None else indoor
-    explicit_hr = interval_analysis.explicit_hr_range(main)
+# --- workout text -> watch steps ---------------------------------------------
+# The watch must run the session the app shows, step for step. Every block
+# (warmup, main, cooldown, a brick's run leg) is split into clauses the way the
+# plan and the coach write them, and each clause becomes steps with the same
+# amounts, recoveries and targets. A number the text does not state is never
+# invented: a recovery with no stated length ends on the lap button, and a
+# block with no amount at all becomes a lap-button step carrying its own text.
 
-    def note(inten: str) -> str:
-        # An explicit bpm prescription must be the target encoded on the watch,
-        # not just text that can disagree with a generic zone target.
-        hr = (f"HR {explicit_hr[0]}-{explicit_hr[1]}"
-              if explicit_hr and inten == intensity else _hr_note(inten, "bike", title))
-        if indoor:
-            w = zones.watt_range(inten, title)
-            if w:
-                return f"{hr} · indoor {w[0]}-{w[1]} W" if hr else f"indoor {w[0]}-{w[1]} W"
-        return hr or "steady effort"
-
-    m = re.search(r"(\d+)\s*[x×]\s*(\d+)\s*min", main)
-    if m:
-        reps, dur = int(m.group(1)), int(m.group(2))
-        rec = re.search(r"w/\s*(\d+)\s*min", main)
-        rec_min = int(rec.group(1)) if rec else 3
-        work_target = (_hr_bpm_target(*explicit_hr) if explicit_hr
-                       else _hr_for(intensity, "bike", title))
-        work = _exec(o + 1, "interval", "time", dur * 60, work_target,
-                     desc=note(intensity))
-        recov = _exec(o + 2, "recovery", "time", rec_min * 60, _hr_for("recovery", "bike"),
-                      desc=f"easy spin · {_hr_note('recovery', 'bike')}".strip(" ·"))
-        steps.append(_repeat(o, reps, [work, recov]))
-        return steps, o + 3
-    dur = _mins(main) or 45
-    work_target = (_hr_bpm_target(*explicit_hr) if explicit_hr
-                   else _hr_for(intensity, "bike", title))
-    steps.append(_exec(o, "interval", "time", dur * 60, work_target,
-                       desc=note(intensity)))
-    return steps, o + 1
-
-
-_DIST_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(km|mi|miles?|m)\b", re.I)
-_REPEAT_RE = re.compile(
-    r"(\d+)\s*[x×]\s*(\d+(?:\.\d+)?)\s*(km|mi|miles?|m|min|minutes?|s|sec|seconds?)\b", re.I)
+_UNIT = r"(km|mi|miles?|m|mins?|minutes?|s|secs?|seconds?|h|hrs?|hours?)"
+# "45-60 min" runs the lower bound; the text keeps the range.
+_QTY_RE = re.compile(
+    r"(?<![\d:./\-–])(\d+(?:\.\d+)?)(?:\s*[–\-]\s*\d+(?:\.\d+)?)?\s*" + _UNIT + r"\b", re.I)
+_REPEAT_RE = re.compile(r"(?<![\d:./])(\d+)\s*[x×]\s*(\d+(?:\.\d+)?)\s*" + _UNIT + r"\b", re.I)
+# A comma starts a new step only when a new amount follows it.
+_NEW_AMOUNT = (r"(?=\d+(?:\.\d+)?\s*(?:[x×]\s*\d|km\b|mi\b|miles?\b|m\b|mins?\b|minutes?\b"
+               r"|s\b|secs?\b|seconds?\b|h\b|hrs?\b|hours?\b))")
+_SEP_RE = re.compile(r"\s*;\s*|\s*\+\s*|(?:,\s*|\s+|^)then\b\s*|,\s*" + _NEW_AMOUNT, re.I)
+_REC_WORD_RE = re.compile(
+    r"\b(?:jog|easy|recover\w*|rest|walk|float|spin|between|z1|z2|endurance|steady|off)\b", re.I)
+_LAP_REC_RE = re.compile(
+    r"\bfull\s+(?:recovery|rest)\b|\b(?:jog|walk)\s+(?:back|down)\b|\buntil\s+recovered\b"
+    r"|\bwhen\s+ready\b", re.I)
 _PACE_RE = re.compile(r"(\d{1,2}):([0-5]\d)\s*/\s*(km|mi)\b", re.I)
+_PACE_RANGE_RE = re.compile(
+    r"(\d{1,2}):([0-5]\d)\s*[–\-—]\s*(\d{1,2}):([0-5]\d)\s*/\s*(km|mi)\b", re.I)
 _GOAL_PACE_RE = re.compile(r"\b(goal|race|marathon)[\s-]*pace\b|\bMP\b", re.I)
-_RECOVERY_RE = re.compile(
-    r"(\d+(?:\.\d+)?)\s*(min|minutes?|s|sec|seconds?|km|m)\b\s*(?:easy\s+)?"
-    r"(jog|easy|recover\w*|rest|walk|float)", re.I)
 _PACE_BAND_SEC = 8.0   # ± around a stated "at X/km" pace
+_EMPTY = {"", "—", "-", "–", "n/a", "none"}
+_NESTED_RE = re.compile(r"\s*(\d+)\s*[x×]\s*\((.+)\)(.*)$")
+_KIND = {"warmup": "warmup", "cooldown": "cooldown"}
 
 
-def _metres(value: str, unit: str) -> float:
-    u = unit.lower()
-    return float(value) * (1000.0 if u == "km" else 1609.344 if u.startswith("mi") else 1.0)
+def _amount(value: str, unit: str) -> tuple[str, float]:
+    """('time', seconds) or ('distance', metres) for one written amount."""
+    u, v = unit.lower(), float(value)
+    if u.startswith("min"):
+        return "time", v * 60
+    if u.startswith("mi"):
+        return "distance", v * 1609.344
+    if u.startswith("h"):
+        return "time", v * 3600
+    if u.startswith("s"):
+        return "time", v
+    if u == "km":
+        return "distance", v * 1000
+    return "distance", v
 
 
+def _clean(text: str | None) -> str:
+    t = (text or "").strip()
+    return "" if t.lower() in _EMPTY else t
+
+
+def _clauses(text: str | None) -> list[tuple[str, str]]:
+    """Split a block into (clause, join) pairs in the order they are run.
+
+    join is 'start', 'then' (a sequence written with "then"), 'seq' (";", "+"
+    or a comma before a new amount), 'sentence' (a later sentence that is a
+    step, e.g. "Last 4 km @ 4:41/km") or 'note' (a later sentence that is
+    advice, e.g. "Stop if anything hurts")."""
+    text = _clean(text)
+    if not text:
+        return []
+    text = _normalise_times(text)
+    out: list[tuple[str, str]] = []
+    sentences = [s for s in re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", text) if s.strip()]
+    for i, sentence in enumerate(sentences):
+        sentence = sentence.strip().rstrip(".!? ").strip()
+        header = re.match(r"([^:()]*[A-Za-z][^:()]*):\s+", sentence)
+        if header and (_QTY_RE.match(sentence[header.end():])
+                       or _REPEAT_RE.match(sentence[header.end():])
+                       or _NESTED_RE.match(sentence[header.end():])):
+            # "Main set: 3×10 min ..." / "60 min progression: 20 min easy, ..."
+            sentence = sentence[header.end():]
+        if i and not re.match(r"(?:then|last|final|finish|followed by|\d)", sentence, re.I):
+            out.append((sentence, "note"))
+            continue
+        join = "start" if i == 0 else "sentence"
+        pos = 0
+        for sep in _SEP_RE.finditer(sentence):
+            if sep.end() == sep.start() or _depth(sentence, sep.start()):
+                continue
+            piece = sentence[pos:sep.start()].strip(" ,")
+            if piece:
+                out.append((piece, join))
+            join = "then" if "then" in sep.group(0).lower() else "seq"
+            pos = sep.end()
+        piece = sentence[pos:].strip(" ,")
+        if piece:
+            out.append((piece, join))
+    # "3×8 min @ threshold, 2 min jog" is one repeat, not two steps.
+    merged: list[tuple[str, str]] = []
+    for clause, join in out:
+        prev = merged[-1][0] if merged else ""
+        if (merged and join == "seq" and _REPEAT_RE.search(prev)
+                and not _recovery(prev[_REPEAT_RE.search(prev).end():])
+                and not _REPEAT_RE.search(clause) and _QTY_RE.match(clause)
+                and _REC_WORD_RE.search(clause)):
+            merged[-1] = (f"{prev}, {clause}", merged[-1][1])
+            continue
+        merged.append((clause, join))
+    return merged
+
+
+def _normalise_times(text: str) -> str:
+    """'4 min 30 s' -> '270 s', '1 h 30 min' -> '90 min', '2:00 jog' -> '120 s jog'."""
+    text = re.sub(r"(?<![\d:])(\d{1,2}):([0-5]\d)(?!\s*/)(?=\s*(?:min\w*\s*)?"
+                  r"(?:jog|easy|rest|recover|walk|float|spin|between)\b)",
+                  lambda m: f"{int(m[1]) * 60 + int(m[2])} s", text, flags=re.I)
+    text = re.sub(r"(\d+)\s*s\s*min\w*\b", r"\1 s", text)
+    text = re.sub(r"(\d+)\s*min(?:utes?|s)?\s*(\d+)\s*s(?:ecs?|econds?)?\b",
+                  lambda m: f"{int(m[1]) * 60 + int(m[2])} s", text, flags=re.I)
+    return re.sub(r"(\d+)\s*h(?:rs?|ours?)?\s*(\d+)\s*min(?:utes?|s)?\b",
+                  lambda m: f"{int(m[1]) * 60 + int(m[2])} min", text, flags=re.I)
+
+
+def _depth(text: str, pos: int) -> int:
+    """Bracket depth at a position: separators inside "(...)" are not steps."""
+    return max(0, text[:pos].count("(") - text[:pos].count(")"))
+
+
+def _recovery(tail: str) -> tuple[str, float | None, str, int] | None:
+    """(end, amount, text, start) of the recovery written after a repeat."""
+    for m in _QTY_RE.finditer(tail):
+        around = tail[max(0, m.start() - 8):m.end() + 24]
+        if "w/" in around.lower() or re.search(r"\bwith\b", around, re.I) or _REC_WORD_RE.search(around):
+            end, amount = _amount(m.group(1), m.group(2))
+            start = max(0, m.start() - 3) if tail[max(0, m.start() - 3):m.start()].strip() == "w/" else m.start()
+            return end, amount, tail[m.start():].strip(" ,"), start
+    lap = _LAP_REC_RE.search(tail)
+    if lap:
+        return "lap", None, tail[lap.start():].strip(" ,"), lap.start()
+    return None
+
+
+def _parse(clause: str) -> dict[str, Any]:
+    """One clause as a single step, a repeat, work embedded in a longer block,
+    or a note with no amount."""
+    nested = _NESTED_RE.match(clause)
+    if nested:
+        return {"type": "nested", "n": int(nested.group(1)), "inner": nested.group(2),
+                "rec": _recovery(nested.group(3)), "text": clause}
+    rep = _REPEAT_RE.search(clause)
+    emb = re.search(r"\bwith\b\s+(?=\d)", clause, re.I)
+    if emb and (not rep or rep.start() >= emb.end()):
+        base_text = clause[:emb.start()].strip(" ,")
+        base_qty = _QTY_RE.search(base_text)
+        inner = _parse(clause[emb.end():])
+        if base_qty and inner["type"] in ("single", "repeat"):
+            end, amount = _amount(base_qty.group(1), base_qty.group(2))
+            return {"type": "embedded", "text": clause, "inner": inner,
+                    "base": {"type": "single", "end": end, "amount": amount, "text": base_text}}
+    if rep:
+        end, amount = _amount(rep.group(2), rep.group(3))
+        tail = clause[rep.end():]
+        rec = _recovery(tail)
+        work = clause[:rep.end()] + (tail[:rec[3]] if rec else tail)
+        if not rec and re.search(r"\bstrides?\b|\bpick-?ups?\b", clause, re.I):
+            # Strides are never run back to back; with no stated recovery the
+            # watch waits for the lap button instead of inventing one.
+            rec = ("lap", None, "walk or jog back", len(tail))
+        return {"type": "repeat", "n": int(rep.group(1)), "end": end, "amount": amount,
+                "work": work.strip(" ,"), "rec": rec, "text": clause}
+    qty = _QTY_RE.search(clause)
+    if qty:
+        end, amount = _amount(qty.group(1), qty.group(2))
+        return {"type": "single", "end": end, "amount": amount, "text": clause}
+    return {"type": "note", "text": clause}
+
+
+def _span(p: dict[str, Any]) -> tuple[str, float] | None:
+    """(end, total) a parsed single/repeat covers, or None if it ends on lap."""
+    if p["type"] == "single":
+        return p["end"], p["amount"]
+    if p["type"] == "repeat":
+        rec = p["rec"]
+        if rec and (rec[0] == "lap" or rec[0] != p["end"]):
+            return None
+        return p["end"], p["n"] * (p["amount"] + (rec[1] if rec else 0.0))
+    return None
+
+
+def _split_base(base: float, block: float, text: str, end: str) -> tuple[float, float]:
+    """Lead and tail around work placed inside a longer block."""
+    rest = base - block
+    low = text.lower()
+    if re.search(r"second half|back half|later in", low):
+        lead = base / 2 if base / 2 + block <= base else rest
+    elif re.search(r"\b(?:final|at the end|to finish)\b", low):
+        lead = rest
+    elif re.search(r"\b(?:first|at the start|early)\b", low):
+        lead = 0.0
+    else:
+        lead = rest / 2
+    if end == "time" and rest % 60 == 0:
+        lead = (lead // 60) * 60
+    else:
+        lead = float(round(lead))
+    return lead, rest - lead
+
+
+def _with_note(step: dict[str, Any], note: str) -> None:
+    note = note.strip(" .,;")
+    if not note:
+        return
+    target = step
+    while target.get("type") == "RepeatGroupDTO":
+        target = target["workoutSteps"][0]   # a cue describes the work, not the rest
+    joined = f"{target.get('description') or ''} · {note}".strip(" ·")
+    target["description"] = joined[:160]
+
+
+def _lap_step(kind: str, target: dict[str, Any], desc: str, swim: bool = False) -> dict[str, Any]:
+    return _exec(0, kind, "lap", 0, target, desc=desc[:160], swim=swim)
+
+
+def _timed_seconds(steps: list[dict[str, Any]]) -> float:
+    total = 0.0
+    for s in steps:
+        if s.get("type") == "RepeatGroupDTO":
+            total += s["numberOfIterations"] * _timed_seconds(s["workoutSteps"])
+        elif s["endCondition"]["conditionTypeKey"] == "time":
+            total += s["endConditionValue"] or 0.0
+    return total
+
+
+def _has_amount(steps: list[dict[str, Any]]) -> bool:
+    for s in steps:
+        if s.get("type") == "RepeatGroupDTO" or s["endCondition"]["conditionTypeKey"] != "lap.button":
+            return True
+    return False
+
+
+def _renumber(steps: list[dict[str, Any]], order: int = 1) -> int:
+    """Garmin numbers every node in order, a repeat before its children."""
+    for s in steps:
+        s["stepOrder"] = order
+        order += 1
+        if s.get("type") == "RepeatGroupDTO":
+            order = _renumber(s["workoutSteps"], order)
+    return order
+
+
+def _blocks(text: str | None, block: str, single, repeat, recovery) -> list[dict[str, Any]]:
+    """Turn one block of text into steps with sport-specific builders.
+
+    single(text, block, end, amount) -> step; repeat(work_text, block, end,
+    amount) -> step; recovery(rec, block) -> step."""
+    steps: list[dict[str, Any]] = []
+    if block == "inner":
+        # Inside "4×(400 m @ 3:45/km, 200 m jog)" the jog is the recovery.
+        outer_single = single
+
+        def single(text, blk, end, amount):  # noqa: F811
+            if (end != "lap" and _REC_WORD_RE.search(text) and not _stated_pace(text)
+                    and not re.search(r"tempo|threshold|race|vo2|@", text, re.I)):
+                return recovery((end, amount, text, 0), "main")
+            return outer_single(text, "main", end, amount)
+
+    def build(p: dict[str, Any], blk: str) -> list[dict[str, Any]]:
+        if p["type"] == "nested":
+            inner = _blocks(p["inner"], "inner", single, repeat, recovery)
+            rec = recovery(p["rec"], blk) if p["rec"] else None
+            if not any(s.get("type") == "RepeatGroupDTO" for s in inner):
+                return [_repeat(0, p["n"], inner + ([rec] if rec else []))]
+            # Garmin does not nest repeats: unroll the outer one.
+            out: list[dict[str, Any]] = []
+            for i in range(p["n"]):
+                out.extend(copy.deepcopy(inner))
+                if rec and i < p["n"] - 1:
+                    out.append(copy.deepcopy(rec))
+            return out
+        if p["type"] == "single":
+            return [single(p["text"], blk, p["end"], p["amount"])]
+        work = repeat(p["work"], blk, p["end"], p["amount"])
+        group = [work] + ([recovery(p["rec"], blk)] if p["rec"] else [])
+        return [_repeat(0, p["n"], group)]
+
+    for clause, join in _clauses(text):
+        if join == "note":
+            if steps:
+                _with_note(steps[-1], clause)
+            continue
+        p = _parse(clause)
+        if p["type"] == "note":
+            if steps:
+                _with_note(steps[-1], clause)
+            else:
+                steps.append(single(clause, block, "lap", None))
+            continue
+        if (p["type"] == "single" and join == "sentence"
+                and re.match(r"(?:the\s+)?(?:last|final)\b", clause, re.I)):
+            # "16 km steady. Last 4 km @ 4:41/km." carves the finish out of the
+            # 16 km instead of adding 4 km to it.
+            prev = steps[-1] if steps else None
+            if (prev and prev.get("type") == "ExecutableStepDTO"
+                    and prev["endCondition"]["conditionTypeKey"] == p["end"]
+                    and (prev["endConditionValue"] or 0) > p["amount"]):
+                prev["endConditionValue"] = float(prev["endConditionValue"] - p["amount"])
+        if p["type"] == "embedded":
+            base, inner = p["base"], p["inner"]
+            span = _span(inner)
+            stride = bool(re.search(r"\bstrides?\b", inner["text"], re.I))
+            if not span or stride or span[0] != base["end"] or span[1] > base["amount"]:
+                # Strides after an easy run, or work that does not fit inside
+                # the stated block, run after it.
+                steps.append(single(base["text"], block, base["end"], base["amount"]))
+                steps.extend(build(inner, block))
+                continue
+            lead, tail = _split_base(base["amount"], span[1], p["text"], base["end"])
+            if lead:
+                steps.append(single(base["text"], block, base["end"], lead))
+            steps.extend(build(inner, "main" if block == "main" else block))
+            if tail:
+                steps.append(single(base["text"], block, base["end"], tail))
+            continue
+        steps.extend(build(p, block))
+    return steps
+
+
+# --- running ------------------------------------------------------------------
 def _stated_pace(clause: str) -> tuple[dict[str, Any], str] | None:
     """The pace written in a clause as a watch target + note, or None.
 
-    "at 4:59/km" → 4:59 ±8 s; "no faster than 5:26/km" → a ceiling; a bare
-    "goal pace" resolves to the athlete's goal pace from the active event."""
+    "at 4:59/km" -> 4:59 ±8 s; "4:09-4:27/km" -> that band; "no faster than
+    5:26/km" -> a ceiling; a bare "goal pace" resolves to the athlete's goal
+    pace from the active event."""
+    rng = _PACE_RANGE_RE.search(clause)
+    if rng:
+        a = int(rng.group(1)) * 60 + int(rng.group(2))
+        b = int(rng.group(3)) * 60 + int(rng.group(4))
+        if rng.group(5).lower() == "mi":
+            a, b = a / 1.609344, b / 1.609344
+        slow, fast = max(a, b), min(a, b)
+        return (_pace_target(1000.0 / slow, 1000.0 / fast),
+                f"{zones.fmt_pace(fast)}-{zones.fmt_pace(slow)}/km")
     m = _PACE_RE.search(clause)
     sec = None
     if m:
@@ -360,145 +626,227 @@ def _stated_pace(clause: str) -> tuple[dict[str, Any], str] | None:
             f"{_pace_label(sec)} (±{int(_PACE_BAND_SEC)}s)")
 
 
-def _text_run_steps(main: str, intensity: str, order: int, title: str,
-                    easy_target) -> tuple[list[dict[str, Any]], int] | None:
-    """Runs written the way the plan and the coach write them.
-
-    "18 km steady, no faster than 5:26/km, then the last 5 km at 4:59/km"
-    → 18 km under a 5:26 ceiling, then 5 km at 4:59 ±8 s.
-    "2x1 km at goal pace 4:59/km, 2 min jog between" → repeat ×2 of 1 km at
-    4:59 + 2 min easy jog. The paces the athlete reads in the app are the
-    paces encoded on the watch. Returns None when the text has neither a
-    distance nor a stated pace, so the time-based parser handles it.
-    """
-    first = re.split(r"\.\s+(?=[A-Z])", main.strip(), maxsplit=1)[0]
-    clauses = [c for c in re.split(r"[,;]?\s*\bthen\b", first, flags=re.I) if c.strip()]
-    steps: list[dict[str, Any]] = []
-    o = order
-    for clause in clauses:
-        rep = _REPEAT_RE.search(clause)
-        stated = _stated_pace(clause)
-        if rep:
-            n, val, unit = int(rep.group(1)), rep.group(2), rep.group(3).lower()
-            is_time = unit.startswith(("min", "s"))
-            if is_time and not stated:
-                return None   # "4×6 min @ threshold": the zone-based parser owns it
-            work_tg, work_desc = stated or easy_target(intensity)
-            if is_time:
-                end, amount = "time", float(val) * (60 if unit.startswith("min") else 1)
-            else:
-                end, amount = "distance", _metres(val, unit)
-            work = _exec(o + 1, "interval", end, amount, work_tg, desc=work_desc)
-            tail = clause[rep.end():]
-            rec = _RECOVERY_RE.search(tail)
-            group = [work]
-            if rec:
-                rv, ru, kind = rec.group(1), rec.group(2).lower(), rec.group(3).lower()
-                rest = kind in ("rest", "walk")
-                r_tg, r_desc = ((_no_target(), f"{kind}") if rest else easy_target("easy"))
-                if ru.startswith(("min", "s")):
-                    r_end, r_amt = "time", float(rv) * (60 if ru.startswith("min") else 1)
-                else:
-                    r_end, r_amt = "distance", _metres(rv, ru)
-                group.append(_exec(o + 2, "rest" if rest else "recovery", r_end, r_amt,
-                                   r_tg, desc=r_desc))
-            steps.append(_repeat(o, n, group)); o += 1 + len(group)
-            continue
-        dist = _DIST_RE.search(clause)
-        if not dist or float(dist.group(1)) <= 0:
-            continue
-        easy_clause = re.search(r"\b(easy|jog|recovery|steady|shakeout)\b", clause, re.I)
-        tg, desc = stated or easy_target("easy" if easy_clause else intensity)
-        steps.append(_exec(o, "interval", "distance", _metres(dist.group(1), dist.group(2)),
-                           tg, desc=desc)); o += 1
-    return (steps, o) if steps else None
+def _is_easy(inten: str, title: str) -> bool:
+    return inten in ("easy", "recovery") or zones.zone_for(inten, title) <= 2
 
 
-def _run_steps(main: str, intensity: str, thr: float | None, order: int,
-               title: str = "") -> tuple[list[dict[str, Any]], int]:
-    """Run steps target a real pace band derived from the athlete's Garmin
-    lactate-threshold pace. Easy/recovery work carries an explicit pace CEILING
-    (not a range) — running easy days too fast is this athlete's main execution
-    risk, so the slow end is stated as a hard limit."""
-    steps: list[dict[str, Any]] = []
-    o = order
-
-    def target(inten: str):
-        if "race" in (inten or "").lower():
-            return _hr_for(inten, "run", title)
-        easy = inten in ("easy", "recovery") or zones.zone_for(inten, title) <= 2
+def _run_zone_target(inten: str, title: str, thr: float | None, brick: bool) -> dict[str, Any]:
+    """Watch target for a run intensity word: event HR for race work, an
+    explicit pace ceiling for easy running, a pace band otherwise."""
+    if "race" in (inten or "").lower():
+        tg = _hr_for(inten, "run", title)
+        if brick and tg["targetType"]["workoutTargetTypeKey"] == "no.target" and thr:
+            return _pace_for("race", thr)
+        return tg
+    easy = _is_easy(inten, title)
+    try:
+        r = zones.pace_range(inten, title)
+    except Exception:  # noqa: BLE001
         r = None
-        try:
-            r = zones.pace_range(inten, title)
-        except Exception:  # noqa: BLE001
-            r = None
-        if r:
-            if easy:
-                return _easy_run_target_and_note(title)[0]
-            return _pace_target(1000.0 / r[0], 1000.0 / r[1])
-        if thr:
-            pace = _pace_for(inten, thr)
-            return _pace_ceiling(pace["targetValueTwo"]) if easy else pace
+    if r:
         if easy:
             return _easy_run_target_and_note(title)[0]
-        return _hr_for(inten, "run", title)
-
-    def note(inten: str) -> str:
-        if "race" in (inten or "").lower():
-            event = coaching_contract.event_context()
-            pace = (event.get("pacing_targets") or {}).get("run_lap_1_min_per_km")
-            suffix = f"; lap 1 ceiling {pace}/km" if pace else "; lap 1 pace unknown"
-            return f"{_hr_note(inten, 'run', title)}{suffix}"
-        try:
-            r = zones.pace_range(inten, title)
-        except Exception:  # noqa: BLE001
-            r = None
-        hr = _hr_note(inten, "run", title)
-        if not r:
-            return _easy_run_target_and_note(title)[1] if (
-                inten in ("easy", "recovery") or zones.zone_for(inten, title) <= 2
-            ) else hr
-        slow, fast = zones.fmt_pace(r[0]), zones.fmt_pace(r[1])
-        if inten in ("easy", "recovery") or zones.zone_for(inten, title) <= 2:
-            # A ceiling, not a range — do not run faster than this.
-            return _easy_run_target_and_note(title)[1]
-        return f"{fast}-{slow}/km" + (f" · {hr}" if hr else "")
-
-    parsed = _text_run_steps(main, intensity, o, title,
-                             lambda inten: (target(inten), note(inten)))
-    if parsed:
-        steps.extend(parsed[0])
-        return steps, parsed[1]
-
-    m = re.search(r"(\d+)\s*[x×]\s*(\d+)\s*(s|sec|min)", main)
-    if m and re.search(r"stride", main, re.I):
-        # "20 min easy with 4x20s strides": the run is the easy block; strides are
-        # short relaxed pick-ups after it, by feel, with a full jog back.
-        base = _mins(main[:m.start()]) or _mins(main)
-        if base:
-            steps.append(_exec(o, "interval", "time", base * 60, target("easy"), desc=note("easy")))
-            o += 1
-        secs = int(m.group(2)) * (1 if m.group(3).startswith("s") else 60)
-        stride = _exec(o + 1, "interval", "time", secs, _no_target(), desc="stride: fast but relaxed")
-        jog = _exec(o + 2, "recovery", "time", 60, _no_target(), desc="walk/jog back")
-        steps.append(_repeat(o, int(m.group(1)), [stride, jog]))
-        return steps, o + 3
-    if m:
-        reps = int(m.group(1)); val = int(m.group(2)); unit = m.group(3)
-        secs = val if unit.startswith("s") else val * 60
-        rec = re.search(r"(\d+)\s*(s|sec|min)\s*(easy|jog|recover)", main[m.end():])
-        rsecs = 90
-        if rec:
-            rsecs = int(rec.group(1)) * (1 if rec.group(2).startswith("s") else 60)
-        work = _exec(o + 1, "interval", "time", secs, target(intensity), desc=note(intensity))
-        recov = _exec(o + 2, "recovery", "time", rsecs, target("easy"), desc=note("easy"))
-        steps.append(_repeat(o, reps, [work, recov]))
-        return steps, o + 3
-    dur = _mins(main) or 40
-    steps.append(_exec(o, "interval", "time", dur * 60, target(intensity), desc=note(intensity)))
-    return steps, o + 1
+        return _pace_target(1000.0 / r[0], 1000.0 / r[1])
+    if thr:
+        pace = _pace_for(inten, thr)
+        return _pace_ceiling(pace["targetValueTwo"]) if easy else pace
+    if easy:
+        return _easy_run_target_and_note(title)[0]
+    return _hr_for(inten, "run", title)
 
 
+def _run_zone_note(inten: str, title: str, thr: float | None, brick: bool) -> str:
+    if "race" in (inten or "").lower():
+        if brick and not _event_hr("run") and thr:
+            return "race effort · threshold-derived pace"
+        event = coaching_contract.event_context()
+        pace = (event.get("pacing_targets") or {}).get("run_lap_1_min_per_km")
+        suffix = f"; lap 1 ceiling {pace}/km" if pace else "; lap 1 pace unknown"
+        return f"{_hr_note(inten, 'run', title)}{suffix}"
+    easy = _is_easy(inten, title)
+    try:
+        r = zones.pace_range(inten, title)
+    except Exception:  # noqa: BLE001
+        r = None
+    if easy:
+        note = _easy_run_target_and_note(title)[1]
+        if "unknown" in note and thr:
+            pace = _pace_for("easy", thr)
+            return f"CEILING {_fmt_pace(1000.0 / pace['targetValueTwo'])}/km; do not go faster"
+        return note
+    hr = _hr_note(inten, "run", title)
+    if not r:
+        return hr
+    return f"{zones.fmt_pace(r[1])}-{zones.fmt_pace(r[0])}/km" + (f" · {hr}" if hr else "")
+
+
+_RUN_WORDS = (
+    (r"\bvo2|\b[35]k\s*pace|\binterval pace", "vo2"),
+    (r"\bthreshold|\bcruise", "threshold"),
+    (r"\btempo", "tempo"),
+    (r"\brace\b|\brace[- ](?:pace|effort)|\b70\.3 (?:run )?effort|\bgoal\b", "race pace"),
+    (r"\beasy|\bjog|\brecovery|\bsteady|\bshakeout|\bconversational|\brelaxed|\baerobic"
+     r"|\blong[- ]run|\bz[12]\b", "easy"),
+)
+
+
+def _run_word(text: str) -> str | None:
+    """The first intensity word written in a run clause."""
+    best = None
+    for pattern, word in _RUN_WORDS:
+        m = re.search(pattern, text, re.I)
+        if m and (best is None or m.start() < best[0]):
+            best = (m.start(), word)
+    return best[1] if best else None
+
+
+def _run_target(text: str, block: str, ctx: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    stated = _stated_pace(text)
+    if stated:
+        return stated
+    hr = interval_analysis.explicit_hr_range(text)
+    if hr:
+        return _hr_bpm_target(*hr), f"HR {hr[0]}-{hr[1]}"
+    if re.search(r"\bwalk", text, re.I):
+        return _no_target(), "walk"
+    if re.search(r"\bstrides?\b|\bpick-?ups?\b", text, re.I):
+        return _no_target(), "stride: fast but relaxed"
+    if re.search(r"\buphill\b|\bhills?\b", text, re.I):
+        return _no_target(), "uphill: hard, by feel"
+    word = _run_word(text)
+    if word is None:
+        word = "easy" if block in ("warmup", "cooldown") else (ctx["intensity"] or "easy")
+    args = (ctx["title"], ctx["thr"], ctx["brick"])
+    return _run_zone_target(word, *args), _run_zone_note(word, *args)
+
+
+def _run_block(text: str | None, block: str, ctx: dict[str, Any]) -> list[dict[str, Any]]:
+    def single(clause, blk, end, amount):
+        tg, note = _run_target(clause, blk, ctx)
+        if end == "lap":
+            return _lap_step(_KIND.get(blk, "interval"), tg, f"{clause} · {note}")
+        return _exec(0, _KIND.get(blk, "interval"), end, amount, tg, desc=note)
+
+    def repeat(work, blk, end, amount):
+        tg, note = _run_target(work, "main", ctx)
+        return _exec(0, "interval", end, amount, tg, desc=note)
+
+    def recovery(rec, blk):
+        end, amount, text, _ = rec
+        low = text.lower()
+        rest = bool(re.search(r"\b(?:rest|walk|stand)\b", low)) and not re.search(r"\bjog\b", low)
+        kind = "rest" if rest else "recovery"
+        if end == "lap":
+            return _lap_step(kind, _no_target(), f"{text}: press lap when ready")
+        hr = interval_analysis.explicit_hr_range(text)
+        if hr:
+            tg, note = _hr_bpm_target(*hr), f"HR {hr[0]}-{hr[1]}"
+        elif rest:
+            tg, note = _no_target(), text
+        else:
+            args = (ctx["title"], ctx["thr"], ctx["brick"])
+            tg, note = _run_zone_target("easy", *args), _run_zone_note("easy", *args)
+        return _exec(0, kind, end, amount, tg, desc=note)
+
+    return _blocks(text, block, single, repeat, recovery)
+
+
+# --- cycling ------------------------------------------------------------------
+_BIKE_WORDS = (
+    (r"\bvo2|\banaerobic|\bsprint", "vo2"),
+    (r"\bthreshold|\bftp\b", "threshold"),
+    (r"\btempo|\bsweet ?spot", "tempo"),
+    (r"\bz1\b|\brecovery\b|\bvery easy|\beasy spin", "recovery"),
+    (r"\bz2\b|\beasy|\bendurance|\baerobic|\bsteady", "easy"),
+)
+_BIKE_DRILL_RE = re.compile(
+    r"spin-?ups?|openers?|high[- ]cadence|pick-?ups?|accelerations?", re.I)
+_RACE_WORK_RE = re.compile(r"\brace\b|\brace[- ](?:effort|pace|sim)|\b70\.3 effort", re.I)
+
+
+def _bike_word(text: str) -> str | None:
+    best = None
+    for pattern, word in _BIKE_WORDS:
+        m = re.search(pattern, text, re.I)
+        if m and (best is None or m.start() < best[0]):
+            best = (m.start(), word)
+    return best[1] if best else None
+
+
+def _bike_target(text: str, ctx: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """Bike work is prescribed by heart rate (the trainer FTP does not transfer
+    outdoors). The event's race HR wins on race-effort work, an explicit bpm
+    range next, then the intensity word in the clause, then the session's."""
+    title, indoor = ctx["title"], ctx["indoor"]
+    word = None
+    if _RACE_WORK_RE.search(text):
+        ev = _event_hr("bike")
+        if ev:
+            tg, note = _hr_bpm_target(*ev), f"HR {ev[0]}-{ev[1]}"
+            return tg, _bike_watts(note, text, "race", ctx)
+    hr = interval_analysis.explicit_hr_range(text)
+    if hr:
+        return _hr_bpm_target(*hr), _bike_watts(f"HR {hr[0]}-{hr[1]}", text, None, ctx)
+    word = _bike_word(text)
+    if word is None and _BIKE_DRILL_RE.search(text) and not _RACE_WORK_RE.search(text):
+        label = _BIKE_DRILL_RE.search(text).group(0).lower()
+        return _no_target(), f"{label}: by feel"
+    word = word or ctx["intensity"]
+    note = _hr_note(word, "bike", title) or ("steady effort" if not indoor else "")
+    return _hr_for(word, "bike", title), _bike_watts(note, text, word, ctx)
+
+
+def _bike_watts(note: str, text: str, word: str | None, ctx: dict[str, Any]) -> str:
+    """Indoor rides add the Peloton watts as a note; outdoor never shows watts."""
+    if not ctx["indoor"]:
+        return note
+    stated = _WATT_RANGE_RE.search(text)
+    if stated:
+        return f"{note} · Peloton {stated.group(0)}".strip(" ·")
+    w = zones.watt_range(word or ctx["intensity"], ctx["title"])
+    return f"{note} · indoor {w[0]}-{w[1]} W".strip(" ·") if w else note
+
+
+def _bike_block(text: str | None, block: str, ctx: dict[str, Any]) -> list[dict[str, Any]]:
+    def single(clause, blk, end, amount):
+        if blk in ("warmup", "cooldown"):
+            # Warmups and cooldowns carry no encoded target.
+            if end == "lap":
+                return _lap_step(_KIND[blk], _no_target(), clause)
+            return _exec(0, _KIND[blk], end, amount, _no_target(), desc=clause[:160])
+        tg, note = _bike_target(clause, ctx)
+        if end == "lap":
+            return _lap_step("interval", tg, f"{clause} · {note}")
+        return _exec(0, "interval", end, amount, tg, desc=note)
+
+    def repeat(work, blk, end, amount):
+        tg, note = _bike_target(work, ctx)
+        if (end == "time" and amount < 120 and not interval_analysis.explicit_hr_range(work)
+                and not _RACE_WORK_RE.search(work)):
+            # Heart rate cannot respond inside a sprint: an HR target would only
+            # alarm. The effort is ridden by feel, as written.
+            drill = _BIKE_DRILL_RE.search(work)
+            label = drill.group(0).lower() if drill else f"{_bike_word(work) or 'hard'} effort"
+            tg, note = _no_target(), f"{label}, by feel"
+        return _exec(0, "interval", end, amount, tg, desc=note)
+
+    def recovery(rec, blk):
+        end, amount, text, _ = rec
+        hr = interval_analysis.explicit_hr_range(text)
+        if hr:
+            tg, note = _hr_bpm_target(*hr), f"HR {hr[0]}-{hr[1]}"
+        elif re.search(r"\bz2\b|endurance|steady|aerobic", text, re.I):
+            tg, note = _hr_for("easy", "bike", ctx["title"]), _hr_note("easy", "bike", ctx["title"])
+        else:
+            tg, note = _no_target(), "easy spin"
+        if end == "lap":
+            return _lap_step("recovery", tg, f"{text}: press lap when ready")
+        return _exec(0, "recovery", end, amount, tg, desc=note or "easy spin")
+
+    return _blocks(text, block, single, repeat, recovery)
+
+
+# --- swimming -----------------------------------------------------------------
 def _duration_seconds(text: str | None) -> int | None:
     """Seconds from a time phrase: '1:30', '90 s', '20 sec', '2 min'. None if none."""
     if not text:
@@ -518,7 +866,11 @@ def _duration_seconds(text: str | None) -> int | None:
 def _swim_distance(chunk: str) -> int | None:
     """Metres in a swim chunk, ignoring numbers that are actually times.
     So '30s rest' / '60 sec' → None (never a distance), '200 easy' → 200."""
+    km = re.search(r"(?<![\d.])(\d+(?:\.\d+)?)\s*km\b", chunk, re.I)
+    if km:
+        return int(round(float(km.group(1)) * 1000))
     cleaned = re.sub(r"\d+\s*:\s*\d{2}", " ", chunk)                       # mm:ss
+    cleaned = re.sub(r"/\s*\d+\s*m\b", " ", cleaned)                        # per 100m
     cleaned = re.sub(r"\d+\s*(?:s|sec|second|min|minute)s?\b", " ", cleaned, flags=re.I)  # durations
     m = re.search(r"(\d{2,4})", cleaned)
     if m and int(m.group(1)) >= 25:
@@ -526,8 +878,10 @@ def _swim_distance(chunk: str) -> int | None:
     return None
 
 
-_REST_RE = re.compile(r"\b(rest|recover|ri)\b", re.I)
-
+_REST_RE = re.compile(r"\b(rest|recover|ri|between)\b", re.I)
+_SWIM_REST_RE = re.compile(
+    r"(\d+(?::\d{2})?)\s*(s|secs?|seconds?|mins?|minutes?)?\s*(?:rest|ri|recovery|pause|between)\b"
+    r"|\b(?:rest|ri)\s*(\d+(?::\d{2})?)\s*(s|secs?|seconds?|mins?|minutes?)?", re.I)
 
 # Dryland / non-swim work that should NEVER become a swim step — it stays in the
 # workout notes so the athlete sees it, but the watch swim workout ignores it.
@@ -535,226 +889,234 @@ _DRYLAND_RE = re.compile(
     r"\b(mobility|core|stretch\w*|foam|roll|dry ?land|yoga|band|activation|"
     r"strength|lift|plank|glute|hip|abs|pilates)\b", re.I)
 
+# Garmin's own ids (GET /workout-service/workout/types).
+_STROKES = ((re.compile(r"\bback(?:stroke)?\b", re.I), 2, "backstroke"),
+            (re.compile(r"\bbreast(?:stroke)?\b", re.I), 3, "breaststroke"),
+            (re.compile(r"\b(?:fly|butterfly)\b", re.I), 5, "fly"),
+            (re.compile(r"\bIM\b|\bmedley\b"), 7, "individual_medley"),
+            (re.compile(r"\bchoice\b|\bany stroke\b", re.I), 1, "any_stroke"))
+_EQUIPMENT = ((re.compile(r"\bpull(?:[- ]?buoy)?\b", re.I), 4, "pull_buoy"),
+              (re.compile(r"\bkick(?: ?board)?\b", re.I), 2, "kickboard"),
+              (re.compile(r"\bpaddles?\b", re.I), 3, "paddles"),
+              (re.compile(r"\bfins?\b", re.I), 1, "fins"),
+              (re.compile(r"\bsnorkel\b", re.I), 5, "snorkel"))
+
 
 def _is_dryland(text: str | None) -> bool:
     return bool(_DRYLAND_RE.search(text or ""))
 
 
-def _swim_fallback(order: int, kind: str, text: str | None, default_m: int) -> list[dict[str, Any]]:
-    """0 or 1 swim steps when parsing found nothing structured. Dryland work (mobility/
-    core/stretch) → NO step (kept in notes). Else a TIME step if minutes are stated,
-    otherwise a default distance step."""
-    if _is_dryland(text):
-        return []
-    secs = _duration_seconds(text or "")
-    if secs and secs >= 60:
-        return [_exec(order, kind, "time", secs, _no_target(), desc=(text or "")[:80], swim=True)]
-    return [_exec(order, kind, "distance", default_m, _no_target(), desc=(text or "")[:80], swim=True)]
+def _swim_rest(chunk: str) -> int | None:
+    m = _SWIM_REST_RE.search(chunk)
+    if not m:
+        return None
+    value = m.group(1) or m.group(3)
+    unit = (m.group(2) or m.group(4) or "s").lower()
+    if ":" in value:
+        a, b = value.split(":")
+        return int(a) * 60 + int(b)
+    return int(value) * (60 if unit.startswith("m") else 1)
 
 
-def _swim_steps(text: str, order: int, kind: str = "interval") -> tuple[list[dict[str, Any]], int]:
-    """Parse a swim set into lappable distance steps (metres) with proper rests.
+def _swim_step(kind: str, end: str, value: float | None, chunk: str) -> dict[str, Any]:
+    step = _exec(0, kind, end, value or 0, _no_target(), desc=chunk[:80], swim=True)
+    for pattern, sid, key in _STROKES:
+        if pattern.search(chunk):
+            step["strokeType"] = {"strokeTypeId": sid, "strokeTypeKey": key, "displayOrder": sid}
+            break
+    for pattern, eid, key in _EQUIPMENT:
+        if pattern.search(chunk):
+            step["equipmentType"] = {"equipmentTypeId": eid, "equipmentTypeKey": key,
+                                     "displayOrder": eid}
+            break
+    return step
 
-    Robust to how the coach phrases things:
-      - 'N×M'          → repeat of M-metre swim + a rest step
-      - a rest phrase  → a rest (time) step, never a bogus distance step; if it
-                         trails a rep set (often comma-split off), it sets that
-                         set's rest instead of adding a stray step
-      - a bare 'M ...' → an M-metre swim step
-    """
-    steps: list[dict[str, Any]] = []
-    o = order
-    last_repeat: dict[str, Any] | None = None
-    for chunk in re.split(r"[;+,\n]", text):
-        chunk = chunk.strip()
-        if not chunk:
+
+def _swim_chunks(text: str) -> list[tuple[str, bool]]:
+    """(chunk, is_note): split at ; + , and newlines outside brackets; a later
+    sentence that does not start with an amount is a note."""
+    out: list[tuple[str, bool]] = []
+    sentences = [s for s in re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", text.strip()) if s.strip()]
+    for i, sentence in enumerate(sentences):
+        sentence = sentence.strip().rstrip(".!? ")
+        if i and not re.match(r"\d", sentence):
+            out.append((sentence, True))
             continue
-        rep = re.search(r"(\d+)\s*[x×]\s*(\d+)", chunk)
+        depth, cur = 0, ""
+        for ch in sentence:
+            if ch in "([":
+                depth += 1
+            elif ch in ")]":
+                depth = max(0, depth - 1)
+            if depth == 0 and ch in ";+,\n":
+                out.append((cur.strip(), False))
+                cur = ""
+            else:
+                cur += ch
+        out.append((cur.strip(), False))
+    return [(c, n) for c, n in out if c]
+
+
+def _swim_steps(text: str, order: int = 1, kind: str = "interval") -> tuple[list[dict[str, Any]], int]:
+    """Parse a swim set into lappable distance steps (metres) with its rests.
+
+      - 'N×M'          → repeat of an M-metre swim, plus the rest if one is written
+      - a rest phrase  → the rest of the set before it, or a standalone rest step
+      - a bare 'M ...' → an M-metre swim step
+      - 'N min ...'    → a timed swim step (dryland text is skipped)
+    Stroke (backstroke, breaststroke, ...) and equipment (pull buoy, kickboard,
+    paddles, fins) written in a chunk are set on its step."""
+    steps: list[dict[str, Any]] = []
+    last_repeat: dict[str, Any] | None = None
+    for chunk, is_note in _swim_chunks(text or ""):
+        if is_note:
+            if steps:
+                _with_note(steps[-1], chunk)
+            continue
+        nested = _NESTED_RE.match(chunk)
+        if nested:
+            # "3×(4×100 @ CSS, 10s rest)": Garmin does not nest repeats, so the
+            # rounds are unrolled; a following "1 min between rounds" goes
+            # between them.
+            inner, _ = _swim_steps(nested.group(2), kind=kind)
+            if inner:
+                rounds = {"type": "rounds", "n": int(nested.group(1)), "inner": inner}
+                if not any(x.get("type") == "RepeatGroupDTO" for x in inner):
+                    last_repeat = _repeat(0, rounds["n"], inner)
+                    steps.append(last_repeat)
+                else:
+                    steps.append(rounds)
+                    last_repeat = None
+            continue
+        rep = re.search(r"(\d+)\s*[x×]\s*(\d+)\s*(m|metres?|meters?|s|secs?|seconds?|mins?|minutes?)?\b",
+                        chunk, re.I)
+        rest = _swim_rest(chunk)
         if rep:
-            reps, dist = int(rep.group(1)), int(rep.group(2))
-            if dist < 25:
+            reps, value, unit = int(rep.group(1)), int(rep.group(2)), (rep.group(3) or "").lower()
+            timed = unit.startswith(("s", "min"))
+            if timed:
+                work = _swim_step(kind, "time", value * (60 if unit.startswith("min") else 1), chunk)
+            elif value >= 25:
+                work = _swim_step(kind, "distance", value, chunk)
+            else:
                 last_repeat = None
                 continue
-            rest_s = _duration_seconds(chunk) or 15
-            work = _exec(o + 1, kind, "distance", dist, _no_target(), desc=chunk[:80], swim=True)
-            rst = _exec(o + 2, "rest", "time", rest_s, _no_target(), desc=f"{rest_s}s rest")
-            grp = _repeat(o, reps, [work, rst])
-            steps.append(grp); o += 3
-            last_repeat = grp
+            group = [work]
+            if rest:
+                group.append(_exec(0, "rest", "time", rest, _no_target(), desc=f"{rest}s rest"))
+            last_repeat = _repeat(0, reps, group)
+            steps.append(last_repeat)
             continue
-        # A rest/recovery instruction — a rest step, NOT a swim distance step.
-        if _REST_RE.search(chunk):
-            rsec = _duration_seconds(chunk)
-            if rsec:
-                if last_repeat is not None:              # belongs to the preceding set
-                    rst = last_repeat["workoutSteps"][1]
-                    rst["endConditionValue"] = float(rsec)
-                    rst["description"] = f"{rsec}s rest"
-                else:                                    # standalone rest between sets
-                    steps.append(_exec(o, "rest", "time", rsec, _no_target(), desc=chunk[:80])); o += 1
+        if rest is not None or (_REST_RE.search(chunk) and _duration_seconds(chunk)):
+            secs = rest or _duration_seconds(chunk)
+            if steps and steps[-1].get("type") == "rounds":
+                steps[-1]["rest"] = secs
+                continue
+            if last_repeat is not None and len(last_repeat["workoutSteps"]) == 1:
+                last_repeat["workoutSteps"].append(
+                    _exec(0, "rest", "time", secs, _no_target(), desc=f"{secs}s rest"))
+            else:
+                steps.append(_exec(0, "rest", "time", secs, _no_target(), desc=chunk[:80]))
+            last_repeat = None
             continue
-        # A distance swim step ("200 easy", "1500 as 3×500").
         dist = _swim_distance(chunk)
         if dist:
-            steps.append(_exec(o, kind, "distance", dist, _no_target(), desc=chunk[:80], swim=True)); o += 1
+            steps.append(_swim_step(kind, "distance", dist, chunk))
             last_repeat = None
             continue
-        # A TIME-based swim ("60 min continuous", "30 min steady") → a duration step.
-        # Dryland work ("20 min mobility/core") is skipped — it stays in the notes.
         secs = _duration_seconds(chunk)
         if secs and secs >= 60 and not _is_dryland(chunk):
-            steps.append(_exec(o, kind, "time", secs, _no_target(), desc=chunk[:80], swim=True)); o += 1
+            steps.append(_swim_step(kind, "time", secs, chunk))
             last_repeat = None
-    return steps, o
+            continue
+        if steps and not _is_dryland(chunk) and steps[-1].get("type") != "rounds":
+            _with_note(steps[-1], chunk)
+    out: list[dict[str, Any]] = []
+    for step in steps:
+        if step.get("type") != "rounds":
+            out.append(step)
+            continue
+        for i in range(step["n"]):
+            out.extend(copy.deepcopy(step["inner"]))
+            if step.get("rest") and i < step["n"] - 1:
+                out.append(_exec(0, "rest", "time", step["rest"], _no_target(),
+                                 desc=f"{step['rest']}s between rounds"))
+    return out, order + len(out)
 
 
+def _swim_block(text: str | None, kind: str) -> list[dict[str, Any]]:
+    text = _clean(text)
+    if not text:
+        return []
+    steps, _ = _swim_steps(text, kind=kind)
+    if not steps and not _is_dryland(text):
+        # No amount anywhere: a lap-button step, never a made-up distance.
+        steps = [_lap_step(kind, _no_target(), text, swim=True)]
+    return steps
+
+
+# --- bricks -------------------------------------------------------------------
 # Garmin's top-level multi_sport workout type (id discovered empirically; id 9 is
 # "hiit", 10 is "multi_sport"). A brick becomes ONE multisport activity on the
 # watch with two sport segments (bike → run) and an automatic transition.
 _MULTISPORT = {"sportTypeId": 10, "sportTypeKey": "multi_sport", "displayOrder": 10}
 
 
-def _zone_from_watts(lo: int, hi: int) -> int:
-    frac = ((lo + hi) / 2) / FTP
-    if frac < 0.60:
-        return 1
-    if frac < 0.76:
-        return 2
-    if frac < 0.90:
-        return 3
-    if frac < 1.05:
-        return 4
-    return 5
-
-
-def _brick_bike_steps(main: str, intensity: str, order: int,
-                      title: str = "", indoor: bool | None = None) -> tuple[list[dict[str, Any]], int]:
-    """Bike leg of a brick, honoring the FULL stated ride duration.
-
-    A brick ride is written as a total block with surges inside, e.g.
-    "120 min @ 207–236 W (race-sim, with 4×8 min @ 253–274 W surges)". The old
-    code only built the 4×8 repeat (~44 min) and silently dropped the 120 min —
-    so the watch ended the ride early and forced the transition. Here the total
-    duration is preserved: steady base → surges → steady base, summing to total.
-    """
-    o = order
-    steps: list[dict[str, Any]] = []
-    total = _mins(main)                       # leading total ride minutes
-    indoor = _is_indoor(main, title) if indoor is None else indoor
-    # A stale watt prescription does not make a ride indoor. Only an explicit
-    # Peloton/trainer marker authorizes watt parsing for this athlete.
-    watts = (re.findall(
-        r"(\d{2,4})\s*[–\-—]\s*(\d{2,4})\s*(?:W|watts?)\b", main or "", re.I,
-    )
-             if indoor else [])
-    base = (int(watts[0][0]), int(watts[0][1])) if watts else None
-    surge = (int(watts[1][0]), int(watts[1][1])) if len(watts) > 1 else None
-    base_z = _zone_from_watts(*base) if base else _hr_zone(intensity)
-    explicit_hr = interval_analysis.explicit_hr_range(main)
-    race_hr = _event_hr("bike") if "race" in f"{intensity} {main}".lower() else None
-    # The installed event profile is authoritative for race-specific work. This
-    # also prevents a stale explicit range in an older seeded row from winning.
-    base_hr = race_hr or explicit_hr
-
-    def base_target() -> dict[str, Any]:
-        return _hr_bpm_target(*base_hr) if base_hr else _hr_target(base_z)
-
-    def base_desc():
-        hr = f"HR {base_hr[0]}-{base_hr[1]}" if base_hr else f"HR zone {base_z}"
-        return (f"Peloton {base[0]}-{base[1]} W · " if base else "") + f"{hr} (race-sim base)"
-
-    iv = re.search(r"(\d+)\s*[x×]\s*(\d+)\s*min", main or "")
-    if total and iv:
-        reps, dur = int(iv.group(1)), int(iv.group(2))
-        surge_z = _zone_from_watts(*surge) if surge else min(5, base_z + 1)
-        rec = re.search(r"w/\s*(\d+)\s*min", main or "")
-        rec_min = int(rec.group(1)) if rec else 3
-        surge_block = reps * (dur + rec_min)
-        remaining = max(0, total - surge_block)
-        lead, tail = remaining // 2, remaining - remaining // 2
-        surge_hr = race_hr
-        surge_target = (_hr_bpm_target(*surge_hr) if surge_hr else _hr_target(surge_z))
-        surge_note = f"HR {surge_hr[0]}-{surge_hr[1]}" if surge_hr else f"HR zone {surge_z}"
-        surge_desc = ((f"Peloton {surge[0]}-{surge[1]} W · " if surge else "")
-                      + f"{surge_note} ({dur}-min surge)")
-        if lead:
-            steps.append(_exec(o, "interval", "time", lead * 60, base_target(), desc=base_desc())); o += 1
-        work = _exec(o + 1, "interval", "time", dur * 60, surge_target, desc=surge_desc)
-        recov = _exec(o + 2, "recovery", "time", rec_min * 60, base_target(), desc="back to race-sim base")
-        steps.append(_repeat(o, reps, [work, recov])); o += 3
-        if tail:
-            steps.append(_exec(o, "interval", "time", tail * 60, base_target(), desc=base_desc())); o += 1
-        return steps, o
-
-    if total:
-        steps.append(_exec(o, "interval", "time", total * 60, base_target(), desc=base_desc())); o += 1
-        return steps, o
-
-    return _bike_steps(main or "", intensity, o, title, indoor)   # fallback (no leading total)
+def _main_or_remainder(steps: list[dict[str, Any]], around: list[dict[str, Any]],
+                       duration_min: Any, text: str | None, make) -> list[dict[str, Any]]:
+    """A main block with no amount runs for the session's remaining minutes
+    (the app shows the total), else until the lap button. Never a default."""
+    if _has_amount(steps):
+        return steps
+    try:
+        left = float(duration_min or 0) * 60 - _timed_seconds(around)
+    except (TypeError, ValueError):
+        left = 0.0
+    desc = _clean(text) or "main set"
+    if left >= 60:
+        return [make("time", left, desc)]
+    return steps or [make("lap", None, desc)]
 
 
 def _build_brick(sess: dict[str, Any], warm, main, cool, run_txt, intensity: str,
                  name: str, desc: str, thr: float | None, indoor: bool = False) -> dict[str, Any]:
-    """A true brick: cycling segment (warmup + full ride + easy-spin cooldown)
-    then a running segment (run off the bike), as one multisport workout so the
-    watch records ONE activity with a bike leg + run leg and only transitions
-    once the FULL planned ride is done."""
-    o = 1
-    bike_steps: list[dict[str, Any]] = []
-    if warm and _mins(warm):
-        bike_steps.append(_exec(o, "warmup", "time", _mins(warm) * 60, _no_target(), desc=warm[:120])); o += 1
-    body, o = _brick_bike_steps(main or "", intensity, o, name, indoor)
-    bike_steps.extend(body)
-    if cool and _mins(cool):
-        bike_steps.append(_exec(o, "cooldown", "time", _mins(cool) * 60, _no_target(), desc=cool[:120])); o += 1
-
-    # Run leg off the bike. Prefer the dedicated `structure.run`; fall back to the
-    # legacy "…then … run" phrasing for plan days seeded before the split.
-    if not run_txt:
+    """A true brick: cycling segment (warmup + the full ride + cooldown) then a
+    running segment, as one multisport workout so the watch records ONE activity
+    and only transitions once the whole planned ride is done."""
+    # Prefer the dedicated `structure.run`; fall back to the legacy
+    # "…then … run" phrasing for plan days seeded before the split.
+    if not _clean(run_txt):
         parts = re.split(r";?\s*then\b", main or "", maxsplit=1)
-        run_txt = parts[1] if len(parts) > 1 else ""
-    rmin = _mins(run_txt) or 20
-    leg_text = (run_txt or "").lower()
-    leg_easy = bool(re.search(r"\b(?:easy|recovery|aerobic|endurance|z1|z2)\b", leg_text))
-    leg_race = bool(re.search(r"\brace(?:[\s-]*(?:pace|specific|effort))?\b", leg_text))
-    leg_other = bool(re.search(r"\b(?:steady|tempo|threshold|vo2|anaerobic|sprint|z3|z4|z5)\b", leg_text))
-    leg_specific = leg_easy or leg_race or leg_other
-    day_race = "race" in (intensity or "").lower()
-    event_target_applies = leg_race or (day_race and not leg_specific)
-    run_intensity = (run_txt if leg_specific else intensity) or "easy"
-    explicit_run_hr = interval_analysis.explicit_hr_range(run_txt)
-    event_run_hr = _event_hr("run")
-    # The run leg is authoritative over the day's bike label. An explicit run
-    # prescription wins first, including when the bike work is race pace.
-    if explicit_run_hr:
-        tg = _hr_bpm_target(*explicit_run_hr)
-        run_desc = f"brick run off the bike · HR {explicit_run_hr[0]}-{explicit_run_hr[1]}"
-    elif leg_easy:
-        tg, easy_note = _easy_run_target_and_note(name)
-        if tg["targetType"]["workoutTargetTypeKey"] == "no.target" and thr:
-            pace = _pace_for("easy", thr)
-            tg = _pace_ceiling(pace["targetValueTwo"])
-            easy_note = f"CEILING {_fmt_pace(1000.0 / pace['targetValueTwo'])}/km; do not go faster"
-        run_desc = f"brick run off the bike · {easy_note}"
-    elif event_target_applies and event_run_hr:
-        tg = _hr_bpm_target(*event_run_hr)
-        run_desc = f"brick run off the bike · HR {event_run_hr[0]}-{event_run_hr[1]}"
-    elif zones.zone_for(run_intensity, name) <= 2:
-        tg, easy_note = _easy_run_target_and_note(name)
-        if tg["targetType"]["workoutTargetTypeKey"] == "no.target" and thr:
-            pace = _pace_for("easy", thr)
-            tg = _pace_ceiling(pace["targetValueTwo"])
-            easy_note = f"CEILING {_fmt_pace(1000.0 / pace['targetValueTwo'])}/km; do not go faster"
-        run_desc = f"brick run off the bike · {easy_note}"
-    elif thr:
-        target_intensity = "race" if event_target_applies else run_intensity
-        tg = _pace_for(target_intensity, thr)
-        run_desc = "brick run off the bike · training pace target"
-    else:
-        tg = _hr_for(run_intensity, "run", name)
-        run_desc = "brick run off the bike · training target"
-    run_steps = [_exec(o, "interval", "time", rmin * 60, tg, desc=run_desc)]
+        if len(parts) > 1 and re.search(r"\brun\b", parts[1], re.I):
+            main, run_txt = parts[0], parts[1]
+        else:
+            run_txt = ""
+    bike_ctx = {"intensity": intensity, "title": name, "indoor": indoor}
+    warm_steps = _bike_block(warm, "warmup", bike_ctx)
+    cool_steps = _bike_block(cool, "cooldown", bike_ctx)
+    body = _bike_block(main, "main", bike_ctx)
 
+    def bike_fill(end, value, text):
+        tg, note = _bike_target(text, bike_ctx)
+        if end == "lap":
+            return _lap_step("interval", tg, f"{text} · {note}")
+        return _exec(0, "interval", end, value, tg, desc=note)
+
+    if not _has_amount(body):
+        body = body or [bike_fill("lap", None, _clean(main) or "ride")]
+    bike_steps = warm_steps + body + cool_steps
+
+    run_ctx = {"intensity": intensity, "title": name, "thr": thr, "brick": True}
+    run_steps = _run_block(run_txt, "leg", run_ctx)
+    if not _has_amount(run_steps):
+        tg, note = _run_target(run_txt or "", "leg", run_ctx)
+        run_steps = [_lap_step("interval", tg, f"{_clean(run_txt) or 'run off the bike'} · {note}")]
+    for step in run_steps:
+        if step.get("type") == "ExecutableStepDTO" and step["description"]:
+            step["description"] = f"run off the bike · {step['description']}"[:160]
+            break
+    order = _renumber(bike_steps)
+    _renumber(run_steps, order)
     return {
         "workoutName": name, "description": desc[:1024], "sportType": _MULTISPORT,
         "estimatedDurationInSecs": int((sess.get("duration_min") or 60) * 60),
@@ -791,63 +1153,55 @@ def build_workout(sess: dict[str, Any], date_str: str, thr_pace: float | None = 
         main = _WATT_RANGE_RE.sub(replacement, main) if main else main
         cool = _strip_watt_cue(cool)
     desc = f"Training · {intensity} · {sess.get('duration_min','')} min\n" + "\n".join(
-        p for p in [f"Warmup: {warm}" if warm else None,
-                    f"{'Bike' if disc == 'brick' else 'Main'}: {main}" if main else None,
-                    f"Cooldown: {cool}" if cool else None,
-                    f"Run off bike: {run_leg}" if run_leg else None] if p)
+        p for p in [f"Warmup: {warm}" if _clean(warm) else None,
+                    f"{'Bike' if disc == 'brick' else 'Main'}: {main}" if _clean(main) else None,
+                    f"Cooldown: {cool}" if _clean(cool) else None,
+                    f"Run off bike: {run_leg}" if _clean(run_leg) else None] if p)
     if disc == "brick":
         return _build_brick(
             sess, warm, main, cool, st.get("run"), intensity, name, desc, thr_pace, session_indoor,
         )
     swim = disc == "swim"
-    steps: list[dict[str, Any]] = []
-    o = 1
+    duration = sess.get("duration_min")
 
-    # Warmup
-    if warm:
-        if swim:
-            body, o = _swim_steps(warm, o, kind="warmup")
-            if not body:
-                body = _swim_fallback(o, "warmup", warm, 300); o += len(body)
-            steps.extend(body)
-        elif _mins(warm):
-            target, easy_note = (_easy_run_target_and_note(name) if disc == "run"
-                                 else (_no_target(), warm[:120]))
-            steps.append(_exec(o, "warmup", "time", _mins(warm) * 60, target,
-                               desc=easy_note if disc == "run" else warm[:120])); o += 1
+    if swim:
+        warm_steps = _swim_block(warm, "warmup")
+        body = _swim_block(main, "interval")
+        cool_steps = _swim_block(cool, "cooldown")
+        if not body and not _is_dryland(main):
+            body = [_lap_step("interval", _no_target(), _clean(main) or name, swim=True)]
+    elif bike_session:
+        ctx = {"intensity": intensity, "title": name, "indoor": session_indoor}
+        warm_steps = _bike_block(warm, "warmup", ctx)
+        cool_steps = _bike_block(cool, "cooldown", ctx)
 
-    # Main
-    if disc in ("bike", "recovery", "brick"):
-        body, o = _bike_steps(main or "", intensity, o, name, session_indoor); steps.extend(body)
-        if disc == "brick":
-            mrun = re.search(r"(\d+)\s*min[^.]*run", main or "")
-            rmin = int(mrun.group(1)) if mrun else 20
-            tg = _pace_for("race", thr_pace) if thr_pace else _hr_target(3)
-            steps.append(_exec(o, "interval", "time", rmin * 60, tg, desc="brick run off the bike @ race effort")); o += 1
+        def bike_fill(end, value, text):
+            tg, note = _bike_target(text, ctx)
+            if end == "lap":
+                return _lap_step("interval", tg, f"{text} · {note}")
+            return _exec(0, "interval", end, value, tg, desc=note)
+
+        body = _main_or_remainder(_bike_block(main, "main", ctx), warm_steps + cool_steps,
+                                  duration, main, bike_fill)
     elif disc == "run":
-        body, o = _run_steps(main or "", intensity, thr_pace, o, name); steps.extend(body)
-    elif swim:
-        body, o = _swim_steps(main or "", o)
-        if not body:
-            body = _swim_fallback(o, "interval", main or name, 1000); o += len(body)
-        steps.extend(body)
-    else:  # strength / other
-        steps.append(_exec(o, "interval", "time", (sess.get("duration_min") or 40) * 60, _no_target(),
-                           desc=(main or name)[:120])); o += 1
+        ctx = {"intensity": intensity, "title": name, "thr": thr_pace, "brick": False}
+        warm_steps = _run_block(warm, "warmup", ctx)
+        cool_steps = _run_block(cool, "cooldown", ctx)
 
-    # Cooldown
-    if cool:
-        if swim:
-            body, o = _swim_steps(cool, o, kind="cooldown")
-            if not body:
-                body = _swim_fallback(o, "cooldown", cool, 200); o += len(body)
-            steps.extend(body)
-        elif _mins(cool):
-            walk = bool(re.search(r"\bwalk", cool, re.I))
-            target, easy_note = (_easy_run_target_and_note(name) if disc == "run" and not walk
-                                 else (_no_target(), cool[:120]))
-            steps.append(_exec(o, "cooldown", "time", _mins(cool) * 60, target,
-                               desc=easy_note if disc == "run" and not walk else cool[:120])); o += 1
+        def run_fill(end, value, text):
+            tg, note = _run_target(text, "main", ctx)
+            if end == "lap":
+                return _lap_step("interval", tg, f"{text} · {note}")
+            return _exec(0, "interval", end, value, tg, desc=note)
+
+        body = _main_or_remainder(_run_block(main, "main", ctx), warm_steps + cool_steps,
+                                  duration, main, run_fill)
+    else:  # strength / other
+        warm_steps, cool_steps = [], []
+        body = [_exec(0, "interval", "time", (duration or 40) * 60, _no_target(),
+                      desc=(main or name)[:120])]
+    steps = warm_steps + body + cool_steps
+    _renumber(steps)
 
     sport = _sport(disc)
     segment: dict[str, Any] = {"segmentOrder": 1, "sportType": sport, "workoutSteps": steps}
@@ -856,7 +1210,7 @@ def build_workout(sess: dict[str, Any], date_str: str, thr_pace: float | None = 
         segment["poolLengthUnit"] = _METER_UNIT
     return {
         "workoutName": name, "description": desc[:1024], "sportType": sport,
-        "estimatedDurationInSecs": int((sess.get("duration_min") or 60) * 60),
+        "estimatedDurationInSecs": int((duration or 60) * 60),
         "workoutSegments": [segment],
     }
 

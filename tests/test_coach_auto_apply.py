@@ -117,6 +117,23 @@ class AutoApplyTests(unittest.TestCase):
         self.assertEqual(db.get_plan_strength("2026-08-19")["title"], "Full body A")
         self.assertEqual([s["title"] for s in db.get_plan_secondary("2026-08-19")], ["Commute"])
 
+    def test_placeholder_blocks_keep_the_days_real_text(self) -> None:
+        # A move-only edit wrote "existing swim warmup" over the set, and the
+        # watch then had nothing to run.
+        db.edit_plan_day("2026-08-19", {"structure": {
+            "warmup": "300 easy + 4×50 drill, 15s rest",
+            "main": "1500 continuous steady; 4×100 pull buoy, 15s rest",
+            "cooldown": "100 easy backstroke"}}, source="seed", record_history=False)
+        adj = {"date": "2026-08-19", "title": "Easy swim", "discipline": "swim",
+               "start_time": "17:00",
+               "structure": {"warmup": "existing swim warmup", "main": "Same set as planned",
+                             "cooldown": "200 easy"}}
+        coach.accept_adjustment(adj)
+        st = db.get_plan_day("2026-08-19")["structure"]
+        self.assertEqual(st["warmup"], "300 easy + 4×50 drill, 15s rest")
+        self.assertEqual(st["main"], "1500 continuous steady; 4×100 pull buoy, 15s rest")
+        self.assertEqual(st["cooldown"], "200 easy")
+
     def test_undo_rejects_bad_ids(self) -> None:
         self.assertEqual(main.plan_undo({"history_ids": "1"}).status_code, 400)
         self.assertEqual(main.plan_undo({"history_ids": [True]}).status_code, 400)

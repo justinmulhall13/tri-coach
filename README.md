@@ -331,6 +331,17 @@ indoor FTP does not transfer to hilly outdoor riding — and watts appear only a
 secondary cue on explicitly indoor sessions. Easy runs carry a pace *ceiling*
 rather than a range.
 
+The watch runs what the card says, step for step. One parser reads the plan and
+Coach text for every session type: easy and one-pace runs, intervals by time or
+distance, nested rounds (unrolled, since Garmin cannot nest repeats), a "last
+4 km" finish carved out of a long run, Z2 rides with race-effort blocks inside
+them, openers and spin-ups, bricks with a structured run leg, and swim sets with
+strokes, equipment and rests. A written pace becomes that pace band; a written
+recovery becomes that recovery. Nothing is invented: a "full recovery" or "jog
+down" ends on the lap button, a set with no stated rest gets none, and a block
+with no amount runs the session's remaining minutes. Every generated session in
+the 70.3 block is checked against its text in `tests/test_garmin_workout_types.py`.
+
 **Completion that respects intent.** A stretch class syncing from Garmin as
 `strength_training` will not tick off a planned strength lift; mobility work is
 classified separately.

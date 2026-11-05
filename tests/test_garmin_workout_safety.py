@@ -416,12 +416,17 @@ class GarminWorkoutSafetyTests(unittest.TestCase):
             self.assertGreater(easy["targetValueOne"], 0.0)
             self.assertEqual(easy["targetValueTwo"], round(1000.0 / 326.0, 3))
 
-    def test_strides_follow_the_easy_run_with_short_recoveries(self) -> None:
+    def test_strides_follow_the_easy_run_and_recover_on_the_lap_button(self) -> None:
         steps = self._marathon_run("Shakeout", "easy", "—", "20 min easy with 4x20s strides", "—")
         easy, strides = steps
         self.assertEqual(easy["endConditionValue"], 1200.0)
         self.assertEqual(strides["numberOfIterations"], 4)
-        self.assertEqual([s["endConditionValue"] for s in strides["workoutSteps"]], [20.0, 60.0])
+        stride, back = strides["workoutSteps"]
+        self.assertEqual(stride["endConditionValue"], 20.0)
+        # No recovery length is written, so none is invented: the watch waits
+        # for the lap button instead of a made-up 60 s.
+        self.assertEqual(back["endCondition"]["conditionTypeKey"], "lap.button")
+        self.assertIsNone(back["endConditionValue"])
 
 
 if __name__ == "__main__":

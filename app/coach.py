@@ -269,6 +269,17 @@ For ONE day, append this block at the very end of your reply. Set "date" to that
 ```
 Only include the block when the plan actually changes; omit it for general questions.
 
+WATCH-READY STRUCTURE: every session is pushed to the athlete's Garmin step for step from \
+`structure`, so write each block as steps the watch can run, never as prose. Give every step \
+its amount (min, km or m; swims in metres), repeats as N×amount, and every recovery with its \
+length ("w/ 2 min jog", "20s rest") or "full recovery". Write targets as numbers: "@ 4:41/km", \
+"no faster than 5:17/km", "@ HR 142-152". Join a sequence with "then" or ";" ("10 km steady, \
+no faster than 5:17/km, then 4 km @ 4:41/km"). Work inside a longer ride is "90 min Z2 @ HR \
+119-138 with 3×10 min @ HR 142-152 w/ 5 min easy". Rounds are "2×(3×1 km @ 4:10/km w/ 1 min \
+jog) w/ 3 min jog". A brick's run leg goes in `structure.run` with its own amount and target. \
+Never write a placeholder such as "as planned", "existing warmup" or "same as before": when a \
+block does not change, copy its text from the plan exactly.
+
 WHOLE-WEEK REBUILD: when the athlete gives you their week's OUTLOOK — availability, \
 travel, work hours, an event/race, "only mornings Tue–Thu", "rest day Friday", etc. — \
 rebuild the affected days as a coherent week (applied immediately, like an adjustment). Preserve the periodization INTENT (protect \
@@ -2238,6 +2249,36 @@ def _normalized_tsb_target(value: Any) -> float | int:
     return int(number) if number.is_integer() else round(number, 1)
 
 
+# "existing swim warmup", "endurance set as planned", "same as before": a block
+# the coach meant to leave alone. Stored as written, the watch had nothing to run.
+_PLACEHOLDER_BLOCK = re.compile(
+    r"^\s*(?:(?:the\s+)?(?:existing|same|usual|original|current|planned|unchanged)\b.*"
+    r"|.*\bas\s+(?:planned|before|scheduled|usual|prescribed|written)\b.*"
+    r"|(?:no change|unchanged|as is|same))\s*\.?\s*$", re.I)
+
+
+def _keep_unchanged_blocks(date: str, structure: dict[str, Any]) -> dict[str, Any]:
+    """Swap placeholder blocks for the day's real text, so a coach edit that
+    only moves a session never erases what the watch is meant to run."""
+    if not any(isinstance(v, str) and not re.search(r"\d", v) and _PLACEHOLDER_BLOCK.match(v)
+               for v in structure.values()):
+        return structure
+    current = (db.get_plan_day(date) or {}).get("structure")
+    if isinstance(current, str):
+        try:
+            current = json.loads(current)
+        except ValueError:
+            current = None
+    if not isinstance(current, dict):
+        return structure
+    out = dict(structure)
+    for key, value in structure.items():
+        if (isinstance(value, str) and not re.search(r"\d", value)
+                and _PLACEHOLDER_BLOCK.match(value) and str(current.get(key) or "").strip()):
+            out[key] = current[key]
+    return out
+
+
 def accept_adjustment(adjustment: dict[str, Any]) -> dict[str, Any] | None:
     """Persist an accepted coach adjustment to its target day (source='coach').
 
@@ -2272,6 +2313,8 @@ def accept_adjustment(adjustment: dict[str, Any]) -> dict[str, Any] | None:
     fields = {k: adjustment[k] for k in
               ("title", "discipline", "duration_min", "start_time", "intensity", "tsb_target", "structure", "why")
               if k in adjustment}
+    if isinstance(fields.get("structure"), dict):
+        fields["structure"] = _keep_unchanged_blocks(date, fields["structure"])
     if "start_time" in fields:
         fields["pos_updated_at"] = datetime.datetime.now(
             datetime.timezone.utc).isoformat()

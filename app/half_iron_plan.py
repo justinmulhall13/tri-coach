@@ -126,6 +126,23 @@ def _easy() -> str:
     return "conversational, no faster than easy"
 
 
+# Every set states its recovery: the watch runs exactly what the app shows and
+# never fills in a number the text left out.
+OPENERS = "15 min Z2 + 3×1 min openers w/ 1 min easy"
+STRIDES_WARMUP = "15 min easy + 4×20 s strides w/ full recovery"
+
+
+def _thr_pace() -> str:
+    """' (4:09-4:27/km)' from the athlete's threshold zone, or '' without one."""
+    try:
+        r = zones.pace_range("threshold")
+        if r:
+            return f" ({zones.fmt_pace(r[1])}-{zones.fmt_pace(r[0])}/km)"
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
 def _wo(discipline: str, title: str, intensity: str, dur: int, warmup: str,
         main: str, cooldown: str, why: str, *, is_rest: int = 0,
         run: str | None = None) -> dict[str, Any]:
@@ -240,7 +257,7 @@ def _swim(wd: int, n: int, phase: str, deload: bool) -> dict[str, Any]:
     if wd == 0:   # technique
         reps = 6 if deload else int(_ramp(n, 30, 3, 6, 10))
         return _wo("swim", "Swim — technique", "Z2", 45,
-                   "300 easy + 6×50 drill (catch-up, fingertip drag)",
+                   "300 easy + 6×50 drill (catch-up, fingertip drag), 15s rest",
                    f"{reps}×100 smooth @ easy aerobic, 20s rest, count strokes per length",
                    "100 easy backstroke",
                    "Technique is where a non-competitive swimmer finds the most free "
@@ -255,7 +272,7 @@ def _swim(wd: int, n: int, phase: str, deload: bool) -> dict[str, Any]:
         else:
             main = "6×100 @ race pace, 20s rest"
         return _wo("swim", "Swim — CSS intervals", "threshold", 55,
-                   "400 easy + 6×50 build", main, "200 easy",
+                   "400 easy + 6×50 build, 15s rest", main, "200 easy",
                    "The quality swim. CSS work moves threshold swim pace, which is the "
                    "pace a 70.3 swim is held just under.")
     # Friday endurance / open water
@@ -271,7 +288,7 @@ def _swim(wd: int, n: int, phase: str, deload: bool) -> dict[str, Any]:
         if phase == "specific":
             main += ". Open water if the lakes are swimmable — wetsuit on."
     return _wo("swim", "Swim — endurance", "Z2-tempo", 50,
-               "300 easy + 4×50 drill", main, "200 easy",
+               "300 easy + 4×50 drill, 15s rest", main, "200 easy",
                f"Continuous swimming toward the {race_m} m race swim. Sighting is "
                "practised in the pool so it costs nothing in the lake.")
 
@@ -279,31 +296,31 @@ def _swim(wd: int, n: int, phase: str, deload: bool) -> dict[str, Any]:
 def _bike_quality(n: int, phase: str, deload: bool) -> dict[str, Any]:
     if deload:
         return _wo("bike", "Bike — easy with spin-ups", "Z2", 50, "10 min spin up",
-                   f"30 min Z2 @ {_hr('easy')} with 6×30 s high-cadence spin-ups",
+                   f"30 min Z2 @ {_hr('easy')} with 6×30 s high-cadence spin-ups w/ 90 s easy",
                    "10 min spin", "Recovery week: keep the legs turning, no depth.")
     if phase == "base":
         reps = int(_ramp(n, 30, 17, 3, 4))
         mins = int(_ramp(n, 30, 17, 10, 12))
-        dur = 30 + reps * (mins + 4)
+        dur = 31 + reps * (mins + 4)
         why = ("Tempo builds the aerobic engine a 70.3 bike leg is ridden on. "
                "Peloton is fine; judge by heart rate.")
         if n > 22:
             return _wo("bike", "Bike — tempo", "tempo", dur,
-                       "15 min Z2 + 3×1 min openers",
+                       OPENERS,
                        f"{reps}×{mins} min @ {_hr('tempo')} w/ 4 min easy",
                        "10 min spin", why)
         # From mid-base a short easy run off the bike makes three runs a week
         # without adding a separate session.
         return _wo("brick", "Bike — tempo + run off", "tempo", dur + 15,
-                   "15 min Z2 + 3×1 min openers",
+                   OPENERS,
                    f"{reps}×{mins} min @ {_hr('tempo')} w/ 4 min easy",
                    "10 min spin",
                    why + " The short run off it teaches the legs the change early.",
                    run=f"15 min easy run off the bike, {_easy()}")
     if phase == "build":
         mins = int(_ramp(n, 16, 9, 10, 15))
-        return _wo("bike", "Bike — threshold", "threshold", 30 + 3 * (mins + 5),
-                   "15 min Z2 + 3×1 min openers",
+        return _wo("bike", "Bike — threshold", "threshold", 31 + 3 * (mins + 5),
+                   OPENERS,
                    f"3×{mins} min @ {_hr('threshold')} w/ 5 min easy",
                    "10 min spin", "Threshold raises the ceiling the race effort sits under.")
     if phase == "specific":
@@ -315,12 +332,12 @@ def _bike_quality(n: int, phase: str, deload: bool) -> dict[str, Any]:
                    "5 min spin",
                    "Midweek brick: race effort, then the first kilometres off the bike, "
                    "which is where a 70.3 run is won or lost.",
-                   run="15 min run off the bike @ steady, settle into form")
+                   run=f"15 min run off the bike, steady, {_easy()}; settle into form")
     if phase == "peak":
-        return _wo("bike", "Bike — race-effort openers", "threshold", 60,
+        return _wo("bike", "Bike — race-effort openers", "threshold", 61,
                    "15 min Z2", f"3×8 min @ {_hr('threshold')} w/ 4 min easy",
                    "10 min spin", "Sharpen without adding depth.")
-    return _wo("bike", "Bike — openers", "threshold", 45, "15 min Z2 building",
+    return _wo("bike", "Bike — openers", "threshold", 43, "15 min Z2 building",
                f"3×3 min @ {_hr('threshold')} w/ 3 min easy", "10 min spin",
                "Short, sharp touches to keep the legs awake for race day.")
 
@@ -328,7 +345,7 @@ def _bike_quality(n: int, phase: str, deload: bool) -> dict[str, Any]:
 def _run_quality(n: int, phase: str, deload: bool) -> dict[str, Any]:
     if deload:
         return _wo("run", "Easy run + strides", "easy", 40, "—",
-                   f"35 min easy, {_easy()}; 6×20 s strides", "—",
+                   f"35 min easy, {_easy()}; 6×20 s strides w/ full recovery", "—",
                    "Recovery week: keep the rhythm, drop the load.")
     if phase == "base":
         if n > 22:
@@ -346,26 +363,28 @@ def _run_quality(n: int, phase: str, deload: bool) -> dict[str, Any]:
     if phase == "build":
         blocks = {16: "5×4 min", 15: "4×6 min", 14: "3×8 min", 13: "4×8 min",
                   12: "3×10 min", 11: "4×6 min", 10: "3×12 min", 9: "2×15 min"}
-        return _wo("run", "Run — threshold", "threshold", 55,
-                   "15 min easy + 4 strides",
-                   f"{blocks.get(n, '3×10 min')} @ threshold w/ 2 min jog",
+        block = blocks.get(n, "3×10 min")
+        reps, mins = (int(x) for x in block.replace(" min", "").split("×"))
+        return _wo("run", "Run — threshold", "threshold", 27 + reps * (mins + 2),
+                   STRIDES_WARMUP,
+                   f"{block} @ threshold{_thr_pace()} w/ 2 min jog",
                    "10 min easy",
                    "Threshold is what lets 70.3 race effort feel steady instead of hard.")
     if phase == "specific":
         mins = int(_ramp(n, 8, 3, 20, 35))
         return _wo("run", "Run — race effort", "tempo", 30 + mins,
-                   "15 min easy + 4 strides",
+                   STRIDES_WARMUP,
                    f"{mins} min @ {_run_effort()} (steady tempo, just under threshold)",
                    "10 min easy",
                    "Rehearses the effort you will hold for 21 km off the bike.")
     if phase == "peak":
-        return _wo("run", "Run — race effort", "tempo", 50, "15 min easy",
+        return _wo("run", "Run — race effort", "tempo", 55, "15 min easy",
                    f"3×8 min @ {_run_effort()} w/ 2 min jog", "10 min easy",
                    "Last real run session. Crisp, not deep.")
     return _wo("run", "Run — strides", "race pace", 35,
-               f"10 min easy; {_easy()}",
-               "6×20 s strides w/ 90 s easy; 10 min steady",
-               f"5 min easy; {_easy()}", "Leg speed, fully fresh.")
+               f"10 min easy, {_easy()}",
+               f"6×20 s strides w/ 90 s easy; 10 min steady, {_easy()}",
+               f"5 min easy, {_easy()}", "Leg speed, fully fresh.")
 
 
 def _long_ride(n: int, phase: str, deload: bool) -> dict[str, Any]:
@@ -381,7 +400,7 @@ def _long_ride(n: int, phase: str, deload: bool) -> dict[str, Any]:
         if phase == "build":
             mins = _ramp(n, 16, 9, 165, 210)
             block = int(_ramp(n, 16, 9, 20, 30))
-            body = f"2×{block} min @ 70.3 effort ({_race_hr()}) inside the ride"
+            body = f"2×{block} min @ 70.3 effort ({_race_hr()}) w/ 10 min Z2 inside the ride"
             run_min = int(_ramp(n, 16, 9, 10, 20))
         else:
             mins = _ramp(n, 8, 3, 210, 240)
@@ -403,22 +422,24 @@ def _long_ride(n: int, phase: str, deload: bool) -> dict[str, Any]:
                    f"for {bike_km:g} km, then running on them.",
                    run=f"{run_min} min run off the bike @ {_run_effort()}")
     if phase == "peak":
-        return _wo("brick", "Race rehearsal", "race-specific", 180,
+        return _wo("brick", "Race rehearsal", "race-specific", 190,
                    "20 min Z2 build",
-                   f"130 min with 90 min @ 70.3 effort ({_race_hr()}); race kit, "
-                   "race breakfast, race fuelling", "10 min spin",
+                   f"20 min Z2 @ {_hr('easy')}, then 90 min @ 70.3 effort ({_race_hr()}), "
+                   f"then 20 min Z2 @ {_hr('easy')}. Race kit, race breakfast, race fuelling.",
+                   "10 min spin",
                    "Dress rehearsal: everything you will do on race day, at slightly "
                    "under race duration.",
                    run=f"30 min run off the bike @ {_run_effort()}")
     if n == 1:
-        return _wo("brick", "Taper brick", "race pace", 110, "15 min Z2",
-                   f"75 min Z2 with 3×10 min @ 70.3 effort ({_race_hr()})",
+        return _wo("brick", "Taper brick", "race pace", 115, "15 min Z2",
+                   f"75 min Z2 @ {_hr('easy')} with 3×10 min @ 70.3 effort ({_race_hr()}) "
+                   "w/ 5 min easy",
                    "10 min spin", "Keep the race feel while volume drops.",
                    run=f"15 min run off the bike @ {_run_effort()}")
-    return _wo("brick", "Race-week shakeout", "race pace", 45, "10 min easy",
-               f"20 min easy with 3×1 min @ 70.3 effort ({_race_hr()})", "",
+    return _wo("brick", "Race-week shakeout", "race pace", 40, "10 min easy",
+               f"20 min easy with 3×1 min @ 70.3 effort ({_race_hr()}) w/ 2 min easy", "",
                "Check the bike, wake the legs, then rest.",
-               run="10 min run off the bike, relaxed")
+               run=f"10 min run off the bike, relaxed, {_easy()}")
 
 
 def _long_run(n: int, phase: str, deload: bool) -> dict[str, Any]:
@@ -469,13 +490,13 @@ def race_day() -> dict[str, Any]:
 def _race_week(wd: int) -> dict[str, Any]:
     if wd == 0:
         return _wo("swim", "Swim — race-week sharpen", "race pace", 35,
-                   "300 easy + 4×50 build", "6×100 @ race pace, 20s rest",
+                   "300 easy + 4×50 build, 15s rest", "6×100 @ race pace, 20s rest",
                    "100 easy", "Keep the feel without fatigue.")
     if wd == 1:
         return _bike_quality(0, "taper", False)
     if wd == 2:
         return _wo("swim", "Swim — easy", "Z2", 30, "200 easy",
-                   "800 continuous smooth + 4×50 drill", "100 easy",
+                   "800 continuous smooth + 4×50 drill, 15s rest", "100 easy",
                    "Hold water feel.")
     if wd == 3:
         return _run_quality(0, "taper", False)

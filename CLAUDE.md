@@ -706,3 +706,40 @@ the plan.
 - Google Calendar event titles still carry discipline emoji
   (`calendar_source._DISC_EMOJI`); left alone so a deploy doesn't rewrite every
   synced event.
+
+## Session 2026-11-05 — the watch runs exactly what the card says
+
+The athlete asked that every workout type (bricks, swims, intervals, one-pace
+runs) push to Garmin with no difference from the text. `garmin_workout.py` now
+has one text-to-steps engine (`_clauses` → `_parse` → `_blocks`) with
+per-sport target functions (`_run_block`, `_bike_block`, `_swim_steps`).
+
+Rules that must hold:
+
+- **Never invent a number.** An unstated recovery is a lap-button step (always
+  for strides, hills "jog down", "full recovery"). An unquantified block is a
+  lap step, or for a run/bike main the session's remaining minutes. A swim set
+  with no stated rest gets no rest step. A placeholder swim ("as planned") is a
+  lap step, never a default distance.
+- **A written pace wins** over every other target (range as written, single pace
+  ±8 s). Bricks: the run leg comes from `structure.run` (or the legacy
+  "… then N min run" split), numbered globally across both segments.
+- **Bike recovery** with no target is "easy spin"; a Z2 recovery gets Z2 HR. Work
+  under 120 s with no explicit/race HR rides by feel. Race-effort clauses use the
+  event bike HR. Outdoor watts never reach the watch (watt regex now requires a
+  real unit, so "158 w/ 4 min" is no longer 158 W).
+- **Garmin cannot nest repeats**: an outer N×(…) is unrolled.
+- `half_iron_plan` text now states every recovery and rest it means
+  (`OPENERS`, `STRIDES_WARMUP`, ", 15s rest", threshold pace range via
+  `_thr_pace()`), and brick durations equal their timed totals.
+- `marathon_plan.goal_pace_per_km()` returns None for TRIATHLON profiles without
+  an explicit `run_goal_min_per_km`: a finish time is not a run pace.
+- Coach prompt has a WATCH-READY STRUCTURE paragraph; `coach._keep_unchanged_blocks`
+  restores digit-free placeholder blocks ("existing swim warmup") from the stored
+  day so a move-only edit never blanks a session.
+- Frontend: `workoutBlocks` draws `st.run`, and `splitSessions` keeps it.
+
+Known gap: `suggest.py`'s moderate-readiness "adjusted" option trims
+`duration_min` to 70% but keeps the full structure, so the watch gets the full
+session. Tests: `tests/test_garmin_workout_types.py` (walks every generated 70.3
+session and checks repeats, laps, timed totals and stated paces against the text).
