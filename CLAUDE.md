@@ -743,3 +743,47 @@ Known gap: `suggest.py`'s moderate-readiness "adjusted" option trims
 `duration_min` to 70% but keeps the full structure, so the watch gets the full
 session. Tests: `tests/test_garmin_workout_types.py` (walks every generated 70.3
 session and checks repeats, laps, timed totals and stated paces against the text).
+
+## Session 2026-11-09 — Garmin's official Personal API, as a hybrid
+
+The athlete asked to move the backend to Garmin's new personal-use API. It
+exists (Garmin Connect Personal API, launched 2026-10-21: free, self-serve,
+read-only, own data) but it is partial, so a full switch would lose features.
+`app/garmin_personal.py` adds it as a key-gated hybrid instead.
+
+- **Off until `GARMIN_PERSONAL_API_KEY` is set** (Fly secret; the athlete
+  creates the key at connect.garmin.com > Settings > Personal API token and sets
+  it himself, never in chat or source). No key: `get_client()` returns the
+  plain `garminconnect` client exactly as before.
+- **Key set:** `garmin_source.get_client()` returns `HybridClient`, which
+  duck-types the `garminconnect` client. No call site changed. Covered methods
+  try the official API and fall back to `garminconnect` with the same arguments
+  on any error or wrong-shaped body; every other attribute passes through to a
+  lazily logged-in `garminconnect` client (`_legacy_client`, 60 s failure
+  memory).
+- **Official:** `get_sleep_data`, `get_hrv_data`, `get_body_battery`,
+  `get_rhr_day`, `get_all_day_stress`, `get_spo2_data`, `get_stats`,
+  `get_body_composition`, `get_activities`, and
+  `connectapi("/biometric-service/heartRateZones/")`. Resting HR, stress and
+  stats share one daily-summary GET (60 s cache).
+- **Stays on garminconnect (not published by Garmin):** Training Readiness,
+  Training Status, VO2max, lactate threshold, FTP, race predictions, activity
+  splits / details / HR-in-zones, respiration, and every write (upload,
+  schedule, delete workout). `get_activity` also stays: the official metadata
+  has no `associatedWorkoutId`, which `interval_analysis` needs.
+- **Auth:** `POST .../personal-api-key/token` with `Authorization: ApiKey <key>`
+  returns a bare JWT (about 24 h, expiry read from `exp`). Renewed inside the
+  last hour; a still-valid token is used if renewal fails. A 401/403 on exchange
+  means the key expired or was revoked: hold 10 min, fall back, say so in
+  `/api/health`. 429 pauses every official call for `Retry-After`; a timeout or
+  5xx pauses 60 s so one slow API cannot stall the readiness fan-out.
+- **`/api/health` > `sources.garmin`** shows the path and, per read, the source
+  and last error. Check it first when numbers look wrong. It never contains the
+  key or the token; error messages are built without them.
+- Response shapes come from Garmin's OpenAPI spec and were not verified against
+  the live API when this was written (no key existed yet). If a read shows
+  `garminconnect` with an error in health, fix its adapter; the app keeps
+  working meanwhile. The 365-day weight range is the most likely to be refused.
+- The key expires (30 days to 1 year, chosen at creation). When it does, the
+  app silently runs on `garminconnect` alone until the secret is replaced.
+- Tests: `tests/test_garmin_personal.py` (no network; scripted session).

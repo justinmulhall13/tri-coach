@@ -342,6 +342,17 @@ down" ends on the lap button, a set with no stated rest gets none, and a block
 with no amount runs the session's remaining minutes. Every generated session in
 the 70.3 block is checked against its text in `tests/test_garmin_workout_types.py`.
 
+**Garmin's official API where it exists.** Garmin opened a Personal API in
+October 2026: free, read-only, your own data, authenticated with a key you
+create in Garmin Connect. With `GARMIN_PERSONAL_API_KEY` set, sleep, HRV, Body
+Battery, resting heart rate, stress, SpO2, daily totals, heart-rate zones,
+weight and the activity list are read from it. It does not publish Training
+Readiness, Training Status, VO2max, lactate threshold, FTP, race predictions or
+per-activity splits, and it cannot write, so those reads and Send to watch stay
+on `garminconnect`. Every official read falls back to `garminconnect` if it
+fails, and `/api/health` shows which source served each one. Without a key
+nothing changes.
+
 **Completion that respects intent.** A stretch class syncing from Garmin as
 `strength_training` will not tick off a planned strength lift; mobility work is
 classified separately.
@@ -377,6 +388,8 @@ app/
 
   garmin_source.py   Garmin ingestion: readiness, HRV, sleep, activities,
                      training load / ACWR, VO2 & FTP, race predictions
+  garmin_personal.py Garmin's official Personal API (key -> 24 h token, reads)
+                     and the hybrid client that falls back to garminconnect
   rings.py           the four dashboard rings
   ring_detail.py     per-ring drill-downs (contributors, stages, charts)
   activity_detail.py per-activity deep dive + cached AI analysis
@@ -601,8 +614,8 @@ A few problems here were more interesting than they first look:
 
 ## Tech stack
 
-Python · FastAPI · SQLite · [garminconnect](https://github.com/cyberjunky/python-garminconnect)
-· Anthropic Claude API · Hevy API · Google Calendar API · Web Push (VAPID) · vanilla
+Python · FastAPI · SQLite · Garmin Connect Personal API ·
+[garminconnect](https://github.com/cyberjunky/python-garminconnect) · Anthropic Claude API · Hevy API · Google Calendar API · Web Push (VAPID) · vanilla
 JS/HTML/CSS PWA · Docker · Fly.io.
 
 ---
@@ -621,6 +634,12 @@ cp .env.example .env      # then fill in keys and optional athlete details
 python -m app.main        # serves http://127.0.0.1:8770
 ```
 
+The Garmin Personal API key is optional. Create it yourself in Garmin Connect
+(Settings, Personal API token), put it in `.env` as `GARMIN_PERSONAL_API_KEY`,
+and replace it before the expiry you chose (30 days to 1 year). The Garmin
+email and password are still needed for the reads and writes the official API
+does not cover.
+
 `.env.example` documents every setting. Secrets (`.env`, the SQLite DB, and the
 Google `credentials.json` / `token.json`) live under `data/` and are gitignored —
 nothing sensitive is in the repository.
@@ -637,7 +656,8 @@ nothing sensitive is in the repository.
 
 Containerized with the included `Dockerfile` and deployed on Fly.io
 (`fly.toml`), with a persistent volume for the SQLite DB and cached credentials.
-The machine scales to zero and wakes on request.
+The machine scales to zero and wakes on request. Keys are Fly secrets, never
+files in the image: `fly secrets set GARMIN_PERSONAL_API_KEY=...`.
 
 ---
 

@@ -25,7 +25,8 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import (activity_detail, baselines, calendar_agent, calendar_source,
-               calendar_sync, coach, coaching_contract, config, db, fitness_trend, garmin_source,
+               calendar_sync, coach, coaching_contract, config, db, fitness_trend, garmin_personal,
+               garmin_source,
                garmin_workout, hevy_actions, hevy_connector, insights, nudges, nutrition, plan, plan_adapt, recipes, zones,
                lifting_rules, lifting_split, lifting_stats,
                push, rings, ring_detail, strength_block, strength_effort, suggest)
@@ -161,7 +162,11 @@ def health() -> dict[str, Any]:
         "race": config.race_phase(),
         "athlete_profile": config.ATHLETE_PROFILE,
         "sources": {
-            "garmin": {"path": "direct garminconnect"},
+            "garmin": {
+                "path": ("official Personal API, garminconnect for the rest"
+                         if garmin_personal.enabled() else "direct garminconnect"),
+                "personal_api": garmin_personal.status(),
+            },
             "calendar": {"enabled": True, "note": "Google Calendar (read-only) — needs credentials.json"},
             "hevy": hevy_connector.status(),
             "anthropic_key_present": bool(config.ANTHROPIC_API_KEY)

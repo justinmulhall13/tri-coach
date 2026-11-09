@@ -1,4 +1,7 @@
-"""Direct Garmin pull layer (built on the public `garminconnect` library).
+"""Direct Garmin pull layer.
+
+Reads go through `get_client()`: Garmin's official Personal API where it has the
+data and a key is set, the public `garminconnect` library for everything else.
 
 Every value returned here comes from the Garmin API. When a metric is
 unavailable we return None and record it in a `missing` list — we never
@@ -17,6 +20,10 @@ from . import config
 
 _client: Any = None
 _lock = threading.Lock()
+_legacy: Any = None
+_legacy_lock = threading.Lock()
+_legacy_failure: dict[str, Any] = {"until": 0.0, "error": ""}
+_LEGACY_RETRY_S = 60
 
 
 def _today() -> str:
@@ -73,38 +80,78 @@ def get_weight_kg() -> dict[str, Any] | None:
     return out
 
 
+def _login() -> Any:
+    """Authenticated `garminconnect` client, token-first then credential fallback."""
+    from garminconnect import Garmin
+
+    import os
+    token_store = os.path.normpath(os.path.expanduser(config.GARMIN_TOKENSTORE))
+
+    # 1) Resume from cached OAuth token (no creds needed once logged in).
+    try:
+        c = Garmin()
+        c.login(token_store)
+        c.get_full_name()
+        return c
+    except Exception:
+        pass
+
+    # 2) Credential login (refreshes the cached token).
+    email = config._get("GARMIN_EMAIL")
+    password = config._get("GARMIN_PASSWORD")
+    if not email or not password:
+        raise RuntimeError(
+            "Garmin token resume failed and GARMIN_EMAIL/PASSWORD not set. "
+            "Run the one-time login: ./.venv/bin/python -m app.login"
+        )
+    c = Garmin(email=email, password=password)
+    c.login(token_store)
+    return c
+
+
+def _legacy_client() -> Any:
+    """The `garminconnect` client behind the hybrid, logged in the first time it is needed.
+
+    With the official API serving the wellness reads, a broken unofficial login
+    must not take those down with it, so the login waits until something only
+    `garminconnect` can do is asked for. A failed login is remembered briefly:
+    readiness asks from several threads at once and each would otherwise start
+    its own sign-in.
+    """
+    global _legacy
+    with _legacy_lock:
+        if _legacy is not None:
+            return _legacy
+        import time
+        now = time.monotonic()
+        if now < _legacy_failure["until"]:
+            raise RuntimeError(_legacy_failure["error"])
+        try:
+            _legacy = _login()
+        except Exception as exc:
+            _legacy_failure["until"] = now + _LEGACY_RETRY_S
+            _legacy_failure["error"] = str(exc) or type(exc).__name__
+            raise
+        return _legacy
+
+
 def get_client() -> Any:
-    """Authenticated Garmin client, token-first then credential fallback."""
+    """The Garmin client every pull goes through.
+
+    With `GARMIN_PERSONAL_API_KEY` set this is the hybrid: Garmin's official
+    Personal API for the reads it publishes, `garminconnect` for the rest
+    (see `garmin_personal`). Without the key it is the `garminconnect` client,
+    exactly as before.
+    """
     global _client
     with _lock:
         if _client is not None:
             return _client
-        from garminconnect import Garmin
-
-        import os
-        token_store = os.path.normpath(os.path.expanduser(config.GARMIN_TOKENSTORE))
-
-        # 1) Resume from cached OAuth token (no creds needed once logged in).
-        try:
-            c = Garmin()
-            c.login(token_store)
-            c.get_full_name()
-            _client = c
-            return _client
-        except Exception:
-            _client = None
-
-        # 2) Credential login (refreshes the cached token).
-        email = config._get("GARMIN_EMAIL")
-        password = config._get("GARMIN_PASSWORD")
-        if not email or not password:
-            raise RuntimeError(
-                "Garmin token resume failed and GARMIN_EMAIL/PASSWORD not set. "
-                "Run the one-time login: ./.venv/bin/python -m app.login"
-            )
-        c = Garmin(email=email, password=password)
-        c.login(token_store)
-        _client = c
+        from . import garmin_personal
+        if garmin_personal.enabled():
+            _client = garmin_personal.HybridClient(_legacy_client)
+        else:
+            _client = _login()
         return _client
 
 
