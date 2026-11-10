@@ -893,3 +893,59 @@ not the athlete's conversation. Look at every image before committing it.
 Tests: `tests/test_fitness_age.py`, `tests/test_triathlon_knowledge.py`,
 `AppChromeTests` in `tests/test_header_contrast.py`, and the escaping pins in
 `tests/test_display_text_safety.py`.
+
+
+## Session 2026-11-10 (part 2) — flowing background, tinted panes, review fixes
+
+**Flow background (`const Flow` in `static/index.html`, `<canvas id="flow">` first in body).**
+One WebGL1 fragment shader, greyscale only, tones from `--flow-lo` / `--flow-hi` /
+`--flow-curve`. Styles `water` (caustics), `wind` (stretched noise), `cloud` (fBm),
+`plain`; `auto` follows today's session via `Flow.sport(flowSportFor(_woSessions))`.
+API: `Flow.set`, `Flow.sport`, `Flow.motion`, `Flow.pulse`, `Flow.retone`,
+`Flow.state`, `Flow._seek(sec)` (captures). ~0.42x resolution, 30 fps, pauses on
+`visibilitychange` / `pagehide`, handles context lost/restored, no `Math.random`.
+
+Design contract, all pinned by `tests/test_flow_background.py`:
+
+- Never put `opacity`, `transform`, `animation`, `transition` or `filter` on `#flow`
+  (iPhone Safari drops frames or goes black). Movement lives in the shader.
+- Blur (`backdrop-filter`) is for floating chrome only. `.card` is
+  `background:var(--surface)`, translucent and tinted, never blurred. `.sheet` resets
+  the surfaces to the solid set.
+- Never animate opacity on an ancestor of glass: `main.view-in:not(#main-coach)`.
+- `:root.solid`, `prefers-contrast:more` and `prefers-reduced-transparency:reduce`
+  must all carry the same opaque token set. Safari never matches the last one, hence
+  the in-app Panels switch (`localStorage.glass`, applied in `<head>` before paint).
+- The Settings sheet (`#flow-btn`, `#flow-overlay`: `#app-theme`, `#bg-style`,
+  `#bg-motion`, `#bg-glass`) is the WCAG 2.2.2 stop control. Do not remove it.
+- **Light is the default theme; dark is opt-in.** The athlete does not want the
+  system setting to pick dark. Dark tokens live in `:root.dark{...}` (no
+  `prefers-color-scheme` anywhere, a test pins that), chosen in Settings, stored
+  in `localStorage.theme`, applied in `<head>` before paint along with
+  `#theme-meta`. Because `:root.dark` outranks a bare `:root`, the Increase
+  Contrast and Reduce Transparency blocks select `:root,:root.dark`. Theme-aware
+  script reads the class, not `matchMedia`.
+- `--muted` only passes 4.5:1 on a pane. Text that sits on the bare field uses
+  `--ink2` (`#main-calendar{--muted:var(--ink2);}`, `.coach-empty`,
+  `.coach-thinking-status`). Changing `--surface`, `--muted` or the flow tokens
+  reruns those sums in the test.
+
+Nothing was tested on a real iPhone. Expect a tuning pass on the device.
+
+**Steve night-out parser (review fixes).** New non-verdict outcome: a named night that
+cannot be placed returns `{nights: [], night_unclear: true, how_to_answer: {unclear}}`
+and Steve asks which night. Rule: no date cue means tonight; a date cue that cannot be
+resolved means unclear, never tonight. `night_is_unclear(text, *, today, race_date)`,
+`coach._context_block(user_query, *, night_query=None)`, `coach._written_on`.
+"drunk a week from saturday" is a night ("drunk a litre" is not); "getting hammered /
+wasted" counts as drinking, "legs got hammered" does not. Known gaps: an undated event
+("at the wedding") is judged as tonight; a bare "going out in ten days" with no drink
+or party word gets no verdict.
+
+**Fitness age.** A half-failed Garmin read is cached 60 s (`_FITNESS_AGE_PARTIAL_TTL_S`),
+both answered 300 s, both failed not at all. `/api/fitness-age` adds
+`reads: {fitness_age, vo2max}`; `estimate.source` is `estimated`, the VO2max rating
+carries `rating_source: derived`.
+
+A breaker pass and a wide review of this change were cut short to stay inside a usage
+cap; the parser has only the unit tests and a hand spot check behind it.

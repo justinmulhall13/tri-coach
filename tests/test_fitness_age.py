@@ -45,6 +45,8 @@ class NormaliseTests(unittest.TestCase):
         est = out["estimate"]
         self.assertEqual((est["age"], est["floor"], est["ceiling"]), (20, True, False))
         self.assertEqual(est["method"], "vo2max_norms")
+        self.assertEqual(est["source"], "estimated")         # the app's number, not Garmin's
+        self.assertIsNone(est["provider"])
         self.assertEqual(est["vo2max"], 55.8)
         self.assertEqual(est["typical_vo2max_at_age"], 44.1)
         self.assertIsNone(est["delta_years"])                # 19 is below the scale
@@ -57,6 +59,9 @@ class NormaliseTests(unittest.TestCase):
         self.assertEqual((vo2["value"], vo2["rating"], vo2["rank"]), (55.8, "Superior", "top 5%"))
         self.assertEqual(vo2["group"], "men 20 to 29")
         self.assertEqual((vo2["bike"], vo2["as_of"]), (58.0, "2026-11-08"))
+        # The value is Garmin's reading; the band it lands in is read off a table here.
+        self.assertEqual((vo2["rating_source"], vo2["rating_method"]),
+                         ("derived", "cooper_institute_bands"))
 
     def test_nothing_from_garmin_is_unavailable(self) -> None:
         out = fitness_age.normalise(None)
@@ -150,9 +155,111 @@ class SourceAndRouteTests(unittest.TestCase):
         self.assertEqual(body["reason"], "under_age")
         self.assertEqual(body["vo2max"]["rating"], "Superior")
         self.assertEqual(body["chronological_age"], coaching_contract.ATHLETE_CONSTANTS["age"])
-        self.assertEqual((body["source"], body["provider"]), ("measured", "Garmin"))
         self.assertEqual(again, body)
         client.get_fitnessage_data.assert_called_once_with("2026-11-09")   # second call cached
+
+    def test_record_says_which_parts_are_garmins_and_which_are_worked_out(self) -> None:
+        with patch.object(garmin_source, "get_client", return_value=self._client()):
+            body = json.loads(main.fitness_age().body)
+        # Garmin's own fields keep Garmin's label; the record no longer claims to be
+        # measured from end to end while it carries the app's estimate.
+        self.assertEqual(body["provider"], "Garmin")
+        self.assertTrue(body["source"].startswith("measured"))
+        self.assertNotEqual(body["source"], "measured")
+        self.assertIn("estimate", body["source"])
+        self.assertIsNone(body["fitness_age"])
+        est = body["estimate"]
+        self.assertEqual((est["source"], est["provider"]), ("estimated", None))
+        self.assertEqual(body["vo2max"]["rating_source"], "derived")
+        # Every key the page reads is still there.
+        self.assertLessEqual({"age", "floor", "ceiling", "method", "vo2max",
+                              "typical_vo2max_at_age", "delta_years"}, set(est))
+        self.assertLessEqual({"value", "rating", "rank", "group", "bands", "bike", "as_of"},
+                             set(body["vo2max"]))
+
+    def _age_cache(self, seconds: float) -> None:
+        garmin_source._FITNESS_AGE_CACHE["ts"] -= seconds
+
+    def test_full_answer_is_cached_for_the_full_ttl(self) -> None:
+        client = self._client()
+        with patch.object(garmin_source, "get_client", return_value=client):
+            first = garmin_source.get_fitness_age()
+            self._age_cache(garmin_source._FITNESS_AGE_TTL_S - 5)
+            garmin_source.get_fitness_age()
+            self.assertEqual(client.get_fitnessage_data.call_count, 1)
+            self._age_cache(10)
+            garmin_source.get_fitness_age()
+        self.assertEqual(client.get_fitnessage_data.call_count, 2)
+        self.assertEqual(first["reads"], {"fitness_age": "answered", "vo2max": "answered"})
+
+    def test_an_empty_answer_is_an_answer_and_is_cached(self) -> None:
+        # Garmin answering "nothing for this athlete" is not Garmin being down.
+        client = MagicMock(name="garmin")
+        client.get_fitnessage_data.return_value = {}
+        client.get_max_metrics.return_value = []
+        with patch.object(garmin_source, "get_client", return_value=client):
+            out = garmin_source.get_fitness_age()
+            self._age_cache(garmin_source._FITNESS_AGE_TTL_S - 5)
+            garmin_source.get_fitness_age()
+        self.assertEqual(out["reads"], {"fitness_age": "answered", "vo2max": "answered"})
+        self.assertIsNone(out["vo2max"])
+        self.assertEqual(client.get_fitnessage_data.call_count, 1)
+
+    def test_vo2max_read_down_is_not_held_for_the_full_ttl(self) -> None:
+        client = self._client()
+        client.get_max_metrics.side_effect = RuntimeError("login failed")
+        with patch.object(garmin_source, "get_client", return_value=client):
+            down = garmin_source.get_fitness_age()
+            client.get_max_metrics.side_effect = None            # Garmin is back
+            self._age_cache(garmin_source._LEGACY_RETRY_S + 1)
+            up = garmin_source.get_fitness_age()
+        self.assertLessEqual(garmin_source._FITNESS_AGE_PARTIAL_TTL_S,
+                             garmin_source._LEGACY_RETRY_S)
+        self.assertEqual(down["reads"], {"fitness_age": "answered", "vo2max": "failed"})
+        self.assertEqual(down["reason"], "under_age")
+        self.assertIsNone(down["vo2max"])
+        self.assertIsNone(down["estimate"])
+        self.assertEqual(up["reads"]["vo2max"], "answered")
+        self.assertEqual(up["estimate"]["age"], 20)
+        self.assertEqual(up["vo2max"]["value"], 55.8)
+
+    def test_fitness_age_read_down_is_not_held_for_the_full_ttl(self) -> None:
+        client = self._client()
+        client.get_fitnessage_data.side_effect = RuntimeError("down")
+        with patch.object(garmin_source, "get_client", return_value=client):
+            down = garmin_source.get_fitness_age()
+            client.get_fitnessage_data.side_effect = None        # Garmin is back
+            client.get_fitnessage_data.return_value = _GARMIN
+            self._age_cache(garmin_source._LEGACY_RETRY_S + 1)
+            up = garmin_source.get_fitness_age()
+        self.assertEqual(down["reads"], {"fitness_age": "failed", "vo2max": "answered"})
+        self.assertIsNone(down["fitness_age"])
+        self.assertEqual(down["estimate"]["age"], 20)            # the stand-in, briefly
+        self.assertEqual(up["fitness_age"], 27.4)                # Garmin's number replaces it
+        self.assertIsNone(up["estimate"])
+
+    def test_one_failed_day_in_the_vo2max_scan_makes_the_read_partial(self) -> None:
+        # A failed day could have held a newer reading, so the scan is not the full answer.
+        client = self._client()
+        good = client.get_max_metrics.return_value
+        no_bike = [{"generic": good[0]["generic"]}]
+        client.get_max_metrics.side_effect = [RuntimeError("429")] + [no_bike] * 20
+        with patch.object(garmin_source, "get_client", return_value=client):
+            out = garmin_source.get_fitness_age()
+            self._age_cache(garmin_source._LEGACY_RETRY_S + 1)
+            client.get_max_metrics.side_effect = None
+            garmin_source.get_fitness_age()
+        self.assertEqual(out["reads"]["vo2max"], "failed")
+        self.assertEqual(out["vo2max"]["value"], 55.8)           # what did answer is still shown
+        self.assertEqual(client.get_fitnessage_data.call_count, 2)
+
+    def test_partial_answer_is_held_briefly_so_a_struggling_garmin_is_not_hammered(self) -> None:
+        client = self._client()
+        client.get_max_metrics.side_effect = RuntimeError("429")
+        with patch.object(garmin_source, "get_client", return_value=client):
+            garmin_source.get_fitness_age()
+            garmin_source.get_fitness_age()
+        self.assertEqual(client.get_fitnessage_data.call_count, 1)
 
     def test_a_dead_garmin_read_is_reported_and_not_cached(self) -> None:
         client = MagicMock(name="garmin")
@@ -163,6 +270,7 @@ class SourceAndRouteTests(unittest.TestCase):
             garmin_source.get_fitness_age()
         self.assertEqual(out["reason"], "unavailable")
         self.assertIsNone(out["vo2max"])
+        self.assertEqual(out["reads"], {"fitness_age": "failed", "vo2max": "failed"})
         self.assertEqual(client.get_fitnessage_data.call_count, 2)
 
     def test_markers_still_report_vo2max(self) -> None:

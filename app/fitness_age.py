@@ -95,6 +95,10 @@ def vo2_standing(vo2: Any, age: Any, sex: Any) -> dict[str, Any] | None:
         "rating": BAND_NAMES[index],
         "rank": BAND_RANK[index],
         "group": f"{people} {start} to {end}",
+        # The value is the measurement handed in; the rating, rank, group and
+        # bands are read off the table above, not reported by Garmin.
+        "rating_source": "derived",
+        "rating_method": "cooper_institute_bands",
         "bands": [{"name": name, "from": (None if i == 0 else edges[i - 1])}
                   for i, name in enumerate(BAND_NAMES)],
     }
@@ -150,6 +154,9 @@ def estimate_from_vo2(vo2: Any, sex: Any, *, chronological: Any = None) -> dict[
         "floor": floor,
         "ceiling": ceiling,
         "method": "vo2max_norms",
+        # This module's own number: no provider measured or reported it.
+        "source": "estimated",
+        "provider": None,
         "vo2max": round(value, 1),
         "typical_vo2max_at_age": round(_typical_at(curve, age), 1),
         # Under 20 the comparison with his own age says nothing: the scale starts above him.

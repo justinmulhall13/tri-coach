@@ -3,10 +3,18 @@
 Reads go through `get_client()`: Garmin's official Personal API where it has the
 data and a key is set, the public `garminconnect` library for everything else.
 
-Every value returned here comes from the Garmin API. When a metric is
-unavailable we return None and record it in a `missing` list — we never
-fabricate. Resting-HR, VO2 and HR-zone reads are resolved defensively against
-the fields Garmin actually returns.
+Measured values returned here come from the Garmin API. When a metric is
+unavailable we return None and record it in a `missing` list; a missing
+measurement is never filled in. Resting-HR, VO2 and HR-zone reads are resolved
+defensively against the fields Garmin actually returns.
+
+Two parts of the fitness-age record are worked out by the app (`fitness_age`)
+from a printed table instead of read from Garmin, and each says so itself:
+- `estimate` (source "estimated", no provider): a fitness age from VO2max,
+  present only when Garmin has no fitness age of its own;
+- the VO2max `rating`, `rank`, `group` and `bands` (rating_source "derived"):
+  where Garmin's measured VO2max sits in the Cooper Institute bands.
+Rows the athlete logged by hand are tagged self-reported in the same way.
 """
 from __future__ import annotations
 
@@ -434,13 +442,23 @@ def _readiness_one_line(readiness, sleep, hrv, bb) -> str:
     return "Moderate — train as planned but keep intensity honest."
 
 
-def _latest_vo2max(c: Any) -> tuple[float | None, float | None, str | None]:
-    """Newest run and bike VO2max in the last three weeks, with the run's date."""
+def _scan_vo2max(c: Any) -> tuple[float | None, float | None, str | None, bool]:
+    """Newest run and bike VO2max in the last three weeks, the run's date, and
+    whether every day asked for answered.
+
+    A day that raised is not a day without a reading: it could have held a newer
+    one, so the caller must not treat the result as Garmin's full answer.
+    """
     today = config.local_today()
     vo2_run = vo2_bike = vo2_as_of = None
+    answered = True
     for i in range(0, 21):
         d = (today - datetime.timedelta(days=i)).isoformat()
-        raw = _safe(lambda dd=d: c.get_max_metrics(dd))
+        try:
+            raw = c.get_max_metrics(d)
+        except Exception:
+            answered = False
+            continue
         if isinstance(raw, list) and raw:
             generic = (raw[0] or {}).get("generic") or {}
             cycling = (raw[0] or {}).get("cycling") or {}
@@ -452,11 +470,21 @@ def _latest_vo2max(c: Any) -> tuple[float | None, float | None, str | None]:
                 vo2_bike = round(bike, 1)
             if vo2_run is not None and vo2_bike is not None:
                 break
-    return vo2_run, vo2_bike, vo2_as_of
+    return vo2_run, vo2_bike, vo2_as_of, answered
+
+
+def _latest_vo2max(c: Any) -> tuple[float | None, float | None, str | None]:
+    """Newest run and bike VO2max in the last three weeks, with the run's date."""
+    return _scan_vo2max(c)[:3]
 
 
 _FITNESS_AGE_CACHE: dict[str, Any] = {"val": None, "ts": 0.0}
 _FITNESS_AGE_TTL_S = 300
+# A record with one read failed is kept only as long as a failed login is
+# remembered: long enough not to hammer a struggling Garmin, short enough that
+# the card is right again soon after Garmin is.
+_FITNESS_AGE_PARTIAL_TTL_S = _LEGACY_RETRY_S
+_FITNESS_AGE_SOURCE = "measured; estimate and VO2max rating derived where tagged"
 
 
 def get_fitness_age() -> dict[str, Any]:
@@ -465,21 +493,44 @@ def get_fitness_age() -> dict[str, Any]:
     Garmin starts fitness age at 20; a younger athlete gets a reason instead of
     a number. When Garmin has none, ``fitness_age.normalise`` adds a separate,
     labelled ``estimate`` from VO2max and leaves ``fitness_age`` empty.
+
+    ``reads`` says whether each of the two Garmin reads answered or failed. A
+    failed read and an empty answer both leave a field empty, but only a record
+    built from two answers is kept for the full cache time.
     """
     import time
     from . import coaching_contract, fitness_age
     now = time.time()
-    if _FITNESS_AGE_CACHE["val"] is not None and now - _FITNESS_AGE_CACHE["ts"] < _FITNESS_AGE_TTL_S:
-        return copy.deepcopy(_FITNESS_AGE_CACHE["val"])
+    cached = _FITNESS_AGE_CACHE
+    if cached["val"] is not None and now - cached["ts"] < cached.get("ttl", _FITNESS_AGE_TTL_S):
+        return copy.deepcopy(cached["val"])
     c = get_client()
-    raw = _safe(lambda: c.get_fitnessage_data(_today()))
-    vo2_run, vo2_bike, vo2_as_of = _safe(lambda: _latest_vo2max(c)) or (None, None, None)
+    try:
+        raw, age_answered = c.get_fitnessage_data(_today()), True
+    except Exception:
+        raw, age_answered = None, False
+    try:
+        vo2_run, vo2_bike, vo2_as_of, vo2_answered = _scan_vo2max(c)
+    except Exception:
+        vo2_run = vo2_bike = vo2_as_of = None
+        vo2_answered = False
     athlete = coaching_contract.ATHLETE_CONSTANTS
     out = fitness_age.normalise(raw, age=athlete.get("age"), sex=athlete.get("sex"),
                                 vo2=vo2_run, vo2_bike=vo2_bike, vo2_as_of=vo2_as_of)
-    out.update({"source": "measured", "provider": "Garmin", "fetched_at": _iso_now()})
-    if raw is not None or out["vo2max"] is not None:
-        _FITNESS_AGE_CACHE.update({"val": copy.deepcopy(out), "ts": now})
+    out.update({
+        # Garmin's fields are Garmin's; the estimate and the rating tag themselves.
+        "source": _FITNESS_AGE_SOURCE, "provider": "Garmin", "fetched_at": _iso_now(),
+        "reads": {"fitness_age": "answered" if age_answered else "failed",
+                  "vo2max": "answered" if vo2_answered else "failed"},
+    })
+    if age_answered and vo2_answered:
+        ttl = _FITNESS_AGE_TTL_S
+    elif age_answered or vo2_answered:
+        ttl = min(_FITNESS_AGE_PARTIAL_TTL_S, _LEGACY_RETRY_S)
+    else:
+        ttl = 0          # nothing answered, nothing worth keeping
+    if ttl:
+        _FITNESS_AGE_CACHE.update({"val": copy.deepcopy(out), "ts": now, "ttl": ttl})
     return out
 
 

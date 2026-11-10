@@ -10,9 +10,10 @@ conversational coach that can reprogram the plan, and a natural-language
 calendar assistant that schedules workouts around a real calendar with two-way
 Google sync. It runs as an installable PWA that is built to feel like an app on
 a phone rather than a web page: large titles that collapse into a glass bar, a
-floating tab capsule, pull to refresh. The interface is monochrome on purpose
-(ink on paper, no accent colours, no emoji), and swim, bike and run are told
-apart by line texture instead of colour. It is deployed on Fly.io. Built solo,
+floating tab capsule, pull to refresh. Behind everything a slow greyscale field
+moves like water, wind or cloud, following the sport of the day's session. The
+interface is monochrome on purpose (ink on paper, no accent colours, no emoji),
+and swim, bike and run are told apart by line texture instead of colour. It is deployed on Fly.io. Built solo,
 with Claude Code and
 OpenAI Codex doing most of the typing — see
 [Built with AI, deliberately](#built-with-ai-deliberately).
@@ -136,6 +137,13 @@ moves. On any other night it is a plain yes, with no guilt and no drink count.
 After the race it is go and celebrate. The model writes the sentence; it does
 not decide the call. The check only knows the calendar, so a run-down readiness
 score or "I'm sick" still means bed whatever the verdict says.
+
+When a night is named but cannot be placed on the calendar ("next month", "for
+my birthday", "race weekend"), there is no verdict at all: the coach asks which
+night. No date cue means tonight; a date cue that cannot be resolved never
+quietly becomes tonight. Known limits: an event with no date ("at the wedding")
+is judged as tonight, and "Monday night after the race" returns both race night
+and the Monday.
 
 <img src="docs/screenshots/phone-coach.png" alt="Coach on a phone" width="30%">
 
@@ -670,13 +678,29 @@ A few problems here were more interesting than they first look:
   Additive writes are never blindly retried, and a partial template write is
   surfaced explicitly if the routine itself fails.
 
-- **Glass where it earns its keep.** Glass is reserved for chrome that floats
+- **Glass where it earns its keep.** Blur is reserved for chrome that floats
   over content: the bar a large page title collapses into, the tab capsule with
-  its sliding lens, the sticky Coach bar and the composer. Dense training data
-  keeps opaque surfaces for contrast. Text fades out under the floating pieces
-  instead of showing through the gaps around them. All of it is safe-area aware,
-  and Reduce Motion and Reduce Transparency each have a fallback: the second
-  turns the glass solid and stops the blur.
+  its sliding lens, the sticky Coach bar and the composer. Content panes are
+  tinted and translucent but never blurred, which keeps scrolling cheap and
+  text sharp. Sheets are solid. Text fades out under the floating pieces
+  instead of showing through the gaps around them, and all of it is safe-area
+  aware.
+
+- **A background that moves, and can be told to stop.** One small WebGL
+  fragment shader draws a greyscale field behind the whole app: caustic light
+  for a swim day, stretched streaks of wind for a ride, slow cloud for a run or
+  a rest day. It renders at under half resolution and 30 frames a second, is
+  dithered against banding, pauses when the page is hidden, and recovers from a
+  lost graphics context. The canvas is never faded or transformed in CSS, which
+  iPhone Safari punishes; all movement happens in the shader. Moving content
+  needs a way to stop it, so the header opens Settings: appearance (Light,
+  Dark), background (Auto, Water, Wind, Cloud, Plain), motion (Moving, Still)
+  and panels (Glass, Solid). Light is the default whatever the system is set
+  to; dark is a choice, applied before first paint and kept on the device.
+  Reduce Motion holds a still frame. Reduce Transparency and Increase Contrast
+  land on the same opaque token set as the Solid switch, because Safari does not
+  report Reduce Transparency to a page. Tests compute text contrast from the
+  tokens against the lightest and darkest point of the field in both themes.
 
 - **Sport identity without colour.** The palette is monochrome, so the three
   sports are told apart by line: a wave for the swim, dashes for the bike, a
@@ -694,7 +718,14 @@ A few problems here were more interesting than they first look:
   fine is a question about dates, so it is answered in code: days to the race,
   the phase of the block, and whether the next morning is a key session. The
   model is handed the verdict and writes only the reply. Tests pin the boundary:
-  14 days out is a no, 15 is a yes kept light.
+  14 days out is a no, 15 is a yes kept light. A night that cannot be dated
+  gets a question back, never a guess.
+
+- **A half-answered read is not cached like a whole one.** Fitness age needs
+  two Garmin reads. When one fails, the result is kept for 60 seconds, not five
+  minutes, and the response says which read answered (`reads`). Every derived
+  number carries a provenance tag, so the estimate and the VO2max rating can
+  never be mistaken for something Garmin measured.
 
 - **Escaping and tidying are two different jobs.** `plain()` only tidies
   punctuation for display. `show()` escapes first and then tidies, and plan

@@ -9,49 +9,69 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Training" />
-<meta name="theme-color" content="#f4f4f2" media="(prefers-color-scheme: light)" />
-<meta name="theme-color" content="#0b0b0b" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" id="theme-meta" content="#e6e6e3" />
 <link rel="apple-touch-icon" href="/static/icon.png" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>try{if(localStorage.getItem("glass")==="solid")document.documentElement.classList.add("solid");if(localStorage.getItem("theme")==="dark"){document.documentElement.classList.add("dark");document.getElementById("theme-meta").content="#0c0c0c";}}catch(e){}</script>
 <style>
   /* Monochrome. Ink on paper: hierarchy comes from size, weight and space, never
-     from colour. Glass (blur, translucency, one lit edge) is only for chrome that
-     floats over content: bars, the tab capsule, round buttons. Content stays solid.
-     Sport is told apart by line texture: swim is a wave, bike is dashed, run is
-     solid. Status is spelled out in words. */
+     from colour. Behind everything a slow greyscale field moves like water, wind
+     or cloud (the canvas #flow). Content sits on panes: frosted paper the field
+     shows through, tinted but never blurred. Real glass (blur, one lit edge, a
+     soft shadow) is only for chrome that floats: bars, the tab capsule, round
+     buttons. Sheets are solid. Sport is told apart by line texture: swim is a
+     wave, bike is dashed, run is solid. Status is spelled out in words. */
   :root{
     color-scheme:light;
-    --bg:#f4f4f2;--surface:#fff;--surface2:#efefec;--surface3:#e6e6e2;
-    --ink:#141414;--ink2:#3a3a3a;--muted:#707070;--faint:#a6a6a6;
+    /* --surface is a pane: frosted paper the moving field shows through.
+       --surface2/3 are ink washes laid on a pane. Inside sheets, and whenever
+       glass is turned off, they all resolve to the opaque --solid set. */
+    --bg:#e6e6e3;--solid:#fff;--solid2:#efefec;--solid3:#e6e6e2;--glass-solid:#f5f5f2;
+    --surface:rgba(255,255,255,.58);--surface2:rgba(20,20,20,.06);--surface3:rgba(20,20,20,.105);--raise:rgba(255,255,255,.74);
+    --flow-lo:#c4c4bf;--flow-hi:#ffffff;--flow-curve:1;
+    --ink:#141414;--ink2:#3a3a3a;--muted:#585858;--faint:#a6a6a6;
     --line:rgba(0,0,0,.085);--line2:rgba(0,0,0,.16);
     --g1:#141414;--g2:#4d4d4d;--g3:#858585;--g4:#b5b5b5;--g5:#dcdcd8;
     --good:var(--ink);--warn:var(--ink2);--bad:var(--ink);--a1:var(--ink);
-    --surface-solid:var(--surface);--thumb:var(--surface);
+    --surface-solid:var(--solid);--thumb:#fff;
     --chip:#141414;--chip-ink:#fff;
-    --glass:rgba(246,246,243,.7);--glass-edge:rgba(255,255,255,.9);--glass-rim:rgba(0,0,0,.07);
-    --scrim:rgba(244,244,242,.88);--scrim-0:rgba(244,244,242,0);
-    --glass-shadow:0 12px 32px rgba(0,0,0,.13),0 2px 6px rgba(0,0,0,.06);--lens:rgba(255,255,255,.74);
-    --hero-bg:#161616;--hero-ink:#f4f4f2;--hero-muted:rgba(244,244,242,.6);--hero-line:rgba(244,244,242,.2);
-    --card-shadow:0 1px 2px rgba(0,0,0,.04);--bead-a:#fff;--bead-b:#ebebe8;
+    --glass:rgba(246,246,243,.6);--glass-lg:rgba(246,246,243,.76);--glass-edge:rgba(255,255,255,.95);--glass-rim:rgba(0,0,0,.07);--glass-lo:rgba(0,0,0,.12);
+    --scrim:rgba(230,230,227,.84);--scrim-0:rgba(230,230,227,0);--edge:rgba(230,230,227,.66);
+    --glass-shadow:0 10px 30px rgba(0,0,0,.12),0 1px 3px rgba(0,0,0,.08);--lens:rgba(255,255,255,.7);
+    --hero-bg:rgba(18,18,18,.88);--hero-solid:#161616;--hero-ink:#f4f4f2;--hero-muted:rgba(244,244,242,.62);--hero-line:rgba(244,244,242,.2);
+    --card-shadow:inset 0 1px 0 rgba(255,255,255,.9),inset 0 0 0 1px rgba(255,255,255,.3),0 1px 2px rgba(0,0,0,.04),0 10px 26px -14px rgba(0,0,0,.14);
+    --card-shadow-flat:0 1px 2px rgba(0,0,0,.04);--bead-a:#fff;--bead-b:#ebebe8;
     --nav-bottom:max(10px,calc(env(safe-area-inset-bottom,0px) - 10px));--nav-h:62px;
-    --blur:saturate(1.8) blur(22px);
+    --blur:blur(16px) contrast(.9) brightness(1.08);--blur-lg:blur(24px) contrast(.9) brightness(1.08);--blur-edge:blur(10px);
     --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue","Segoe UI",system-ui,sans-serif;
-    --r:20px;--r-sm:12px;--spring:cubic-bezier(.2,.8,.2,1);
+    --r:20px;--r-sm:12px;--spring:cubic-bezier(.2,.8,.2,1);--spring-liquid:cubic-bezier(.3,1.35,.5,1);
   }
-  @media(prefers-color-scheme:dark){
-    :root{color-scheme:dark;
-      --bg:#0b0b0b;--surface:#151515;--surface2:#1e1e1e;--surface3:#282828;
-      --ink:#ececec;--ink2:#c2c2c2;--muted:#8c8c8c;--faint:#5a5a5a;
-      --line:rgba(255,255,255,.085);--line2:rgba(255,255,255,.17);
-      --g1:#ececec;--g2:#b8b8b8;--g3:#858585;--g4:#575757;--g5:#2e2e2e;
-      --chip:#ececec;--chip-ink:#0b0b0b;--thumb:#3b3b3b;
-      --glass:rgba(24,24,24,.68);--glass-edge:rgba(255,255,255,.16);--glass-rim:rgba(255,255,255,.07);
-      --scrim:rgba(11,11,11,.88);--scrim-0:rgba(11,11,11,0);
-      --glass-shadow:0 12px 32px rgba(0,0,0,.5),0 2px 6px rgba(0,0,0,.3);--lens:rgba(255,255,255,.13);
-      --hero-bg:#e6e6e2;--hero-ink:#0b0b0b;--hero-muted:rgba(11,11,11,.6);--hero-line:rgba(11,11,11,.2);
-      --card-shadow:inset 0 0 0 .5px rgba(255,255,255,.07);--bead-a:#2e2e2e;--bead-b:#1b1b1b;}
+  @supports(transition-timing-function:linear(0,1)){
+    :root{--spring-liquid:linear(0,.118,.356,.6,.796,.928,1.004,1.038,1.046,1.04,1.029,1.018,1.009,1.003,1,.998,1);}
   }
+  /* Dark is opt-in from Settings. The system setting does not pick the theme. */
+  :root.dark{color-scheme:dark;
+    --bg:#0c0c0c;--solid:#151515;--solid2:#1e1e1e;--solid3:#282828;--glass-solid:#161616;
+    --surface:rgba(24,24,24,.54);--surface2:rgba(255,255,255,.055);--surface3:rgba(255,255,255,.095);--raise:rgba(255,255,255,.09);
+    --flow-lo:#060606;--flow-hi:#3c3c3c;--flow-curve:1.5;
+    --ink:#ececec;--ink2:#c2c2c2;--muted:#a0a0a0;--faint:#5a5a5a;
+    --line:rgba(255,255,255,.085);--line2:rgba(255,255,255,.17);
+    --g1:#ececec;--g2:#b8b8b8;--g3:#858585;--g4:#575757;--g5:#2e2e2e;
+    --chip:#ececec;--chip-ink:#0b0b0b;--thumb:#3b3b3b;
+    --glass:rgba(22,22,22,.66);--glass-lg:rgba(22,22,22,.8);--glass-edge:rgba(255,255,255,.2);--glass-rim:rgba(255,255,255,.07);--glass-lo:rgba(0,0,0,.5);
+    --scrim:rgba(12,12,12,.84);--scrim-0:rgba(12,12,12,0);--edge:rgba(12,12,12,.66);
+    --glass-shadow:0 10px 30px rgba(0,0,0,.55),0 1px 3px rgba(0,0,0,.4);--lens:rgba(255,255,255,.13);
+    --hero-bg:rgba(232,232,228,.9);--hero-solid:#e6e6e2;--hero-ink:#0b0b0b;--hero-muted:rgba(11,11,11,.62);--hero-line:rgba(11,11,11,.2);
+    --card-shadow:inset 0 1px 0 rgba(255,255,255,.09),inset 0 0 0 1px rgba(255,255,255,.045),0 10px 26px -14px rgba(0,0,0,.6);
+    --card-shadow-flat:inset 0 0 0 .5px rgba(255,255,255,.07);--bead-a:#2e2e2e;--bead-b:#1b1b1b;
+    --blur:blur(16px) brightness(.8);--blur-lg:blur(24px) brightness(.8);}
+  /* Glass off. The in-app switch, Reduce Transparency and Increase Contrast all
+     land on this same opaque set. */
+  :root.solid{--surface:var(--solid);--surface2:var(--solid2);--surface3:var(--solid3);--raise:var(--solid);
+    --glass:var(--glass-solid);--glass-lg:var(--glass-solid);--blur:none;--blur-lg:none;--blur-edge:none;
+    --scrim:var(--bg);--edge:var(--bg);--hero-bg:var(--hero-solid);--card-shadow:var(--card-shadow-flat);}
+  :root.solid .overlay{-webkit-backdrop-filter:none;backdrop-filter:none;}
   *{box-sizing:border-box;}
   html{-webkit-text-size-adjust:100%;touch-action:pan-x pan-y;overscroll-behavior-y:contain;}
   body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--font);letter-spacing:-.005em;
@@ -60,6 +80,10 @@
   /* Chrome is not selectable text. Content (chat, notes, numbers) still is. */
   button,nav,header,h1,h2,.pagehead,.sess-head,summary{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}
   body.sheet-open{overflow:hidden;}
+  /* The moving field. It never moves, fades or transforms as an element (WebKit
+     flickers a WebGL canvas that does); the shader does the arriving. */
+  #flow{position:fixed;top:0;left:0;width:100vw;height:100vh;height:100lvh;z-index:-1;display:block;pointer-events:none;}
+  body.no-flow #flow{display:none;}
   ::selection{background:var(--chip);color:var(--chip-ink);}
   a{color:inherit;}
   svg{flex-shrink:0;}
@@ -70,7 +94,7 @@
   .ik{font-size:12px;color:var(--muted);}
 
   /* Controls */
-  button{font:600 14px/1.2 var(--font);color:var(--ink);background:var(--surface);border:1px solid var(--line2);
+  button{font:600 14px/1.2 var(--font);color:var(--ink);background:var(--raise);border:1px solid var(--line2);
     border-radius:var(--r-sm);padding:9px 14px;cursor:pointer;transition:background .15s,border-color .15s,opacity .15s,transform .1s;}
   @media(hover:hover){button:hover{border-color:var(--ink);}}
   button:active{transform:scale(.98);}
@@ -82,7 +106,7 @@
   input,select,textarea{font:inherit;color:var(--ink);}
   input[type=text],input[type=search],input[type=number],input[type=time],input[type=date],input[type=password],textarea,select,.lightsel{
     background:var(--surface2);border:1px solid transparent;border-radius:var(--r-sm);padding:10px 12px;font-size:15px;min-width:0;}
-  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--ink);background:var(--surface);}
+  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--ink);background:var(--raise);}
   input::placeholder,textarea::placeholder{color:var(--faint);}
   input[type=range]{accent-color:var(--ink);}
   input[type=checkbox]{accent-color:var(--ink);}
@@ -109,41 +133,44 @@
      floating tab capsule with a lens that travels to the open tab. */
   header{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:16px;
     padding:calc(env(safe-area-inset-top,0px) + 12px) max(20px,env(safe-area-inset-right,0px)) 10px max(20px,env(safe-area-inset-left,0px));
-    background:var(--glass);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);border-bottom:1px solid var(--glass-rim);}
+    background:var(--glass-lg);-webkit-backdrop-filter:var(--blur-lg);backdrop-filter:var(--blur-lg);border-bottom:1px solid var(--glass-rim);}
   .brand{display:flex;align-items:baseline;gap:12px;min-width:0;}
   .brand .logo{font-size:16px;font-weight:700;letter-spacing:-.01em;white-space:nowrap;}
-  .hdate{font-size:13.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .hdate{font-size:13.5px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .right{display:flex;align-items:center;gap:8px;}
   .iconbtn{width:36px;height:36px;padding:0;display:grid;place-items:center;border-radius:50%;border-color:var(--line2);background:transparent;}
   .iconbtn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
   #refresh.spinning svg{animation:spin .9s linear infinite;}
   @keyframes spin{to{transform:rotate(360deg);}}
   .tabs{display:flex;gap:2px;margin-left:18px;align-self:center;}
-  .tab{background:none;border:0;border-radius:999px;color:var(--muted);font-size:14px;font-weight:550;padding:7px 13px;}
+  .tab{background:none;border:0;border-radius:999px;color:var(--ink2);font-size:14px;font-weight:550;padding:7px 13px;}
   @media(hover:hover){.tab:hover{color:var(--ink);}}
   .tab.active{color:var(--ink);background:var(--lens);box-shadow:inset 0 1px 0 var(--glass-edge),0 1px 3px rgba(0,0,0,.08);}
   [data-view="coach"]{position:relative;}
   .coach-unread-dot{display:none;position:absolute;top:1px;right:2px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;
-    align-items:center;justify-content:center;background:var(--chip);color:var(--chip-ink);border:2px solid var(--bg);font:700 9px/1 var(--font);}
+    align-items:center;justify-content:center;background:var(--chip);color:var(--chip-ink);border:2px solid var(--glass-solid);font:700 9px/1 var(--font);}
   [data-view="coach"].has-coach-unread .coach-unread-dot{display:flex;}
   .hbar-title,.pagehead,#ptr,.botnav{display:none;}
   .botnav button svg{width:22px;height:22px;stroke:currentColor;fill:currentColor;fill-opacity:0;stroke-width:1.7;
     stroke-linecap:round;stroke-linejoin:round;transition:fill-opacity .25s;}
   @keyframes viewin{from{opacity:0;}}
-  main.view-in{animation:viewin .2s ease-out;}
+  main.view-in:not(#main-coach),#main-coach.view-in #chatlog{animation:viewin .2s ease-out;}
   @media(max-width:820px){
     .tabs,.brand .logo,.hdate{display:none;}
     header{height:calc(env(safe-area-inset-top,0px) + 44px);padding:env(safe-area-inset-top,0px) 12px 0;
-      background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none;border-bottom-color:transparent;pointer-events:none;
-      transition:background .2s,border-color .2s;}
+      background:none;-webkit-backdrop-filter:none;backdrop-filter:none;border-bottom:0;pointer-events:none;}
     header .right{pointer-events:auto;margin-left:auto;}
-    body.scrolled header{background:var(--glass);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);border-bottom-color:var(--glass-rim);}
+    /* Scroll edge: what slides under the bar blurs and fades out, with no hard line. */
+    header::before{content:"";position:absolute;inset:0 0 -18px 0;z-index:-1;pointer-events:none;opacity:0;transition:opacity .2s;
+      background:linear-gradient(var(--edge) 35%,var(--scrim-0));-webkit-backdrop-filter:var(--blur-edge);backdrop-filter:var(--blur-edge);
+      -webkit-mask-image:linear-gradient(#000 55%,transparent);mask-image:linear-gradient(#000 55%,transparent);}
+    body.scrolled header::before{opacity:1;}
     .hbar-title{display:block;position:absolute;left:60px;right:60px;bottom:0;height:44px;line-height:44px;text-align:center;
       font-size:16px;font-weight:650;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
       opacity:0;transform:translateY(5px);transition:opacity .18s,transform .18s;}
     body.titled .hbar-title{opacity:1;transform:none;}
     .pagehead{display:block;max-width:1080px;margin:-44px auto 0;padding:0 16px 2px;}
-    .ph-eyebrow{height:44px;display:flex;align-items:center;font-size:13px;font-weight:600;color:var(--muted);}
+    .ph-eyebrow{height:44px;display:flex;align-items:center;font-size:13px;font-weight:600;color:var(--ink2);}
     .ph-eyebrow span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
     .ph-title{margin:0;font-size:32px;font-weight:700;letter-spacing:-.03em;line-height:1.12;}
     .iconbtn{width:34px;height:34px;border:0;background:var(--glass);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
@@ -160,12 +187,15 @@
     #ptr.busy circle{stroke-dashoffset:16;}
     .botnav{display:grid;grid-template-columns:repeat(6,1fr);position:fixed;left:12px;right:12px;bottom:var(--nav-bottom);z-index:60;
       max-width:520px;margin:0 auto;padding:5px;border-radius:31px;background:var(--glass);
-      -webkit-backdrop-filter:saturate(1.8) blur(24px);backdrop-filter:saturate(1.8) blur(24px);
-      box-shadow:var(--glass-shadow),inset 0 1px 0 var(--glass-edge),inset 0 0 0 1px var(--glass-rim);}
+      -webkit-backdrop-filter:var(--blur-lg);backdrop-filter:var(--blur-lg);box-shadow:var(--glass-shadow);}
+    /* The lens. It stretches as it leaves, overshoots a touch and settles. */
     .botnav::before{content:"";position:absolute;top:5px;bottom:5px;left:5px;width:calc((100% - 10px) / 6);border-radius:26px;
       background:var(--lens);box-shadow:inset 0 1px 0 var(--glass-edge),0 1px 3px rgba(0,0,0,.08);
-      transform:translateX(calc(var(--tab-index,0) * 100%));transition:transform .42s var(--spring);}
-    .botnav button{position:relative;z-index:1;background:none;border:0;border-radius:26px;color:var(--muted);font-size:10px;font-weight:600;
+      translate:calc(var(--tab-index,0) * 100%) 0;scale:1;
+      transition:translate .5s var(--spring-liquid),scale .32s var(--spring-liquid);}
+    .botnav.moving::before{scale:1.12 .9;}
+    .botnav.pressing::before{scale:1.05 1.1;}
+    .botnav button{position:relative;z-index:1;background:none;border:0;border-radius:26px;color:var(--ink2);font-size:10px;font-weight:600;
       display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:0;min-height:52px;
       transition:color .2s,transform .15s;}
     .botnav button:active{transform:scale(.92);}
@@ -174,6 +204,12 @@
     .botnav button .coach-unread-dot{top:4px;right:calc(50% - 22px);border-color:transparent;}
   }
   @media(max-width:820px) and (pointer:coarse){#refresh{display:none;}}
+  /* One lit edge on floating glass: bright where the light lands (top left),
+     shaded on the far side. */
+  .botnav::after,.coach-compose::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;
+    background:linear-gradient(160deg,var(--glass-edge),transparent 38%,transparent 62%,var(--glass-lo));
+    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
+    mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);}
 
   /* Page layout */
   main{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:14px;
@@ -184,6 +220,8 @@
   .rest.onecol{grid-template-columns:1fr;}
   @media(max-width:820px){.split,.rest{grid-template-columns:1fr;}}
   .card{position:relative;background:var(--surface);border:0;box-shadow:var(--card-shadow);border-radius:var(--r);padding:18px;min-width:0;}
+  /* Calendar rows and the empty Coach state sit on the moving field with no pane behind them, so their quiet text uses the stronger grey. */
+  #main-calendar{--muted:var(--ink2);}
   @media(max-width:600px){.card{padding:16px;}}
   .card.wide{grid-column:1 / -1;}
   .card h2,.hd{margin:0 0 12px;font-size:16px;font-weight:650;letter-spacing:-.01em;line-height:1.25;}
@@ -258,7 +296,7 @@
   .mod-txt em{display:block;font-style:normal;font-size:12.5px;color:var(--muted);margin-top:1px;}
   .mod-arrow,.wt-go,.activity-arrow{color:var(--faint);font-size:20px;font-weight:400;line-height:1;}
   .sess-head{display:flex;justify-content:space-between;align-items:baseline;font-size:16px;font-weight:650;margin:8px 4px -2px;}
-  .sess-head #sess-total{font-size:13px;color:var(--muted);font-weight:500;}
+  .sess-head #sess-total{font-size:13px;color:var(--ink2);font-weight:500;}
   /* Anything you can press gives a little under the finger. */
   .wo-tile,.modrow,.ready-main,.bigring,.fitcard,.activity-row{transition:transform .16s var(--spring),opacity .16s;}
   .wo-tile:active,.modrow:active,.fitcard:active{transform:scale(.98);opacity:.86;}
@@ -284,7 +322,7 @@
   .wt-check{font-size:12px;font-weight:600;}
   .wt-flag{font-size:12.5px;font-weight:600;margin-top:5px;}
   .wt-maybe{font-size:11.5px;color:var(--muted);text-align:right;max-width:90px;}
-  .wo-extra-h{font-size:13px;color:var(--muted);margin:8px 4px 0;}
+  .wo-extra-h{font-size:13px;color:var(--ink2);margin:8px 4px 0;}
   #workout-card{display:contents;}
   #workout-card>.note{display:none;}
 
@@ -317,10 +355,10 @@
   .vband{position:relative;margin-top:20px;padding-bottom:34px;}
   .vb-track{display:flex;height:6px;border-radius:3px;overflow:hidden;background:var(--g5);}
   .vb-track i{display:block;min-width:0;}
-  .vb-track i+i{border-left:2px solid var(--surface);}
+  .vb-track i+i{border-left:2px solid var(--surface-solid);}
   .vb-track i.on{background:var(--chip);}
   .vb-pin{position:absolute;top:-4px;left:var(--pos);width:14px;height:14px;margin-left:-7px;border-radius:50%;
-    background:var(--surface);border:3px solid var(--chip);box-shadow:0 1px 3px rgba(0,0,0,.2);}
+    background:var(--surface-solid);border:3px solid var(--chip);box-shadow:0 1px 3px rgba(0,0,0,.2);}
   .vb-ticks span{position:absolute;top:13px;transform:translateX(-50%);font-size:11px;color:var(--muted);}
   .fit-note{font-size:12.5px;color:var(--muted);line-height:1.45;}
   .fit-rows{display:flex;flex-direction:column;}
@@ -379,7 +417,7 @@
   .cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;}
   @media(max-width:820px){.cal{grid-template-columns:1fr;gap:0;}}
   .cday{position:relative;display:flex;flex-direction:column;gap:6px;padding:10px;border-radius:12px;background:var(--surface2);min-width:0;min-height:120px;}
-  .cday.today{background:var(--surface);box-shadow:inset 0 0 0 1.5px var(--ink);}
+  .cday.today{background:var(--raise);box-shadow:inset 0 0 0 1.5px var(--ink);}
   .cday .cdow{font-size:12px;color:var(--muted);}
   .cday .cdate{font-size:17px;font-weight:650;line-height:1;}
   .cday .todaydot{display:none;}
@@ -441,8 +479,11 @@
   .overlay{position:fixed;inset:0;z-index:70;display:none;align-items:flex-start;justify-content:center;overflow-y:auto;
     padding:5vh 16px;background:rgba(0,0,0,.34);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);}
   .overlay.open{display:flex;}
-  .sheet{position:relative;width:min(760px,100%);max-height:90dvh;overflow-y:auto;overscroll-behavior:contain;background:var(--surface);
-    border:1px solid var(--line);border-radius:18px;animation:sheetin .28s var(--spring);}
+  /* A sheet is solid paper: everything inside it reads the opaque set. */
+  .sheet{--surface:var(--solid);--surface2:var(--solid2);--surface3:var(--solid3);--raise:var(--solid);--card-shadow:var(--card-shadow-flat);
+    position:relative;width:min(760px,100%);max-height:90dvh;overflow-y:auto;overscroll-behavior:contain;background:var(--surface);
+    border:1px solid var(--line);border-radius:18px;box-shadow:inset 0 1px 0 var(--glass-edge),0 30px 80px -24px rgba(0,0,0,.4);
+    animation:sheetin .28s var(--spring);}
   @keyframes sheetin{from{opacity:0;transform:translateY(18px);}to{opacity:1;transform:none;}}
   .sheet-head{position:sticky;top:0;z-index:8;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;
     padding:18px 20px 12px;background:var(--surface);border-bottom:1px solid var(--line);}
@@ -496,6 +537,9 @@
   .fb-seg{display:flex;gap:6px;margin-bottom:12px;}
   .fb-seg button{flex:1;padding:9px 4px;}
   .fb-seg button.on{background:var(--chip);color:var(--chip-ink);border-color:var(--ink);}
+  .flow-sheet{width:min(440px,100%);}
+  .bg-lab{font-size:12.5px;font-weight:650;color:var(--muted);margin:0 2px 7px;}
+  .bg-note{font-size:13px;color:var(--muted);margin:-4px 2px 16px;}
   .fb-rpe{display:flex;align-items:center;gap:12px;margin-bottom:12px;}
   .fb-rpe label{font-size:13px;color:var(--muted);}
   .fb-rpe input[type=range]{flex:1;}
@@ -557,7 +601,7 @@
   #main-coach{max-width:820px;padding:0;gap:0;min-height:calc(100dvh - 60px);}
   #coach-card{display:flex;flex-direction:column;flex:1;min-height:calc(100dvh - 60px);padding:0;border:0;border-radius:0;background:none;}
   .coach-top{position:sticky;top:var(--hdr-h,0px);z-index:7;display:flex;align-items:center;justify-content:space-between;gap:12px;
-    padding:12px 20px;background:var(--glass);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);border-bottom:1px solid var(--glass-rim);}
+    padding:12px 20px;background:var(--glass-lg);-webkit-backdrop-filter:var(--blur-lg);backdrop-filter:var(--blur-lg);border-bottom:1px solid var(--glass-rim);}
   .coach-person{display:flex;align-items:center;gap:10px;}
   .coach-avatar{background:var(--chip);color:var(--chip-ink);width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:14px;}
   .coach-avatar.is-thinking{animation:pu 1.2s ease-in-out infinite;}
@@ -578,17 +622,18 @@
   .coach-thinking{display:flex;align-items:center;gap:10px;}
   .coach-thinking-copy{display:flex;flex-direction:column;min-width:0;}
   .coach-thinking-copy b{font-size:14px;font-weight:600;}
-  .coach-thinking-status{color:var(--muted);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .coach-thinking-status{color:var(--ink2);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .coach-thinking-dots{display:flex;gap:4px;order:-1;}
   .coach-thinking-dots i{width:6px;height:6px;border-radius:50%;background:var(--chip);opacity:.2;animation:dot 1s ease-in-out infinite;}
   .coach-thinking-dots i:nth-child(2){animation-delay:.15s}.coach-thinking-dots i:nth-child(3){animation-delay:.3s}
   @keyframes dot{40%{opacity:1;}}
-  .coach-empty{margin:auto;max-width:360px;padding:40px 20px;text-align:center;color:var(--muted);}
+  .coach-empty{margin:auto;max-width:360px;padding:40px 20px;text-align:center;color:var(--ink2);}
   .coach-empty-mark{display:none;}
   .coach-empty b{display:block;color:var(--ink);font-size:17px;margin-bottom:4px;}
   .coach-empty span{font-size:14px;line-height:1.5;}
   .coach-compose{position:fixed;left:50%;bottom:20px;z-index:19;width:min(780px,calc(100% - 32px));transform:translateX(-50%);
-    padding:6px;border:1px solid var(--line2);border-radius:26px;background:var(--surface);}
+    padding:6px;border:0;border-radius:26px;background:var(--glass-lg);-webkit-backdrop-filter:var(--blur-lg);backdrop-filter:var(--blur-lg);
+    box-shadow:var(--glass-shadow);}
   .chatbar{display:flex;gap:6px;align-items:flex-end;}
   .chatbar textarea{flex:1;min-width:0;min-height:44px;max-height:132px;resize:none;overflow-y:auto;padding:11px 14px;border-radius:20px;
     font-size:16px;line-height:1.4;background:transparent;border:0;}
@@ -607,22 +652,22 @@
   @media(max-width:820px){
     body.v-coach header,body.v-coach .pagehead{display:none;}
     #main-coach,#coach-card{min-height:100dvh;}
-    .coach-top{padding:calc(env(safe-area-inset-top,0px) + 8px) 14px 8px;background:var(--glass);
-      -webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);border-bottom:1px solid var(--glass-rim);}
+    .coach-top{padding:calc(env(safe-area-inset-top,0px) + 8px) 14px 8px;background:var(--glass-lg);
+      -webkit-backdrop-filter:var(--blur-lg);backdrop-filter:var(--blur-lg);border-bottom:1px solid var(--glass-rim);}
     #chatlog{padding:14px 14px calc(var(--nav-bottom) + var(--nav-h) + 130px);}
     .msg{max-width:92%;}
     .coach-compose{left:12px;right:12px;width:auto;transform:none;bottom:calc(var(--nav-bottom) + var(--nav-h) + 8px);
-      border:0;background:var(--glass);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
-      box-shadow:var(--glass-shadow),inset 0 1px 0 var(--glass-edge),inset 0 0 0 1px var(--glass-rim);}
+      border:0;background:var(--glass-lg);-webkit-backdrop-filter:var(--blur-lg);backdrop-filter:var(--blur-lg);
+      box-shadow:var(--glass-shadow);}
   }
   /* Scroll edge. What passes under the floating bars fades out before it reaches
      them, so nothing shows through the gaps around the composer and the tabs. */
   body.v-coach::after{content:"";position:fixed;left:0;right:0;bottom:0;height:128px;z-index:18;pointer-events:none;
-    background:linear-gradient(to bottom,var(--scrim-0),var(--bg) 58%);}
+    background:linear-gradient(to bottom,var(--scrim-0),var(--scrim) 58%);}
   @media(max-width:820px){
     body::after{content:"";position:fixed;left:0;right:0;bottom:0;height:calc(var(--nav-bottom) + var(--nav-h) + 26px);z-index:18;pointer-events:none;
-      background:linear-gradient(to bottom,var(--scrim-0),var(--scrim) 74%);}
-    body.v-coach::after{height:calc(var(--nav-bottom) + var(--nav-h) + 108px);background:linear-gradient(to bottom,var(--scrim-0),var(--bg) 46%);}
+      background:linear-gradient(to bottom,var(--scrim-0),var(--edge) 74%);}
+    body.v-coach::after{height:calc(var(--nav-bottom) + var(--nav-h) + 108px);background:linear-gradient(to bottom,var(--scrim-0),var(--scrim) 46%);}
   }
   /* Cards inside the conversation */
   .adjcard{align-self:stretch;max-width:560px;background:var(--surface);border:1px solid var(--line2);border-radius:14px;padding:13px 14px;}
@@ -707,9 +752,9 @@
   .cg-col .schoolband{position:absolute;left:0;right:0;background:repeating-linear-gradient(-45deg,transparent 0 5px,var(--line) 5px 6px);
     font-size:10.5px;color:var(--muted);padding:3px 5px;}
   .cg-ev{position:absolute;left:2px;right:2px;border-radius:7px;padding:3px 6px;font-size:11.5px;overflow:hidden;line-height:1.25;}
-  .cg-ev.gcal{background:var(--surface2);color:var(--muted);border:1px solid var(--line);}
+  .cg-ev.gcal{background:var(--solid2);color:var(--muted);border:1px solid var(--line);}
   .cg-ev.wo{background:var(--chip);color:var(--chip-ink);cursor:grab;touch-action:none;user-select:none;}
-  .cg-ev.wo .evtime{color:var(--bg);opacity:.7;}
+  .cg-ev.wo .evtime{color:var(--chip-ink);opacity:.7;}
   .cg-ev.wo:active,.cg-ev.wo.dragging{cursor:grabbing;}
   .cg-ev.wo.dragging{opacity:.8;z-index:40;}
   .cg-ev .evt{font-weight:600;display:flex;align-items:flex-start;gap:4px;min-width:0;}
@@ -725,10 +770,10 @@
   .mhead div{font-size:12px;color:var(--muted);text-align:center;}
   .mcell{min-height:96px;border-radius:9px;padding:5px;background:var(--surface2);display:flex;flex-direction:column;gap:3px;overflow:hidden;min-width:0;}
   .mcell.off{opacity:.4;}
-  .mcell.today{background:var(--surface);box-shadow:inset 0 0 0 1.5px var(--ink);}
+  .mcell.today{background:var(--raise);box-shadow:inset 0 0 0 1.5px var(--ink);}
   .mc-day{font-size:12.5px;font-weight:650;color:var(--muted);}
   .mcell.today .mc-day{color:var(--ink);}
-  .mc-wo{background:var(--surface);border-radius:6px;padding:3px 5px;font-size:11px;line-height:1.25;cursor:pointer;min-width:0;}
+  .mc-wo{background:var(--raise);border-radius:6px;padding:3px 5px;font-size:11px;line-height:1.25;cursor:pointer;min-width:0;}
   .mc-wo span{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .mc-wo em{font-style:normal;color:var(--muted);font-size:10px;}
   .mc-rest,.mc-ev{font-size:10.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -876,7 +921,7 @@
   .pmc-plot svg{display:block;}
   .pmc-guide,.pmc-dot{opacity:0;transition:opacity .12s;pointer-events:none;}
   .pmc-plot.inspecting .pmc-guide,.pmc-plot.inspecting .pmc-dot{opacity:1;}
-  .pmc-tip{position:absolute;z-index:4;top:6px;left:0;min-width:140px;padding:8px 10px;border-radius:10px;background:var(--surface);
+  .pmc-tip{position:absolute;z-index:4;top:6px;left:0;min-width:140px;padding:8px 10px;border-radius:10px;background:var(--solid);
     border:1px solid var(--line2);opacity:0;pointer-events:none;transition:opacity .12s;}
   .pmc-plot.inspecting .pmc-tip{opacity:1;}
   .pmc-tip .pt-date{font-size:12px;color:var(--muted);}
@@ -972,7 +1017,7 @@
   .nu-sub{font-size:13px;color:var(--muted);margin-top:6px;}
   .nu-goal{display:flex;gap:2px;background:var(--surface2);border-radius:9px;padding:2px;}
   .nu-goal button{background:none;border:0;border-radius:7px;padding:6px 10px;font-size:13px;font-weight:550;color:var(--muted);}
-  .nu-goal button.on{background:var(--surface);color:var(--ink);}
+  .nu-goal button.on{background:var(--raise);color:var(--ink);}
   .nu-bars{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-top:18px;}
   @media(max-width:600px){.nu-bars{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px;}}
   .nu-bar .top{display:flex;justify-content:space-between;align-items:baseline;gap:6px;font-size:13px;}
@@ -1123,21 +1168,32 @@
   details.more[open]>summary::after{content:"Hide";}
   details.more[open]>summary{margin-bottom:12px;}
 
-  @media(prefers-contrast:more){:root{--line:rgba(0,0,0,.3);--line2:rgba(0,0,0,.5);--muted:#4a4a4a;}}
+  /* Increase Contrast: flat page, solid panes, heavier lines. */
+  @media(prefers-contrast:more){
+    :root,:root.dark{--line:rgba(0,0,0,.3);--line2:rgba(0,0,0,.5);--muted:#4a4a4a;
+      --surface:var(--solid);--surface2:var(--solid2);--surface3:var(--solid3);--raise:var(--solid);
+      --glass:var(--glass-solid);--glass-lg:var(--glass-solid);--blur:none;--blur-lg:none;--blur-edge:none;
+      --scrim:var(--bg);--edge:var(--bg);--hero-bg:var(--hero-solid);--card-shadow:var(--card-shadow-flat);}
+    #flow{display:none;}
+    .overlay{-webkit-backdrop-filter:none;backdrop-filter:none;}
+  }
+  @media(prefers-contrast:more){
+    :root.dark{--line:rgba(255,255,255,.3);--line2:rgba(255,255,255,.5);--muted:#b8b8b8;}
+  }
   @media(prefers-reduced-motion:reduce){
     *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;}
   }
   /* Reduce Transparency: the glass turns solid and stops blurring. */
   @media(prefers-reduced-transparency:reduce){
-    :root{--glass:#f5f5f2;--blur:none;--scrim:var(--bg);}
-    .botnav,.overlay{-webkit-backdrop-filter:none;backdrop-filter:none;}
-  }
-  @media(prefers-reduced-transparency:reduce) and (prefers-color-scheme:dark){
-    :root{--glass:#161616;}
+    :root,:root.dark{--blur:none;--blur-lg:none;--blur-edge:none;--glass:var(--glass-solid);--glass-lg:var(--glass-solid);}
+    .overlay{-webkit-backdrop-filter:none;backdrop-filter:none;}
+    :root{--surface:var(--solid);--surface2:var(--solid2);--surface3:var(--solid3);--raise:var(--solid);
+      --scrim:var(--bg);--edge:var(--bg);--hero-bg:var(--hero-solid);--card-shadow:var(--card-shadow-flat);}
   }
 </style>
 </head>
 <body>
+<canvas id="flow" aria-hidden="true"></canvas>
 <header>
   <div class="brand">
     <span class="logo">Tri Coach</span>
@@ -1153,6 +1209,9 @@
   </div>
   <div class="hbar-title" id="hbar-title" aria-hidden="true"></div>
   <div class="right">
+    <button id="flow-btn" class="iconbtn" title="Settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5h8M18 7.5h2M4 16.5h2M12 16.5h8"/><circle cx="15" cy="7.5" r="2.6"/><circle cx="9" cy="16.5" r="2.6"/></svg>
+    </button>
     <button id="notif-btn" class="iconbtn" title="Enable nudge notifications" aria-label="Enable nudge notifications" style="display:none">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
     </button>
@@ -1531,6 +1590,35 @@
   </div>
 </div>
 
+<div class="overlay" id="flow-overlay" role="dialog" aria-modal="true" aria-labelledby="flow-title">
+  <div class="sheet flow-sheet">
+    <div class="sheet-head">
+      <div><div class="t" id="flow-title">Settings</div><div class="m">How the app looks on this device.</div></div>
+      <button class="xbtn" id="flow-close" aria-label="Close settings">✕</button>
+    </div>
+    <div class="sheet-body">
+      <div class="bg-lab" id="app-theme-lab">Appearance</div>
+      <div class="fb-seg" id="app-theme" role="group" aria-labelledby="app-theme-lab">
+        <button data-v="light">Light</button><button data-v="dark">Dark</button>
+      </div>
+      <div class="bg-lab" id="bg-style-lab">Background</div>
+      <div class="fb-seg" id="bg-style" role="group" aria-labelledby="bg-style-lab">
+        <button data-v="auto">Auto</button><button data-v="water">Water</button><button data-v="wind">Wind</button><button data-v="cloud">Cloud</button><button data-v="plain">Plain</button>
+      </div>
+      <div class="bg-note">Auto follows today's session: water for a swim, wind for a ride, cloud for a run.</div>
+      <div class="bg-lab" id="bg-motion-lab">Motion</div>
+      <div class="fb-seg" id="bg-motion" role="group" aria-labelledby="bg-motion-lab">
+        <button data-v="on">Moving</button><button data-v="off">Still</button>
+      </div>
+      <div class="bg-lab" id="bg-glass-lab">Panels</div>
+      <div class="fb-seg" id="bg-glass" role="group" aria-labelledby="bg-glass-lab">
+        <button data-v="glass">Glass</button><button data-v="solid">Solid</button>
+      </div>
+      <div class="bg-note" id="bg-sys" style="margin-bottom:0"></div>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="wo-overlay" role="dialog" aria-modal="true" aria-labelledby="wo-title">
   <div class="sheet">
     <div class="sheet-head">
@@ -1576,6 +1664,453 @@
 
 <script>
 const $=id=>document.getElementById(id);
+
+// ---- The moving background ----
+// One WebGL canvas behind the page: light through water for a swim, streaked air
+// for a ride, slow cloud for a run or a rest day. Greyscale only, tones read from
+// --flow-lo/--flow-hi, drawn at under half resolution and 30 frames a second.
+// Stops when the tab is hidden, holds one still frame when motion is off, and
+// steps its own quality down (then freezes) on a device that cannot keep up.
+const Flow=(()=>{
+  "use strict";
+  const TAU=Math.PI*2, UNIT=480, PERIOD=64;
+
+  // ---- tuning knobs (everything a person might want to nudge lives here) ----
+  const K={
+    fps:30,            // frame cap; the motion is slow, more is wasted battery
+    qFrac:0.42,        // backing-store long side as a fraction of the CSS long side
+    qMin:300, qMax:720,
+    parallax:0.12,     // field units of drift per 480px scrolled
+    fade:1.2,          // seconds to cross-fade between media
+    pulseGain:2.2, pulseTau:0.35,
+    stillT:41.0,       // the frozen moment shown when motion is off
+    swell:0.07,        // amplitude of the broad slow brightness swell
+    restSpeed:0.4,     // cloud speed on rest and strength days
+    ripple:{speed:0.5,life:1.7,width:0.055,push:0.022,lift:0.05},
+    water:{
+      focus:0.85,      // how close the floor sits to the focal depth; higher = denser, harsher web
+      eps:0.10,        // mean softness of a filament; higher = wider, dimmer lines
+      knee:3.2,        // tone-map shoulder k in I/(I+k)
+      base:0.27, gain:1.12,
+      bend:0.045,      // field units of slow coordinate bend
+      speed:0.62,      // multiplies every wave's angular rate
+      // [direction deg, wavelength in field units, relative curvature, rad/s]
+      waves:[[4,0.47,1.00,0.56],[29,0.31,0.80,0.71],[51,0.58,1.05,0.49],[73,0.37,0.90,0.66],
+             [96,0.27,0.70,0.78],[118,0.52,1.00,0.53],[139,0.34,0.85,0.69],[163,0.42,0.95,0.60]]
+    },
+    cloud:{
+      freq:1.25,       // base cells per field unit; lower = larger forms
+      warp:0.85,       // domain warp in base cells
+      drift:[0.034,0.006], // base cells per second, sideways
+      evolve:0.10,     // how fast octaves slide against each other, relative to drift
+      lo:0.26, hi:0.86 // smoothstep window on the fBm; narrower = more contrast
+    },
+    wind:{
+      fx:1.05, fy:3.3, // cells per field unit along and across the flow (the stretch)
+      bendAmp:0.27,    // field units the bands are bent by the slow warp
+      drift:0.065,     // field units per second along the flow
+      streakSpeed:2.0, // streaks travel this many times faster than the bands
+      lo:0.17, hi:0.92,
+      streakFreq:17.0, // streamline slots per field unit across the flow
+      streakWidth:0.085, // as a fraction of a slot
+      streak:0.20      // brightness a streak adds
+    }
+  };
+
+  const STYLES=["auto","water","wind","cloud","plain"];
+  const SPORT={swim:"water",brick:"water",race:"water",bike:"wind",run:"cloud",strength:"cloud",rest:"cloud"};
+  const MEDIA=["water","wind","cloud"];
+
+  const F=n=>{const s=(+n).toFixed(5); return s.indexOf(".")<0?s+".0":s;};
+
+  // Octave matrix for the cloud fBm: scale 2.03, turn 0.93 rad, so lattice axes never line up.
+  const OCT={s:2.03,c:Math.cos(0.93),n:Math.sin(0.93)};
+  const octave=(v)=>[OCT.s*(OCT.c*v[0]-OCT.n*v[1]),OCT.s*(OCT.n*v[0]+OCT.c*v[1])];
+
+  const TILT={c:Math.cos(0.41),n:Math.sin(0.41)};
+  const tilt=(v)=>[TILT.c*v[0]-TILT.n*v[1],TILT.n*v[0]+TILT.c*v[1]];
+
+  const VERT="attribute vec2 aP;void main(){gl_Position=vec4(aP,0.0,1.0);}";
+
+  function fragSource(){
+    const W=K.water, C=K.cloud, D=K.wind, R=K.ripple;
+    // Each wave contributes c*sin(theta) to the second derivatives of the surface,
+    // already scaled by the focal distance, so the shader never sees a large number.
+    const waves=W.waves.map((w,i)=>{
+      const a=w[0]*Math.PI/180, k=TAU/w[1], dx=Math.cos(a), dy=Math.sin(a), c=W.focus*w[2];
+      return "s="+F(c)+"*sin(p.x*"+F(k*dx)+"+p.y*"+F(k*dy)+"+uPh["+i+"]);"+
+             "xx+=s*"+F(dx*dx)+";yy+=s*"+F(dy*dy)+";xy+=s*"+F(dx*dy)+";";
+    }).join("\n");
+    const flat=1/(1+W.knee*(1+1.3*W.eps));
+    return [
+"#ifdef GL_FRAGMENT_PRECISION_HIGH",
+"precision highp float;",
+"#else",
+"precision mediump float;",
+"#endif",
+"uniform vec2 uScale;uniform float uTop;",
+"uniform vec3 uMix;uniform vec3 uLo;uniform vec3 uHi;uniform float uCurve;",
+"uniform float uPh[8];uniform vec4 uSlow;",
+"uniform vec2 uCo[6];uniform vec2 uWo[6];",
+"uniform vec3 uRip[4];uniform float uRipOn;",
+// Sine-free lattice hash on small wrapped integers: survives low precision and odd sin() drivers.
+"float hash(vec2 c){",
+" c=mod(c,"+F(PERIOD)+");",
+" vec2 q=fract(c*vec2(0.3819,0.2764)+c.yx*vec2(0.1459,0.4302)+vec2(0.137,0.731));",
+" q+=dot(q,q.yx+vec2(3.31,5.87));",
+" return fract(q.x*q.y+q.x*1.7+q.y*2.3);",
+"}",
+"float vnoise(vec2 x){",
+" vec2 i=floor(x),f=x-i;",
+" vec2 u=f*f*f*(f*(f*6.0-15.0)+10.0);",
+" return mix(mix(hash(i),hash(i+vec2(1.0,0.0)),u.x),mix(hash(i+vec2(0.0,1.0)),hash(i+vec2(1.0,1.0)),u.x),u.y);",
+"}",
+"float water(vec2 p){",
+" p+="+F(W.bend)+"*vec2(sin(p.y*1.31+p.x*0.57+uSlow.x),sin(p.x*1.13-p.y*0.71+uSlow.y));",
+" float xx=0.0,yy=0.0,xy=0.0,s;",
+waves,
+// Area change of the refracted grid; light piles up where it collapses to zero.
+" float det=(1.0+xx)*(1.0+yy)-xy*xy;",
+// The same sums, combined differently, vary the softness along a filament so the web is not one even stroke.
+" float e="+F(W.eps)+"*(0.5+1.6*clamp(0.5+0.35*(xx-yy),0.0,1.0));",
+" float I=1.0/(abs(det)+e);",
+" float v=I/(I+"+F(W.knee)+");",
+" return "+F(W.base)+"+"+F(W.gain)+"*(v-"+F(flat)+");",
+"}",
+"float cloud(vec2 p){",
+// The base lattice is turned off the screen axes, or value noise shows its grid on a wide window.
+" vec2 q=mat2("+F(C.freq*TILT.c)+","+F(C.freq*TILT.n)+","+F(-C.freq*TILT.n)+","+F(C.freq*TILT.c)+")*p;",
+" vec2 w=vec2(vnoise(q*0.55+uCo[4]),vnoise(q*0.55+uCo[5]))-0.5;",
+" q+="+F(C.warp)+"*w;",
+" mat2 m=mat2("+F(OCT.s*OCT.c)+","+F(OCT.s*OCT.n)+","+F(-OCT.s*OCT.n)+","+F(OCT.s*OCT.c)+");",
+" float n=0.56*vnoise(q+uCo[0]);q=m*q;",
+" n+=0.27*vnoise(q+uCo[1]);q=m*q;",
+" n+=0.12*vnoise(q+uCo[2]);q=m*q;",
+" n+=0.05*vnoise(q+uCo[3]);",
+" return smoothstep("+F(C.lo)+","+F(C.hi)+",n);",
+"}",
+"float wind(vec2 p){",
+// One slow warp bends both bands and streaks, so they read as the same air.
+" float b=(vnoise(p*vec2(1.25,1.05)+uWo[4])-0.5)+0.4*(vnoise(p*vec2(2.7,2.1)+uWo[5])-0.5);",
+" float y=p.y+p.x*0.06+"+F(D.bendAmp)+"*b;",
+" vec2 q=vec2(p.x*"+F(D.fx)+",y*"+F(D.fy)+");",
+" float n=0.56*vnoise(q+uWo[0])+0.29*vnoise(q*vec2(1.7,2.3)+uWo[1])+0.15*vnoise(q*vec2(2.9,4.7)+uWo[2]);",
+" float v=smoothstep("+F(D.lo)+","+F(D.hi)+",n);",
+// Streamlines: at most one thin line per slot across the flow, fading in and out along it.
+" float sy=y*"+F(D.streakFreq)+";float c=floor(sy);float f=sy-c;",
+" float o=0.3+0.4*hash(vec2(c,7.0));",
+" float d=(f-o)/"+F(D.streakWidth)+";",
+" float along=vnoise(vec2(p.x*0.75+uWo[3].x*(0.6+0.8*hash(vec2(c,23.0))),c*0.37+uWo[3].y));",
+" float line=exp(-d*d)*smoothstep(0.58,0.84,along)*step(0.58,hash(vec2(c,41.0)));",
+" return v*0.86+"+F(D.streak)+"*line;",
+"}",
+"void main(){",
+" vec2 p=vec2(gl_FragCoord.x*uScale.x,uTop-gl_FragCoord.y*uScale.y);",
+" float lift=0.0;",
+" if(uRipOn>0.5){",
+"  for(int i=0;i<4;i++){",
+"   vec3 r=uRip[i];",
+"   if(r.z>0.0){",
+"    vec2 d=p-r.xy;float L=length(d)+0.0001;",
+"    float a=1.0-r.z/"+F(R.life)+";a*=a;",
+"    float x=clamp((L-"+F(R.speed)+"*r.z)/"+F(R.width)+",-4.0,4.0);",
+"    float g=exp(-x*x)*a;",
+"    p+=d/L*(x*g*"+F(R.push)+");lift+=g*"+F(R.lift)+";",
+"   }",
+"  }",
+" }",
+" float v=0.0;",
+" if(uMix.x>0.001)v+=uMix.x*water(p);",
+" if(uMix.y>0.001)v+=uMix.y*wind(p);",
+" if(uMix.z>0.001)v+=uMix.z*cloud(p);",
+" v+="+F(K.swell)+"*sin(p.x*0.83+p.y*0.47+uSlow.z)*sin(p.y*0.61-p.x*0.35+uSlow.w)+lift;",
+" v=pow(clamp(v,0.0001,1.0),uCurve);",
+// Static half-step dither before the 8-bit write; animated dither would shimmer under text.
+" float n=hash(gl_FragCoord.xy+vec2(11.0,29.0))-0.5;",
+" gl_FragColor=vec4(mix(uLo,uHi,v)+n/255.0,1.0);",
+"}"
+    ].join("\n");
+  }
+
+  // ---- state ----
+  let canvas=null, gl=null, prog=null, U={}, ok=false, lost=false, frozen=false, hid=false;
+  let style="auto", sportKind=null, motionPref=true;
+  let raf=0, last=-1, t=0, drawn=false;
+  let surge=0, speed=1, speedFrom=1, speedTo=1;
+  const mix=[1,0,0], mixFrom=[1,0,0], mixTo=[1,0,0]; let fadeP=1;
+  let par=0, cssW=0, cssH=0, qDrop=0, slowT=0, winT=0, grace=0, resizeTimer=0;
+  let lo=[0.863,0.863,0.847], hi=[1,1,1], curve=1;
+  const rips=[];
+  const fPh=new Float32Array(8), fCo=new Float32Array(12), fWo=new Float32Array(12), fRip=new Float32Array(12);
+  let mqMotion={matches:false};
+
+  const store={
+    get(k){try{return window.localStorage.getItem(k);}catch(e){return null;}},
+    set(k,v){try{window.localStorage.setItem(k,v);}catch(e){}}
+  };
+  const body=()=>document.body;
+  const still=()=>!motionPref||mqMotion.matches;
+  const resolved=()=>style==="auto"?(SPORT[sportKind]||"water"):style;
+  const targetSpeed=()=>(style==="auto"&&(sportKind==="rest"||sportKind==="strength"))?K.restSpeed:1;
+  const wrap=(x,m)=>x-Math.floor(x/m)*m;
+
+  function retarget(snap){
+    const m=resolved(); if(m==="plain")return;
+    for(let i=0;i<3;i++){mixFrom[i]=mix[i];mixTo[i]=MEDIA[i]===m?1:0;}
+    speedFrom=speed; speedTo=targetSpeed();
+    if(snap||!drawn||still()||frozen){for(let i=0;i<3;i++)mix[i]=mixTo[i];speed=speedTo;fadeP=1;}
+    else fadeP=0;
+  }
+
+  // ---- GL ----
+  function compile(type,src){
+    const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){gl.deleteShader(s);return null;}
+    return s;
+  }
+  function build(){
+    const vs=compile(gl.VERTEX_SHADER,VERT), fs=compile(gl.FRAGMENT_SHADER,fragSource());
+    if(!vs||!fs)return false;
+    const p=gl.createProgram(); gl.attachShader(p,vs); gl.attachShader(p,fs);
+    gl.bindAttribLocation(p,0,"aP"); gl.linkProgram(p);
+    if(!gl.getProgramParameter(p,gl.LINK_STATUS))return false;
+    prog=p; gl.useProgram(p);
+    // One oversized triangle covers the screen with no diagonal seam.
+    gl.bindBuffer(gl.ARRAY_BUFFER,gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+    U={};
+    ["uScale","uTop","uMix","uLo","uHi","uCurve","uPh","uSlow","uCo","uWo","uRip","uRipOn"]
+      .forEach(n=>{U[n]=gl.getUniformLocation(p,n)||gl.getUniformLocation(p,n+"[0]");});
+    gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND);
+    return true;
+  }
+  function fail(){
+    ok=false; stop();
+    try{body().classList.add("no-flow");}catch(e){}
+  }
+
+  function readTones(){
+    let cs=null; try{cs=getComputedStyle(document.documentElement);}catch(e){}
+    const hex=(name,d)=>{
+      const m=cs&&/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec((cs.getPropertyValue(name)||"").trim());
+      if(!m)return d;
+      let h=m[1]; if(h.length===3)h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+      const n=parseInt(h,16); return [(n>>16&255)/255,(n>>8&255)/255,(n&255)/255];
+    };
+    lo=hex("--flow-lo",lo); hi=hex("--flow-hi",hi);
+    // The stylesheet hides the canvas under Increase Contrast; nothing to draw then.
+    try{hid=!!canvas&&getComputedStyle(canvas).display==="none"&&style!=="plain";}catch(e){hid=false;}
+    const c=cs?parseFloat(cs.getPropertyValue("--flow-curve")):NaN;
+    curve=c>0.2&&c<5?c:1;
+  }
+
+  function resize(){
+    if(!ok||!canvas)return false;
+    canvas.style.height="";
+    let w=canvas.clientWidth, h=canvas.clientHeight;
+    if(!w||!h){w=window.innerWidth||1;h=window.innerHeight||1;}   // hidden canvas: size for when it returns
+    // A home-screen app can report a large viewport shorter than the window; cover it in pixels.
+    else if(h<(window.innerHeight||0)-1){h=window.innerHeight;canvas.style.height=h+"px";}
+    cssW=w; cssH=h;
+    const long=Math.max(w,h);
+    const q=Math.min(Math.max(long*K.qFrac,K.qMin),K.qMax)/long*Math.pow(0.7,qDrop);
+    const bw=Math.max(2,Math.round(w*q)), bh=Math.max(2,Math.round(h*q));
+    if(canvas.width===bw&&canvas.height===bh)return false;
+    canvas.width=bw; canvas.height=bh;
+    return true;
+  }
+
+  function draw(time,motionless){
+    if(!ok||lost||!gl||gl.isContextLost())return;
+    const W=K.water.waves, C=K.cloud, D=K.wind;
+    gl.viewport(0,0,canvas.width,canvas.height);
+    gl.uniform2f(U.uScale,cssW/canvas.width/UNIT,cssH/canvas.height/UNIT);
+    gl.uniform1f(U.uTop,cssH/UNIT+(motionless?0:par));
+    gl.uniform3f(U.uMix,mix[0],mix[1],mix[2]);
+    gl.uniform3f(U.uLo,lo[0],lo[1],lo[2]); gl.uniform3f(U.uHi,hi[0],hi[1],hi[2]);
+    gl.uniform1f(U.uCurve,curve);
+    // Every phase is reduced here in doubles, so the shader only ever sees small numbers
+    // and the field looks the same after ten hours as after ten seconds.
+    if(mix[0]>0.001){
+      // Alternating signs: neighbouring waves run against each other, so the net morphs in place.
+      for(let i=0;i<8;i++)fPh[i]=wrap((i%2?-1:1)*W[i][3]*K.water.speed*time+i*2.399,TAU);
+      gl.uniform1fv(U.uPh,fPh);
+    }
+    gl.uniform4f(U.uSlow,wrap(time*0.113+0.7,TAU),wrap(-time*0.087+2.1,TAU),wrap(time*0.061+1.3,TAU),wrap(-time*0.043+4.4,TAU));
+    if(mix[2]>0.001){
+      const g=tilt([C.drift[0]*time,C.drift[1]*time]);
+      let d=g;
+      for(let i=0;i<4;i++){
+        // Each octave also slides a little on its own heading: that is the slow evolution.
+        const a=1.9*i+0.6, e=C.evolve*C.drift[0]*time*Math.pow(1.6,i);
+        fCo[i*2]=wrap(d[0]+e*Math.cos(a)+i*17.3,PERIOD); fCo[i*2+1]=wrap(d[1]+e*Math.sin(a)+i*9.1,PERIOD);
+        d=octave(d);
+      }
+      const wd=0.55*0.6;                                  // the warp trails the forms, so they change as they travel
+      const sl=C.drift[0]*time*0.045;
+      fCo[8]=wrap(g[0]*wd+3.7,PERIOD);   fCo[9]=wrap(g[1]*wd+sl+11.9,PERIOD);
+      fCo[10]=wrap(g[0]*wd+29.3,PERIOD); fCo[11]=wrap(g[1]*wd-sl+41.1,PERIOD);
+      gl.uniform2fv(U.uCo,fCo);
+    }
+    if(mix[1]>0.001){
+      const x=D.drift*time;                               // field units travelled along the flow
+      fWo[0]=wrap(x*D.fx,PERIOD);             fWo[1]=wrap(0.011*time+5.3,PERIOD);
+      fWo[2]=wrap(x*D.fx*1.7*1.25+13.1,PERIOD); fWo[3]=wrap(-0.017*time+21.7,PERIOD);   // finer bands run a little ahead
+      fWo[4]=wrap(x*D.fx*2.9*1.6+27.9,PERIOD);  fWo[5]=wrap(0.023*time+33.3,PERIOD);
+      fWo[6]=wrap(x*D.streakSpeed*0.75,PERIOD); fWo[7]=wrap(0.02*time+3.1,PERIOD);      // streaks outrun the bands
+      fWo[8]=wrap(x*0.6*1.25+7.7,PERIOD);     fWo[9]=wrap(0.013*time+19.1,PERIOD);      // the bend trails them
+      fWo[10]=wrap(x*0.8*2.7+37.3,PERIOD);    fWo[11]=wrap(-0.019*time+45.9,PERIOD);
+      gl.uniform2fv(U.uWo,fWo);
+    }
+    let n=0;
+    if(!motionless){
+      for(let i=0;i<4;i++){
+        const r=rips[i];
+        if(r){fRip[i*3]=r.x;fRip[i*3+1]=r.y;fRip[i*3+2]=Math.max(r.age,0.001);n++;}
+        else fRip[i*3+2]=0;
+      }
+    }
+    gl.uniform1f(U.uRipOn,n?1:0);
+    if(n)gl.uniform3fv(U.uRip,fRip);
+    gl.drawArrays(gl.TRIANGLES,0,3);
+    drawn=true;
+  }
+
+  // A single frame with no loop: the motion-off still, or the frozen frame after the device proved too slow.
+  function paint(){
+    if(!ok||lost||style==="plain")return;
+    if(still())draw(K.stillT,true); else draw(t,false);
+  }
+
+  const wantLoop=()=>ok&&!lost&&!frozen&&!hid&&style!=="plain"&&!still()&&!document.hidden;
+
+  function stop(){ if(raf){cancelAnimationFrame(raf);raf=0;} }
+  function start(){
+    if(!ok||lost||hid||style==="plain"||document.hidden){stop();return;}
+    if(!wantLoop()){stop();retarget(true);rips.length=0;paint();return;}
+    if(!raf){last=-1;slowT=winT=0;grace=0.6;raf=requestAnimationFrame(tick);}
+  }
+
+  function quality(gap){
+    // Judge only steady running: stalls from tab switches or page work say nothing about the GPU.
+    if(grace>0){grace-=gap/1000;return;}
+    if(gap>250)return;
+    winT+=gap; if(gap>47)slowT+=gap;
+    if(winT<2000)return;
+    const slow=slowT/winT>0.8; winT=slowT=0;
+    if(!slow)return;
+    if(qDrop<2){qDrop++;resize();grace=0.6;}
+    else{frozen=true;}
+  }
+
+  function tick(now){
+    raf=0;
+    if(!wantLoop()){start();return;}
+    raf=requestAnimationFrame(tick);
+    if(last<0){last=now;draw(t,false);return;}
+    const gap=now-last;
+    if(gap<1000/K.fps-4)return;
+    last=now;
+    const dt=Math.min(gap/1000,0.1);
+    surge*=Math.exp(-dt/K.pulseTau); if(surge<0.002)surge=0;
+    if(fadeP<1){
+      fadeP=Math.min(1,fadeP+dt/K.fade);
+      const e=fadeP*fadeP*(3-2*fadeP);
+      for(let i=0;i<3;i++)mix[i]=mixFrom[i]+(mixTo[i]-mixFrom[i])*e;
+      speed=speedFrom+(speedTo-speedFrom)*e;
+    }
+    t+=dt*speed*(1+K.pulseGain*surge);
+    par+=(K.parallax*(window.scrollY||0)/UNIT-par)*(1-Math.exp(-dt/0.22));
+    for(let i=rips.length-1;i>=0;i--){rips[i].age+=dt;if(rips[i].age>=K.ripple.life)rips.splice(i,1);}
+    draw(t,false);
+    quality(gap);
+    if(frozen){stop();}
+  }
+
+  // ---- wiring ----
+  function watch(query,fn){
+    try{
+      const m=window.matchMedia(query);
+      if(m.addEventListener)m.addEventListener("change",fn); else if(m.addListener)m.addListener(fn);
+      return m;
+    }catch(e){return {matches:false};}
+  }
+  function retone(){
+    readTones();
+    if(ok)start();
+    if(ok&&!raf)paint();
+  }
+  function onResize(){
+    clearTimeout(resizeTimer);
+    resizeTimer=setTimeout(()=>{ if(resize()&&!raf)paint(); },180);
+  }
+
+  function init(){
+    const s=store.get("flowStyle"); if(STYLES.indexOf(s)>=0)style=s;
+    motionPref=store.get("flowMotion")!=="off";
+    mqMotion=watch("(prefers-reduced-motion: reduce)",()=>start());
+    // The stylesheet settles a beat after the query flips, so read now and once more shortly after.
+    const tone=()=>{retone();setTimeout(retone,60);};
+    watch("(prefers-contrast: more)",tone);
+    watch("(prefers-reduced-transparency: reduce)",tone);
+
+    canvas=document.getElementById("flow");
+    if(style==="plain")body().classList.add("no-flow");
+    if(!canvas||!canvas.getContext){fail();return;}
+    gl=canvas.getContext("webgl",{alpha:false,antialias:false,depth:false,stencil:false,powerPreference:"low-power",preserveDrawingBuffer:false});
+    if(!gl||!build()){fail();return;}
+    ok=true;
+
+    canvas.addEventListener("webglcontextlost",e=>{e.preventDefault();lost=true;stop();},false);
+    canvas.addEventListener("webglcontextrestored",()=>{
+      lost=false;
+      if(build()){start();} else fail();
+    },false);
+    document.addEventListener("visibilitychange",()=>{ if(document.hidden)stop(); else start(); });
+    window.addEventListener("pagehide",stop);
+    window.addEventListener("pageshow",()=>start());
+    window.addEventListener("resize",onResize);
+    window.addEventListener("orientationchange",onResize);
+    if(window.visualViewport&&window.visualViewport.addEventListener)window.visualViewport.addEventListener("resize",onResize);
+    window.addEventListener("pointerdown",e=>{
+      if(!raf)return;
+      if(rips.length>=4)rips.shift();
+      rips.push({x:e.clientX/UNIT,y:e.clientY/UNIT+par,age:0});
+    },{passive:true});
+
+    readTones(); resize(); retarget(true); start();
+  }
+
+  const api={
+    set(s){
+      if(STYLES.indexOf(s)<0)return;
+      style=s; store.set("flowStyle",s);
+      try{body().classList.toggle("no-flow",s==="plain"||!ok);}catch(e){}
+      if(!ok)return;
+      if(s==="plain"){stop();return;}
+      resize(); retarget(false); start();
+    },
+    sport(kind){
+      sportKind=Object.prototype.hasOwnProperty.call(SPORT,kind)?kind:null;
+      if(!ok||style!=="auto")return;
+      retarget(false);
+      if(!raf)paint();
+    },
+    motion(on){
+      motionPref=!!on; store.set("flowMotion",motionPref?"on":"off");
+      if(ok)start();
+    },
+    pulse(){ if(raf)surge=1; },
+    retone(){ try{retone();}catch(e){} },
+    state(){ return {style:style,medium:style==="plain"?null:resolved(),motion:motionPref,running:!!raf,ok:ok}; },
+    // Test hook only: jump the clock (seconds) so captures can pick a moment.
+    _seek(sec){ if(isFinite(sec)){t=+sec; if(ok&&!raf)paint();} }
+  };
+
+  try{init();}catch(e){try{fail();}catch(e2){}}
+  return api;
+})();
 const fmt=(v,d="—")=>(v===null||v===undefined||v===""?d:v);
 // Display only: the stored title keeps its own punctuation, the screen never shows " — ".
 const plain=v=>String(v??"").replace(/ — /g,": ");
@@ -1601,7 +2136,7 @@ function promptToken(){
   const hadToken = !!localStorage.getItem("tc_token");
   const ov=document.createElement("div");
   ov.style.cssText="position:fixed;inset:0;z-index:200;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:24px;";
-  ov.innerHTML=`<div style="width:min(380px,100%);background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:22px;">
+  ov.innerHTML=`<div style="width:min(380px,100%);background:var(--solid);border:1px solid var(--line);border-radius:16px;padding:22px;">
     <div style="font-size:19px;font-weight:700;margin-bottom:6px;">Tri Coach</div>
     <div style="color:var(--muted);font-size:13px;margin-bottom:14px;line-height:1.5;">Enter your access token. It stays on this device, so you only do this once.</div>
     <input id="tc-tok-in" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="access token"
@@ -2172,7 +2707,7 @@ function lineChart(ch){
   const path=seg.map((p,i)=>`${i?"L":"M"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
   const zeroY=ch.zero?padT+(H-padT-26)*(1-(0-min)/rng):null;
   const col=ch.color||"var(--a1)";
-  const dots=xy.map(p=>p.y==null?"":`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.2" fill="var(--bg)" stroke="${col}" stroke-width="2"/>
+  const dots=xy.map(p=>p.y==null?"":`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.2" fill="var(--surface-solid)" stroke="${col}" stroke-width="2"/>
     <text x="${p.x.toFixed(1)}" y="${(p.y-8).toFixed(1)}" text-anchor="middle" class="rd-vl">${fmt(p.v)}</text>`).join("");
   const labs=xy.map((p,i)=> (i%Math.ceil(pts.length/7)===0||i===pts.length-1)?`<text x="${p.x.toFixed(1)}" y="${H-4}" text-anchor="middle" class="rd-xl">${p.l}</text>`:"").join("");
   return `<svg viewBox="0 0 ${W} ${H}" class="rd-svg" preserveAspectRatio="xMidYMid meet">
@@ -2264,11 +2799,21 @@ function sessDone(sess, completed){
   if(sess.disc==="brick") return m.some(a=>a.sport==="bike")&&m.some(a=>a.sport==="run");
   return m.length>0;
 }
+// Which field today's plan calls for: the main session decides.
+function flowSportFor(sessions){
+  const m=(sessions||[])[0]; if(!m) return null;
+  if(m.is_rest) return "rest";
+  const d=String(m.disc||"").toLowerCase();
+  if(d==="swim"||d==="bike"||d==="run"||d==="brick"||d==="race") return d;
+  if(d==="strength"||d==="lift"||d==="gym") return "strength";
+  return null;
+}
 function renderWorkout(s){
   if(s.error){ $("workout").innerHTML=`<span class="err">${s.error}</span>`; return; }
   if(!s.has_plan){ $("workout").innerHTML=`<div class="muted">${s.message||"No plan today."}</div>`; return; }
   const w=s.suggestion, sig=s.readiness_signal||{};
   _woDay=s; _woSessions=splitSessions(s);
+  Flow.sport(flowSportFor(_woSessions));
   const maybe=s.completed&&s.completed.logged_only;
   let html=_woSessions.map((x,i)=>{
     const done=sessDone(x,s.completed);
@@ -3571,7 +4116,44 @@ function renderHist(h){
 $("hist-btn").onclick=openHist;
 $("hist-close").onclick=closeHist;
 $("hist-overlay").onclick=(e)=>{ if(e.target===$("hist-overlay")) closeHist(); };
-document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeActivity(); closePlanPreview(); closeRingDetail(); closeWorkoutDetail(); closeHist(); } });
+
+// Background sheet: which field moves behind the page, whether it moves at all,
+// and whether panels are glass or solid. All three stay on this device.
+function themePref(){ try{ return localStorage.getItem("theme")==="dark"?"dark":"light"; }catch(e){ return "light"; } }
+function glassPref(){ try{ return localStorage.getItem("glass")==="solid"?"solid":"glass"; }catch(e){ return "glass"; } }
+function syncFlowSheet(){
+  const st=Flow.state();
+  const mark=(id,v)=>$(id).querySelectorAll("button").forEach(b=>{ const on=b.dataset.v===v; b.classList.toggle("on",on); b.setAttribute("aria-pressed",on?"true":"false"); });
+  mark("app-theme",themePref()); mark("bg-style",st.style); mark("bg-motion",st.motion?"on":"off"); mark("bg-glass",glassPref());
+  const mq=q=>{ try{ return matchMedia(q).matches; }catch(e){ return false; } };
+  const notes=[];
+  if(!st.ok) notes.push("This browser cannot draw the moving background, so the page stays plain.");
+  if(mq("(prefers-reduced-motion: reduce)")) notes.push("Reduce Motion is on for this device, so the background holds still.");
+  if(mq("(prefers-contrast: more)")) notes.push("Increase Contrast is on for this device, so the page is flat and panels are solid.");
+  else if(mq("(prefers-reduced-transparency: reduce)")) notes.push("Reduce Transparency is on for this device, so panels are solid.");
+  $("bg-sys").textContent=notes.join(" ");
+  $("bg-sys").style.display=notes.length?"":"none";
+}
+function openFlowSheet(){ syncFlowSheet(); $("flow-overlay").classList.add("open"); }
+function closeFlowSheet(){ $("flow-overlay").classList.remove("open"); }
+$("flow-btn").onclick=openFlowSheet;
+$("flow-close").onclick=closeFlowSheet;
+$("flow-overlay").onclick=(e)=>{ if(e.target===$("flow-overlay")) closeFlowSheet(); };
+$("app-theme").querySelectorAll("button").forEach(b=>{ b.onclick=()=>{
+  const dark=b.dataset.v==="dark";
+  try{ localStorage.setItem("theme",dark?"dark":"light"); }catch(e){}
+  document.documentElement.classList.toggle("dark",dark);
+  const m=$("theme-meta"); if(m) m.content=dark?"#0c0c0c":"#e6e6e3";
+  Flow.retone(); syncFlowSheet();
+}; });
+$("bg-style").querySelectorAll("button").forEach(b=>{ b.onclick=()=>{ Flow.set(b.dataset.v); syncFlowSheet(); }; });
+$("bg-motion").querySelectorAll("button").forEach(b=>{ b.onclick=()=>{ Flow.motion(b.dataset.v==="on"); syncFlowSheet(); }; });
+$("bg-glass").querySelectorAll("button").forEach(b=>{ b.onclick=()=>{
+  try{ localStorage.setItem("glass",b.dataset.v); }catch(e){}
+  document.documentElement.classList.toggle("solid",b.dataset.v==="solid");
+  Flow.retone(); syncFlowSheet();
+}; });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closeActivity(); closePlanPreview(); closeRingDetail(); closeWorkoutDetail(); closeHist(); closeFlowSheet(); } });
 
 // Mobile sheets behave like native iOS cards: lock the page underneath and
 // allow a deliberate downward drag from the title bar to dismiss.
@@ -3584,6 +4166,7 @@ const _sheetClosers={
   "rd-overlay":closeRingDetail,
   "wo-overlay":closeWorkoutDetail,
   "hist-overlay":closeHist,
+  "flow-overlay":closeFlowSheet,
 };
 document.querySelectorAll(".overlay").forEach(ov=>{
   new MutationObserver(syncSheetState).observe(ov,{attributes:true,attributeFilter:["class"]});
@@ -3649,7 +4232,7 @@ async function openActivity(aid){
     if((d.route||[]).length>1){
       $("actmap").style.display="block";
       _map=L.map("actmap",{zoomControl:false,attributionControl:false});
-      const dark=window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const dark=document.documentElement.classList.contains("dark");
       L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark?"dark_all":"light_all"}/{z}/{x}/{y}{r}.png`,{maxZoom:18}).addTo(_map);
       const ink=getComputedStyle(document.documentElement).getPropertyValue("--ink").trim()||(dark?"#f2f2f0":"#111");
       const line=L.polyline(d.route,{color:ink,weight:3.5,opacity:.95}).addTo(_map);
@@ -3732,10 +4315,23 @@ $("chatinput").addEventListener("keydown",e=>{
 $("refresh").onclick=loadDashboard;
 
 const _viewIndex={dash:0,coach:1,calendar:2,fuel:3,lift:4,stats:5};
+let _lensTimer=0;
 function syncFloatingNav(v){
   const nav=$("botnav");
-  if(nav) nav.style.setProperty("--tab-index",_viewIndex[v]??0);
+  if(!nav) return;
+  const i=String(_viewIndex[v]??0);
+  if(nav.style.getPropertyValue("--tab-index")===i) return;
+  nav.style.setProperty("--tab-index",i);
+  nav.classList.add("moving");
+  clearTimeout(_lensTimer);
+  _lensTimer=setTimeout(()=>nav.classList.remove("moving"),190);
 }
+(()=>{
+  const nav=$("botnav"); if(!nav) return;
+  const up=()=>nav.classList.remove("pressing");
+  nav.addEventListener("pointerdown",e=>{ if(e.target.closest("button.on")) nav.classList.add("pressing"); });
+  ["pointerup","pointercancel","pointerleave"].forEach(t=>nav.addEventListener(t,up));
+})();
 syncFloatingNav("dash");
 syncPageHead("dash");
 
@@ -4128,6 +4724,7 @@ function switchView(v){
   document.querySelectorAll("#tabs .tab").forEach(b=>b.classList.toggle("active",b.dataset.view===v));
   document.querySelectorAll("#botnav button").forEach(b=>b.classList.toggle("on",b.dataset.view===v));
   syncFloatingNav(v);
+  if(prev!==v) Flow.pulse();
   $("main").style.display = v==="dash"?"":"none";
   $("main-coach").style.display = v==="coach"?"":"none";
   $("main-calendar").style.display = v==="calendar"?"":"none";

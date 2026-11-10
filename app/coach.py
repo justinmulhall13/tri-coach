@@ -414,7 +414,8 @@ time and give the rest away freely.
 - STRICT, no bargaining: the last 14 days before the A race (sleep, alcohol, late nights, new
   kit, new food, extra sessions); the night before a key session once the block is in build or
   later; easy days kept under their ceiling; three swims a week; fuelling practised on the long
-  sessions; real pain or illness, which stops the session.
+  sessions; real pain, or illness with fever, chest symptoms or body aches, which stops the
+  session (a head cold allows easy work only).
 - FORGIVING, said plainly and without guilt: a night out with nothing important behind it; a
   missed or shortened EASY session, which is dropped and never crammed in later; one bad night
   of sleep; an off-plan meal; a session moved for school or friends when the week's key work
@@ -424,10 +425,12 @@ time and give the rest away freely.
   costing the race.
 - NIGHTS OUT AND ALCOHOL: when `night_out_check` is present it is the decision. Follow each
   night's `verdict` and the matching `how_to_answer`. It is carried whenever one of his last few
-  messages mentioned a night out, so use it only if that is what he is asking now. Without it,
-  apply the same rule from `race.days_remaining` and `plan_next_14_days`: 14 days or fewer to
-  the race is a flat no; the night before a key session in build or later is a no with a trade
-  offered; anything else is a yes.
+  messages mentioned a night out, so use it only if that is what he is asking now. If it
+  carries `night_unclear`, the night could not be placed on the calendar: ask which night he
+  means and give no yes and no no until he says. Without it, apply the same rule from
+  `race.days_remaining` and `plan_next_14_days`: 14 days or fewer to the race is a flat no; the
+  night before a key session in build or later is a no with a trade offered; anything else is
+  a yes.
 - A hard no is short, blunt and loud, and it swears, because he asked for it in those words.
   For example: "Fuck no. Twelve days out. Get to bed." It is a friend shouting, never contempt,
   and nothing follows it: no lecture, no statistics.
@@ -779,18 +782,26 @@ def _night_out_check(user_query: str, today: datetime.date,
     """The verdict for the night(s) the athlete asked about, or None if he did not ask."""
     race_date = phase.get("date")
     nights = triathlon_knowledge.night_dates(user_query, today=today, race_date=race_date)
-    if not nights:
+    # A night he named but the check cannot place still reaches the coach, marked
+    # unclear, so the answer is a question and not a verdict for tonight.
+    if not nights and not triathlon_knowledge.night_is_unclear(
+            user_query, today=today, race_date=race_date):
         return None
     # The day after each night decides it, and the alternatives offered sit inside the week.
-    end = max(max(nights) + datetime.timedelta(days=2), today + datetime.timedelta(days=8))
+    end = max(max(nights, default=today) + datetime.timedelta(days=2),
+              today + datetime.timedelta(days=8))
     return triathlon_knowledge.night_out_check(
         user_query, today=today, race_date=race_date,
         plan_days=db.get_plan(today.isoformat(), end.isoformat()),
         block_phase=phase.get("block_phase"))
 
 
-def _context_block(user_query: str = "") -> str:
-    """Assemble the injected context. Best-effort per section; flags failures."""
+def _context_block(user_query: str = "", *, night_query: str | None = None) -> str:
+    """Assemble the injected context. Best-effort per section; flags failures.
+
+    `night_query` is the text the night-out check reads when it must differ from
+    the routing text; by default they are the same.
+    """
     def safe(fn):
         try:
             return fn()
@@ -965,7 +976,8 @@ def _context_block(user_query: str = "") -> str:
         payload["pro_reference"] = pro
     # "Can I go out Friday" is answered from the race date and the stored plan,
     # so how strict the coach is depends on the calendar and not on its mood.
-    night = safe(lambda: _night_out_check(user_query, now.date(), phase))
+    night = safe(lambda: _night_out_check(
+        user_query if night_query is None else night_query, now.date(), phase))
     if isinstance(night, dict) and "error" not in night:
         payload["night_out_check"] = night
     if hevy_connector.is_lifting_query(user_query):
@@ -1778,6 +1790,16 @@ def _explicit_mode_switch(user_message: str) -> dict[str, Any] | None:
     return result(reply, pending=pending)
 
 
+def _written_on(created_at: Any, now: datetime.datetime) -> bool:
+    """True when a stored chat turn was written on the athlete's current day."""
+    try:
+        stamp = datetime.datetime.fromisoformat(str(created_at))
+    except ValueError:
+        return False
+    # Stored stamps are naive server-local time; astimezone() reads them that way.
+    return stamp.astimezone(now.tzinfo).date() == now.date()
+
+
 def _prepare_chat(user_message: str) -> tuple[str, list[dict[str, Any]]]:
     """Build the private conversation window and append fresh training context."""
     today = config.local_today().isoformat()
@@ -1801,9 +1823,15 @@ def _prepare_chat(user_message: str) -> tuple[str, list[dict[str, Any]]]:
     # Route specialist context from the current message plus the two most recent
     # user turns. This keeps terse corrections ("no, only the race run") attached
     # to the fueling/guide discussion without bloating unrelated conversations.
-    recent_user = [h["content"] for h in history if h["role"] == "user"][-2:]
+    recent = [h for h in history if h["role"] == "user"][-2:]
+    recent_user = [h["content"] for h in recent]
     routing_query = "\n".join([*recent_user, user_message])
-    context = _context_block(routing_query)
+    # "Friday" in a turn from an earlier day is not this week's Friday, so the
+    # night-out check only reads the turns written today.
+    now = config.local_now()
+    night_query = "\n".join(
+        [*(h["content"] for h in recent if _written_on(h.get("created_at"), now)), user_message])
+    context = _context_block(routing_query, night_query=night_query)
     messages.append({
         "role": "user",
         "content": f"<context>\n{context}\n</context>\n\n{user_message}",

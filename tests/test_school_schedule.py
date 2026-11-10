@@ -81,7 +81,7 @@ class ThemeContrastTests(unittest.TestCase):
         self.assertNotRegex(self.HTML, r"background:var\(--ink\)")
 
     def test_solid_chips_flip_with_the_theme(self) -> None:
-        dark = self.HTML[self.HTML.index("@media(prefers-color-scheme:dark)"):]
+        dark = self.HTML[self.HTML.index(":root.dark{"):]
         self.assertIn("--chip:", dark)
         self.assertIn("--chip-ink:", dark)
         for selector in (".coach-avatar",):
