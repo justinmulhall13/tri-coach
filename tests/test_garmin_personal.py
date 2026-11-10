@@ -290,6 +290,22 @@ class AdapterTests(_Base):
     def test_spo2(self) -> None:
         self.assertEqual(self.c.get_spo2_data(_DAY)["lowestSpO2"], 91)
 
+    def test_fitness_age_accepts_the_object_garmin_really_sends(self) -> None:
+        path = f"/fitnessage-service/fitnessage/v2/{_DAY}"
+        self.session.routes[path] = _Resp(body={"invalidReason": "USER_UNDER_AGE"})
+        self.assertEqual(self.c.get_fitnessage_data(_DAY), {"invalidReason": "USER_UNDER_AGE"})
+        self.session.routes[path] = _Resp(body=[
+            {"fitnessAge": 30.0, "lastUpdated": "2026-10-01"},
+            {"fitnessAge": 27.4, "lastUpdated": "2026-11-08"}])
+        self.assertEqual(self.c.get_fitnessage_data(_DAY)["fitnessAge"], 27.4)
+        self.factory.assert_not_called()
+
+    def test_fitness_age_falls_back_when_the_official_read_fails(self) -> None:
+        self.session.routes[f"/fitnessage-service/fitnessage/v2/{_DAY}"] = _Resp(500)
+        self.legacy.get_fitnessage_data.return_value = {"fitnessAge": 27.4}
+        self.assertEqual(self.c.get_fitnessage_data(_DAY), {"fitnessAge": 27.4})
+        self.legacy.get_fitnessage_data.assert_called_once_with(_DAY)
+
     def test_weight_days_flatten_to_the_dated_list(self) -> None:
         self.session.routes["/weight-service/weight/range/2025-11-09/2026-11-09"] = _Resp(body={
             "dailyWeightSummaries": [

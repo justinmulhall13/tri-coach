@@ -25,5 +25,24 @@ class HeaderContrastTests(unittest.TestCase):
         self.assertIn(".coach-mic.listening{background:var(--chip);color:var(--chip-ink);", self.html)
 
 
+class AppChromeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.html = (main.STATIC_DIR / "index.html").read_text()
+
+    def test_the_coach_chat_follows_by_scrolling_the_page(self) -> None:
+        # The page scrolls, not the log. Writing to the log's scrollTop did
+        # nothing, so new replies landed below the fold.
+        self.assertIn("function chatFollow(el=null,force=false){", self.html)
+        self.assertNotIn('$("chatlog").scrollTop', self.html)
+        self.assertNotIn("chatlog.scrollTop", self.html)
+
+    def test_reduce_transparency_turns_the_glass_solid(self) -> None:
+        start = self.html.index("@media(prefers-reduced-transparency:reduce){")
+        block = self.html[start:start + 260]
+        self.assertIn("--blur:none", block)
+        self.assertIn("backdrop-filter:none", block)
+        self.assertNotIn("rgba(", block)
+
+
 if __name__ == "__main__":
     unittest.main()

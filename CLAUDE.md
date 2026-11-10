@@ -780,10 +780,116 @@ read-only, own data) but it is partial, so a full switch would lose features.
 - **`/api/health` > `sources.garmin`** shows the path and, per read, the source
   and last error. Check it first when numbers look wrong. It never contains the
   key or the token; error messages are built without them.
-- Response shapes come from Garmin's OpenAPI spec and were not verified against
-  the live API when this was written (no key existed yet). If a read shows
-  `garminconnect` with an error in health, fix its adapter; the app keeps
-  working meanwhile. The 365-day weight range is the most likely to be refused.
+- Response shapes come from Garmin's OpenAPI spec. Verified live on 2026-11-09
+  once the athlete set the key: all ten official reads report source `official`
+  with no error in `/api/health`. If a read ever shows `garminconnect` with an
+  error there, fix its adapter; the app keeps working meanwhile.
 - The key expires (30 days to 1 year, chosen at creation). When it does, the
   app silently runs on `garminconnect` alone until the secret is replaced.
 - Tests: `tests/test_garmin_personal.py` (no network; scripted session).
+
+## Session 2026-11-10 — native-feeling shell, fitness age, a stricter Steve
+
+Three asks in one session: make the app feel less like a web page (liquid glass,
+triathlon theming, more interaction), give a fitness age even though Garmin
+gives none under 20, and update Steve with current pro practice while making
+him strict but forgiving.
+
+**Design rules now in force (the 2026-11-05 design contract still holds, with
+one amendment: the athlete asked for liquid glass):**
+
+- Still monochrome: no accent colours, emoji, web fonts, confetti or scroll
+  reveal. Glass (blur, translucency, a faint specular edge) is allowed on chrome
+  that floats over content only (header bar, phone tab capsule, sticky Coach
+  bar, composer); data surfaces stay opaque. Tokens: `--glass`,
+  `--glass-edge`, `--glass-rim`, `--glass-shadow`, `--lens`, `--blur`, `--scrim`,
+  `--scrim-0`, with dark values under `prefers-color-scheme:dark`.
+- `@media(prefers-reduced-transparency:reduce)` turns the glass solid and stops
+  the blur. Keep it in step with any new `backdrop-filter` (tested).
+- Sports are told apart by line texture, never colour: `.tx-swim` (wave),
+  `.tx-bike` (dashes), `.tx-run` (solid), `.tx-dot` (anything else). Used on the
+  Home bib course and the Training volume rows.
+- `--ink` is a text colour. Solid fills use `--chip` / `--chip-ink` (a test
+  rejects `background:var(--ink)`).
+- Display text: server strings keep " — "; the page tidies them. `plain(v)`
+  only tidies, `show(v)` escapes then tidies. Titles and notes go through
+  `show()`; `tests/test_display_text_safety.py` pins the title sinks.
+
+**Shell behaviour:**
+
+- Large page titles collapse into the glass header (`body.scrolled`,
+  `body.titled`, set by `syncScrolled`). `syncChromeHeight()` writes `--hdr-h`
+  (zero on a phone Coach tab, where the header is hidden); `.coach-top` sticks
+  at `top:var(--hdr-h)`.
+- **`#chatlog` does not scroll; the window does.** `chatFollow(el,force)`
+  scrolls the page and stops a long reply with its first line under the chrome;
+  `syncChatPinned()` tracks whether the athlete is at the bottom. Never write to
+  `chatlog.scrollTop` (tested). Scroll-edge scrims (`body::after`,
+  `body.v-coach::after`) fade text under the floating composer and tab bar.
+- The Coach tab does not read `/api/coach/history`. It restores from
+  `localStorage["triCoachVisibleSessionV2"]` (5 min TTL, saved on `pagehide`
+  and on `visibilitychange` hidden) and opens at the latest message.
+- Reply text is held behind the thinking state until `done`; the status line
+  comes from server `status` events.
+- Phone: tab capsule with a sliding lens, pull to refresh (touch only), per-tab
+  scroll restore, tap the active tab to go to the top, Month view with a day
+  list under the grid (`.cal-daylist`, phone only).
+- Home activities and the Lifting lists show five rows with a "Show all N"
+  expander.
+
+**Fitness age (`app/fitness_age.py`, `GET /api/fitness-age`):**
+
+- Garmin answers `USER_UNDER_AGE` for this athlete. The athlete asked for a
+  number anyway. `fitness_age` stays Garmin's field (null here); `estimate` is a
+  separate object (`age`, `floor`, `ceiling`, `method: "vo2max_norms"`,
+  `vo2max`, `typical_vo2max_at_age`, `delta_years`) and is only present when
+  Garmin's number is missing. Never copy the estimate into `fitness_age`.
+- Method: the age at which a typical person of the same sex has this VO2max,
+  read off the Cooper Institute bands in Garmin's manuals. The table starts at
+  20 (`ESTIMATE_FLOOR`), so this athlete reads 20 with `floor: true`.
+- `renderFitnessAge` draws the Home card, `openFitnessDetail` the sheet. On
+  desktop the card fills its height with the VO2max rows (`.fit-more`).
+- 5 min cache in `garmin_source.get_fitness_age`. The nutrition no-estimate
+  policy is unchanged; this is the one sanctioned estimate and it is labelled.
+
+**Training volume card (Analytics):** computed in the page by `renderVolume(l)`
+from `l.activities`. Six Monday weeks, one `<button class="vw-row">` each
+(`pickVolWeek`), each activity rounded to whole minutes before summing.
+`_raceSports` (from `/api/race` distances) always get a row, even at zero.
+The calendar grid is still Sunday-based (`_startOfWeek`).
+
+**Calendar:** week-grid blocks with room for it (a session of 60 minutes or
+more, a Google event 50px or taller) get `.cg-ev.tall`, which lets the title
+wrap to two lines; the all-day lane collapses (`.allday-lane.empty`) when no
+day has an all-day event.
+
+**Steve (`app/triathlon_knowledge.py`, wired in `coach._context_block`):**
+
+- `pro_reference`: `context_for(text, mode=...)` returns at most three of 14
+  topics (`intensity`, `swim`, `bike`, `run`, `brick`, `fuel`, `heat`,
+  `supplements`, `sleep`, `alcohol`, `taper`, `race`, `recovery`, `strength`),
+  each with `evidence`, `pros`, `research`, `for_him`, `do_not`. Reviewed
+  2026-11 (`REVIEWED`); the README lists the sources. The athlete's own rules
+  outrank it and none of its numbers are prescriptions.
+- `night_out_check`: the verdict is computed, the model only words it.
+  `night_dates()` reads which nights are being asked about; the verdict is one
+  of `hard_no` (1 to 14 days out, `RACE_WINDOW_DAYS`), `not_this_night` (next
+  day is a race, or a key session once the block is past base), `go_and_move`
+  (key session in base), `go` (`keep_it_light` from day 15 to 28), `celebrate`
+  (race night). `clear_nights` offers up to three alternatives. It only knows
+  the calendar: run-down readiness or illness still means bed.
+- The prompt section "STRICT WHERE IT COUNTS, FORGIVING WHERE IT DOES NOT" sits
+  before the FINAL RULE. Profanity for a hard no is the athlete's own request.
+  Never write "never negotiable" in `_SYSTEM` (a test pins its absence).
+- Do not test Steve through the production chat endpoint; it writes to the real
+  conversation. Use the app's client against a local context instead.
+
+**README screenshots:** never run the backend locally to take them (it
+reconciles Google Calendar). They come from a static fixture server and headless
+Chrome over CDP. The fixture drops personal calendar events, body weight never
+appears, and the Coach replies shown are real model answers to test questions,
+not the athlete's conversation. Look at every image before committing it.
+
+Tests: `tests/test_fitness_age.py`, `tests/test_triathlon_knowledge.py`,
+`AppChromeTests` in `tests/test_header_contrast.py`, and the escaping pins in
+`tests/test_display_text_safety.py`.

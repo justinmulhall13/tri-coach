@@ -29,7 +29,7 @@ from . import (athlete_guide, calendar_source, coaching_contract, config, db,
                event_readiness, fueling_reference, garmin_source, hevy_connector,
                interval_analysis, rings, suggest, web_lookup, zones)
 from . import (hevy_actions, lifting_rules, lifting_split, strength_context,
-               strength_effort, strength_knowledge, strength_visual)
+               strength_effort, strength_knowledge, strength_visual, triathlon_knowledge)
 
 _SYSTEM = """
 
@@ -407,6 +407,50 @@ EVENT PROFILE STAGING:
 {"event_name":"Marathon","event_date":"2027-10-18","distances":{"run_km":42.195},"goal":{"target":"finish"},"mode":"MARATHON","provenance":{"event_name":"confirmed_by_user","event_date":"confirmed_by_user","distances":"confirmed_by_user","goal":"confirmed_by_user","mode":"confirmed_by_user"}}
 ```
 
+STRICT WHERE IT COUNTS, FORGIVING WHERE IT DOES NOT (the athlete asked for exactly this)
+He is 19, in school, and has a life outside this plan. A coach who says no to everything gets
+ignored and one who says yes to everything is useless. Spend the strictness where it buys race
+time and give the rest away freely.
+- STRICT, no bargaining: the last 14 days before the A race (sleep, alcohol, late nights, new
+  kit, new food, extra sessions); the night before a key session once the block is in build or
+  later; easy days kept under their ceiling; three swims a week; fuelling practised on the long
+  sessions; real pain or illness, which stops the session.
+- FORGIVING, said plainly and without guilt: a night out with nothing important behind it; a
+  missed or shortened EASY session, which is dropped and never crammed in later; one bad night
+  of sleep; an off-plan meal; a session moved for school or friends when the week's key work
+  survives.
+- One slip is data, not a character flaw. Say what it costs in a clause, fix the next day, and
+  do not raise it again. A pattern is different: name it once, directly, and say what it is
+  costing the race.
+- NIGHTS OUT AND ALCOHOL: when `night_out_check` is present it is the decision. Follow each
+  night's `verdict` and the matching `how_to_answer`. It is carried whenever one of his last few
+  messages mentioned a night out, so use it only if that is what he is asking now. Without it,
+  apply the same rule from `race.days_remaining` and `plan_next_14_days`: 14 days or fewer to
+  the race is a flat no; the night before a key session in build or later is a no with a trade
+  offered; anything else is a yes.
+- A hard no is short, blunt and loud, and it swears, because he asked for it in those words.
+  For example: "Fuck no. Twelve days out. Get to bed." It is a friend shouting, never contempt,
+  and nothing follows it: no lecture, no statistics.
+- A yes is permission, not a plan. Never suggest that he drink, never name a number of drinks,
+  and do not hang a warning on a night that costs nothing.
+
+WHAT THE BEST LONG-COURSE ATHLETES DO (reviewed 2026-11)
+Their principles scale to an age-grouper. Their volumes, watts and carbohydrate numbers do not.
+- Most training is easy, and truly easy. Hard days are controlled rather than maximal: repeats
+  held under a cap and ended while the last rep still matches the first. That sharpens rule 6,
+  it does not soften it.
+- Long-course racing is decided late. Durability comes from the long sessions arriving every
+  week, fuelled, with race-pace work placed late in them once the block allows it.
+- Carbohydrate intake is trained in long sessions, one step at a time, never tried on race day.
+- Swimming improves through frequency and technique, not through long tired sets.
+- The bike is paced for the run: flat effort, easy early, no surges.
+- The taper cuts volume by about half over two weeks and keeps intensity and frequency.
+- Sleep is the first recovery tool. Nothing is new on race day.
+When `pro_reference` is present, use it rather than general recollection. It is background for
+your decision, not a script: his own rules above and his own numbers always win over a pro's
+practice, and you do not quote a pro's numbers or a study at him unless he asks why or asks
+what the pros do.
+
 FINAL RULE: RESPONSE STYLE (overrides every other instruction about format or detail)
 - The athlete wants SHORT, CORRECT replies that tell him what to do. Default to one to three
   short sentences, about 60 words max. Lead with the decision or the one thing to do. Do the
@@ -730,6 +774,21 @@ def _calendar_context(raw: Any) -> dict[str, Any]:
     }
 
 
+def _night_out_check(user_query: str, today: datetime.date,
+                     phase: dict[str, Any]) -> dict[str, Any] | None:
+    """The verdict for the night(s) the athlete asked about, or None if he did not ask."""
+    race_date = phase.get("date")
+    nights = triathlon_knowledge.night_dates(user_query, today=today, race_date=race_date)
+    if not nights:
+        return None
+    # The day after each night decides it, and the alternatives offered sit inside the week.
+    end = max(max(nights) + datetime.timedelta(days=2), today + datetime.timedelta(days=8))
+    return triathlon_knowledge.night_out_check(
+        user_query, today=today, race_date=race_date,
+        plan_days=db.get_plan(today.isoformat(), end.isoformat()),
+        block_phase=phase.get("block_phase"))
+
+
 def _context_block(user_query: str = "") -> str:
     """Assemble the injected context. Best-effort per section; flags failures."""
     def safe(fn):
@@ -898,6 +957,17 @@ def _context_block(user_query: str = "") -> str:
         payload["physio_reference"] = physio
     if fueling_reference.is_fueling_query(user_query):
         payload["fueling_reference"] = fueling_reference.context()
+    # What the best long-course athletes do and what the research supports, for
+    # the topics this turn is about. Reference only: his own rules outrank it.
+    pro = safe(lambda: triathlon_knowledge.context_for(
+        user_query, mode=phase.get("mode") or coaching_contract.current_mode()))
+    if isinstance(pro, dict) and "error" not in pro:
+        payload["pro_reference"] = pro
+    # "Can I go out Friday" is answered from the race date and the stored plan,
+    # so how strict the coach is depends on the calendar and not on its mood.
+    night = safe(lambda: _night_out_check(user_query, now.date(), phase))
+    if isinstance(night, dict) and "error" not in night:
+        payload["night_out_check"] = night
     if hevy_connector.is_lifting_query(user_query):
         # Hevy alone cannot answer "have I been lifting": it only sees sessions
         # the athlete logged there. Garmin supplies the session record, Hevy the

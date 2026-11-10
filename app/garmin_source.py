@@ -434,9 +434,8 @@ def _readiness_one_line(readiness, sleep, hrv, bb) -> str:
     return "Moderate — train as planned but keep intensity honest."
 
 
-def get_fitness_markers() -> dict[str, Any]:
-    """VO2max (run + bike, scanned to latest available), FTP, race predictions."""
-    c = get_client()
+def _latest_vo2max(c: Any) -> tuple[float | None, float | None, str | None]:
+    """Newest run and bike VO2max in the last three weeks, with the run's date."""
     today = config.local_today()
     vo2_run = vo2_bike = vo2_as_of = None
     for i in range(0, 21):
@@ -453,6 +452,41 @@ def get_fitness_markers() -> dict[str, Any]:
                 vo2_bike = round(bike, 1)
             if vo2_run is not None and vo2_bike is not None:
                 break
+    return vo2_run, vo2_bike, vo2_as_of
+
+
+_FITNESS_AGE_CACHE: dict[str, Any] = {"val": None, "ts": 0.0}
+_FITNESS_AGE_TTL_S = 300
+
+
+def get_fitness_age() -> dict[str, Any]:
+    """Garmin's fitness age, or why there is none, with VO2max on Garmin's scale.
+
+    Garmin starts fitness age at 20; a younger athlete gets a reason instead of
+    a number. When Garmin has none, ``fitness_age.normalise`` adds a separate,
+    labelled ``estimate`` from VO2max and leaves ``fitness_age`` empty.
+    """
+    import time
+    from . import coaching_contract, fitness_age
+    now = time.time()
+    if _FITNESS_AGE_CACHE["val"] is not None and now - _FITNESS_AGE_CACHE["ts"] < _FITNESS_AGE_TTL_S:
+        return copy.deepcopy(_FITNESS_AGE_CACHE["val"])
+    c = get_client()
+    raw = _safe(lambda: c.get_fitnessage_data(_today()))
+    vo2_run, vo2_bike, vo2_as_of = _safe(lambda: _latest_vo2max(c)) or (None, None, None)
+    athlete = coaching_contract.ATHLETE_CONSTANTS
+    out = fitness_age.normalise(raw, age=athlete.get("age"), sex=athlete.get("sex"),
+                                vo2=vo2_run, vo2_bike=vo2_bike, vo2_as_of=vo2_as_of)
+    out.update({"source": "measured", "provider": "Garmin", "fetched_at": _iso_now()})
+    if raw is not None or out["vo2max"] is not None:
+        _FITNESS_AGE_CACHE.update({"val": copy.deepcopy(out), "ts": now})
+    return out
+
+
+def get_fitness_markers() -> dict[str, Any]:
+    """VO2max (run + bike, scanned to latest available), FTP, race predictions."""
+    c = get_client()
+    vo2_run, vo2_bike, vo2_as_of = _latest_vo2max(c)
 
     ftp = _safe(lambda: c.get_cycling_ftp())
     ftp_w = None

@@ -304,6 +304,16 @@ class HybridClient:
     def get_stats(self, cdate: str) -> dict[str, Any]:
         return self._read("daily_stats", lambda: _daily(cdate), lambda c: c.get_stats(cdate))
 
+    def get_fitnessage_data(self, cdate: str) -> dict[str, Any]:
+        def official() -> dict[str, Any]:
+            # Published as a list, answered as an object; keep the newest record.
+            raw = get(f"/fitnessage-service/fitnessage/v2/{cdate}")
+            if isinstance(raw, dict):
+                return raw
+            rows = [row for row in _list(raw, "fitness age") if isinstance(row, dict)]
+            return max(rows, key=lambda row: str(row.get("lastUpdated") or "")) if rows else {}
+        return self._read("fitness_age", official, lambda c: c.get_fitnessage_data(cdate))
+
     # --- body -----------------------------------------------------------------
     def get_body_composition(self, startdate: str, enddate: str | None = None) -> dict[str, Any]:
         end = enddate or startdate

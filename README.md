@@ -8,9 +8,12 @@ It pulls live Garmin recovery and training data, models readiness, runs a
 periodized plan toward a race, and keeps two AI agents in the loop: a
 conversational coach that can reprogram the plan, and a natural-language
 calendar assistant that schedules workouts around a real calendar with two-way
-Google sync. It runs as a responsive, installable PWA with a deliberately plain
-monochrome interface (ink on paper, no accent colours, no emoji) and is
-deployed on Fly.io. Built solo, with Claude Code and
+Google sync. It runs as an installable PWA that is built to feel like an app on
+a phone rather than a web page: large titles that collapse into a glass bar, a
+floating tab capsule, pull to refresh. The interface is monochrome on purpose
+(ink on paper, no accent colours, no emoji), and swim, bike and run are told
+apart by line texture instead of colour. It is deployed on Fly.io. Built solo,
+with Claude Code and
 OpenAI Codex doing most of the typing — see
 [Built with AI, deliberately](#built-with-ai-deliberately).
 
@@ -66,14 +69,36 @@ So the design goals came out of frustration, not features:
 ### Home
 ![Home tab](docs/screenshots/home.png)
 
-The A-race hero carries the goal, the countdown, and where you sit in the block.
-Below it the readiness score reads out of Garmin — HRV against your own rolling
-baseline, sleep, resting HR, and form (TSB) — with a plain-English verdict rather
-than a number to interpret. Then today's sessions, the four WHOOP-style rings
-(a 2×2 grid on a phone, never a sideways scroll; each one opens a full
-breakdown), plain-language signals and recent activities.
-Training load lives in Analytics, where there is enough room to explain it
-properly instead of compressing it into another Home card.
+The top of Home is a race bib: the event, the days left, the goal, and the
+course drawn as one line from start to finish. The line is split into swim,
+bike and run in proportion to the goal splits (0:37, 2:36 and 1:39 for a 5:00
+finish), each in its own texture, so the picture changes the day the goal does.
+Today's session sits directly under it, because that is what the app is opened
+for.
+
+Below that the readiness score reads out of Garmin: HRV against your own rolling
+baseline, resting HR and form (TSB), with a plain-English verdict rather than a
+number to interpret, and three rings for sleep, strain and how ready you are for
+the event. Every one of them opens a full breakdown. Then plain-language signals
+and the five most recent activities. Training load lives in Analytics, where
+there is enough room to explain it properly instead of compressing it into
+another Home card.
+
+<p>
+<img src="docs/screenshots/phone-home.png" alt="Home on a phone" width="30%">
+<img src="docs/screenshots/phone-fitness.png" alt="Fitness age on a phone" width="30%">
+<img src="docs/screenshots/phone-home-dark.png" alt="Home in dark mode" width="30%">
+</p>
+
+**Fitness age.** Garmin gives a fitness age from 20 and I am younger than that,
+so its API answers with a reason and no number. The card shows Garmin's figure when there
+is one. Until then it shows an estimate and says so: the age at which a typical
+person of the same sex has this VO2max, read off the Cooper Institute bands that
+Garmin prints in its own watch manuals. That table starts at 20, so 20 is the
+youngest the estimate can read, and a VO2max above the typical 20 year old's
+lands on that floor and is labelled as the floor rather than extrapolated into a
+nonsense age. The same card places VO2max on the band scale (55.8 is the top 5%
+of men 20 to 29).
 
 Readiness advises; it never overrides. If recovery is poor the app says so and
 offers an easier alternative when you push the session to your watch, but it will
@@ -82,6 +107,9 @@ early version quietly downgraded a key workout and cost a good training day.
 
 ### Coach
 ![Coach tab](docs/screenshots/coach.png)
+
+*The replies in these screenshots are real answers from the coach model to test
+questions against a sample plan. They are not my own conversation.*
 
 A conversational coach (Claude) with the full picture: Garmin data, the plan, the
 week's load, prior coaching turns, and your own stated constraints. It is direct
@@ -96,6 +124,67 @@ forgot the machine-readable block, the backend asks once more for just the
 block. A change that fails validation falls back to a manual card so nothing is
 silently lost. Replies lead with the call in a sentence or two; stats appear only
 when asked for.
+
+**Strict where it matters, easy where it doesn't.** Ask about a night out and
+the call is worked out in code before the model writes a word, from three facts:
+the days left to the race, the phase of the block, and what is planned the next
+morning. There are five calls. Inside 14 days of the race it is a hard no, said
+bluntly and without a lecture. The night before a key session it depends on the
+block: once training is past base it is "not this night", with the nearest clear
+nights offered instead, and early in the block it is a yes and the session
+moves. On any other night it is a plain yes, with no guilt and no drink count.
+After the race it is go and celebrate. The model writes the sentence; it does
+not decide the call. The check only knows the calendar, so a run-down readiness
+score or "I'm sick" still means bed whatever the verdict says.
+
+<img src="docs/screenshots/phone-coach.png" alt="Coach on a phone" width="30%">
+
+**A reviewed reference, not recall.** Steve carries a short reference on how the
+sport is trained and raced at the top: intensity distribution, swim, bike, run,
+bricks, fuelling, heat, supplements, sleep, alcohol, taper, race execution,
+recovery and strength. Each of the fourteen topics says what the pros do, what
+the research supports and how strong that evidence is, how it applies to this
+athlete, and what not to copy. A pro's principle scales to an age-grouper and a
+pro's numbers do not, so nothing in it is a prescription and the athlete's own
+rules outrank every line. Only the topics a question touches are sent, three at
+most. It was last reviewed in November 2026.
+
+<details>
+<summary>Sources for the reference</summary>
+
+- Intensity: [TrainingPeaks on the Norwegian method](https://www.trainingpeaks.com/coach-blog/norwegian-training-method-world-champion-triathletes/),
+  [Triathlete](https://www.triathlete.com/training/how-to-train-like-a-norwegian-without-the-blood),
+  [TRI247](https://www.tri247.com/triathlon-news/elite/lionel-sanders-turns-to-norwegian-method-after-struggles)
+- Swim: [TrainingPeaks on adult-learned swimmers](https://www.trainingpeaks.com/coach-blog/four-principles-for-coaching-adult-learned-swimmers/),
+  [220 Triathlon](https://www.220triathlon.com/training/swim-training/how-to-set-your-swim-training-benchmark),
+  [Purple Patch](https://purplepatchfitness.com/freetrainingtips/getting-faster-triathlon-swim)
+- Durability: [Athletica](https://athletica.ai/unlocking-endurance-durability-the-missing-link-in-endurance-performance/),
+  [Knowledge is Watt](https://knowledgeiswatt.substack.com/p/82-how-to-train-durability)
+- Fuelling: [Slowtwitch](https://slowtwitch.com/triathlon/why-pros-do-high-carb-better-and-how-you-can-too/),
+  Precision Fuel & Hydration case studies
+  ([Løvseth](https://www.precisionhydration.com/athletes/case-studies/triathlon/solveig-lovseth/28-03-2026/),
+  [Geens](https://www.precisionhydration.com/athletes/case-studies/triathlon/jelle-geens/09-11-2025/)),
+  [TRI247](https://www.tri247.com/triathlon-health/nutrition/how-to-fuel-for-a-triathlon)
+- Heat: [Heat suit training and hemoglobin mass](https://zendy.io/title/10.1111/sms.14156),
+  [Mechanisms of haemoglobin mass expansion following heat stress](https://www.fisiologiadelejercicio.com/wp-content/uploads/2025/08/Mechanisms-of-haemoglobin-mass-expansion-following-heat-stress-1.pdf),
+  [Freespeed](https://freespeed.substack.com/p/heat-training-for-triathletes-the)
+- Supplements: [BikeRadar on sodium bicarbonate](https://www.bikeradar.com/advice/nutrition/sodium-bicarbonate-cycling/),
+  [World Athletics](https://worldathletics.org/organisation/news/nutrition-study-sodium-bicarbonate-carbohydrate-co-ingestion)
+- Race pacing: [Best Bike Split](https://www.bestbikesplit.com/blog/pacing-70-3-bike-leg-intensity-factor-tss),
+  [Triathlon Magazine Canada](https://triathlonmagazine.ca/racing/how-to-pace-a-70-3-or-ironman-triathlon/),
+  [Pacing strategies during athletic competition](https://ro.ecu.edu.au/ecuworks/877)
+- Alcohol: [Alcohol, Athletic Performance and Recovery](https://www.doi.org/10.3390/NU2080781),
+  [alcohol and overnight heart-rate variability](https://www.pubmed.gov/29549064/),
+  [WHOOP](https://www.whoop.com/de/en/thelocker/alcohol-and-the-collegiate-whoop-athlete)
+- Taper: [Effects of tapering on performance in endurance athletes](https://pubmed.ncbi.nlm.nih.gov/37163550/),
+  [Bosquet's taper meta-analysis](https://coachsci.sdsu.edu/csa/vol131/bosquet.htm)
+- Sleep: [AASM](https://aasm.org/chronic-sleep-restriction-negatively-affects-athletic-performance/),
+  [GSSI Sports Science Exchange 167](https://www.gssiweb.org/en/sports-science-exchange/Article/sse-167-sleep-and-athletes)
+- Also read: doi:[10.1007/s00421-024-05567-3](https://link.springer.com/article/10.1007/s00421-024-05567-3),
+  doi:[10.3389/fphys.2022.835705](https://www.frontiersin.org/articles/10.3389/fphys.2022.835705/full),
+  doi:[10.1007/s40279-014-0244-0](https://link.springer.com/10.1007/s40279-014-0244-0)
+
+</details>
 
 The coach runs on Claude Sonnet 5.5. If its safety classifier declines a request
 (`stop_reason: "refusal"`), the request is retried once on Sonnet 5 so an
@@ -128,24 +217,27 @@ event profile, so a future switch cannot reintroduce old course or fueling
 assumptions. The result is a fresh screen without an amnesiac coach. Automatic briefs are
 event-driven rather than launch-driven — a new sleep/recovery day, synced workout
 or completion log can trigger one; simply reopening the app cannot. Those event
-briefs now wait in a durable Coach inbox: a red unread badge appears on both the
+briefs now wait in a durable Coach inbox: an unread badge appears on both the
 desktop and mobile Coach tabs, and the message is acknowledged only after that tab
 is opened. It therefore survives a reload or switching between phone and desktop.
 
 The visible conversation is also cached on the device for five minutes. A quick
-lock-screen, app switch, PWA suspension or computer sleep restores the same chat
-and scrollable answer; after the window expires, the UI returns to a clean chat
-while Steve's longer private coaching context remains intact.
+lock-screen, app switch, PWA suspension or computer sleep restores the same chat,
+opened at the latest message; after the window expires, the UI returns to a clean
+chat while Steve's longer private coaching context remains intact.
 
 The configured A-race finish is its own one-time event. Once Garmin syncs the
 race-day swim, bike and run, Steve celebrates the result before attempting any
 critique or next-block planning, using the recorded leg data so the message is
-specific to the actual finish. The Coach screen adds a brief, reduced-motion-safe
-finish-line celebration and then returns to its normal event-driven behavior.
+specific to the actual finish. The Coach screen marks it with one plain line and
+then returns to its normal event-driven behavior.
 
-Replies stream into the conversation as Steve writes them. While fresh Garmin
-context is being assembled, a compact glowing-avatar and bouncing-dot state keeps
-the composer stable and makes the wait explicit without blocking the rest of the UI.
+While Steve works, the conversation shows three dots and a line saying what he is
+doing: checking the latest training data, then drafting the reply and saving any
+plan change. The finished reply appears once that change has been validated and
+stored, so a half-written week is never on screen. The page follows new messages,
+and a long answer stops with its first line at the top instead of jumping to its
+last.
 Long asks (a full strength block, a reshaped month) never come back cut off: thinking
 and the visible reply share one output budget, so a reply that hits it is retried
 with double the room (32K, 64K, then 128K tokens) and only the finished answer is shown.
@@ -201,6 +293,11 @@ Workouts are written to Google as timed blocks, placed before school when they
 fit and straight after it when they don't, and routed around whatever is already
 booked. The week view shades the school block on every day.
 
+On a phone the Month view is a grid of days with a small icon for each session,
+and tapping a day lists what is on it underneath.
+
+<img src="docs/screenshots/phone-calendar.png" alt="Month view on a phone" width="30%">
+
 Drag a session to move it and tap it to open the full breakdown — every calendar
 change pushes straight to Google. Edits you make *in* Google flow back on next
 open, resolved most-recent-edit-wins. Calendar owns placement, not prescription:
@@ -222,6 +319,7 @@ still honors remembered busy/available windows, facility hours, and post-trainin
 shower or commute buffers.
 
 ### Lifting
+![Lifting tab](docs/screenshots/lifting.png)
 
 The current Full Body A / B / C split comes first and can be edited in place or
 changed through Coach. A routine created in Hevy from a Coach card and named after
@@ -240,7 +338,8 @@ The rest of the tab is evidence from completed Hevy workouts: recent sessions,
 exercise volume and frequency, estimated strength records, progression trends,
 muscle balance, consistency and stale-load calibration. Garmin strength
 activities establish that lifting happened when Hevy was not logged, but Hevy
-remains the source for exercises, sets and weights.
+remains the source for exercises, sets and weights. Long lists show their first
+five rows with a Show all control, so the tab opens short.
 
 ### Nutrition
 ![Nutrition tab](docs/screenshots/fuel.png)
@@ -310,7 +409,9 @@ The top of Analytics is a training-load decision surface: acute:chronic ratio
 with its 0.8–1.3 target band, seven-day load against the 28-day base, and separate
 low-aerobic, high-aerobic and anaerobic cards that plot the current value against
 Garmin's target range. Below that sit fitness, fatigue and form (CTL / ATL / TSB)
-over 90 days and weekly volume by sport.
+over 90 days, and a Training volume card: the last six Monday weeks, one row
+each, the bar drawn in each sport's line texture. Tap a week for its breakdown;
+six-week totals by sport sit underneath.
 
 Training zones use the same visual hierarchy instead of a compressed text table:
 Garmin LT HR, max HR and threshold pace lead into five progressive intensity
@@ -390,6 +491,8 @@ app/
                      training load / ACWR, VO2 & FTP, race predictions
   garmin_personal.py Garmin's official Personal API (key -> 24 h token, reads)
                      and the hybrid client that falls back to garminconnect
+  fitness_age.py     Garmin's fitness age, or a labelled VO2max estimate when
+                     Garmin has none; places VO2max on the Cooper bands
   rings.py           the four dashboard rings
   ring_detail.py     per-ring drill-downs (contributors, stages, charts)
   activity_detail.py per-activity deep dive + cached AI analysis
@@ -410,6 +513,8 @@ app/
 
   coach.py           "Coach Steve" agent (chat, event briefs, private memory)
   coaching_contract.py fixed athlete/rules blocks + the one swappable event profile
+  triathlon_knowledge.py reviewed pro reference (14 topics) and the night-out
+                     call, worked out from the race date and the stored plan
   hevy_connector.py  official Hevy REST reads (retried on blips) + single-attempt writes
   hevy_actions.py    exercise resolution, weight provenance, non-retrying creates
   hevy_exercises.py  full-catalogue matching + confirmed custom-template creation
@@ -565,11 +670,36 @@ A few problems here were more interesting than they first look:
   Additive writes are never blindly retried, and a partial template write is
   surfaced explicitly if the routine itself fails.
 
-- **Glass where it earns its keep.** Translucent, responsive glass is reserved
-  for navigation and controls; dense training data keeps quieter, more opaque
-  surfaces for contrast. The compact-on-scroll header, floating bottom bar and
-  fixed Coach composer are safe-area aware, with reduced-motion and
-  reduced-transparency fallbacks.
+- **Glass where it earns its keep.** Glass is reserved for chrome that floats
+  over content: the bar a large page title collapses into, the tab capsule with
+  its sliding lens, the sticky Coach bar and the composer. Dense training data
+  keeps opaque surfaces for contrast. Text fades out under the floating pieces
+  instead of showing through the gaps around them. All of it is safe-area aware,
+  and Reduce Motion and Reduce Transparency each have a fallback: the second
+  turns the glass solid and stops the blur.
+
+- **Sport identity without colour.** The palette is monochrome, so the three
+  sports are told apart by line: a wave for the swim, dashes for the bike, a
+  solid line for the run. The same three lines draw the course on the Home bib
+  from the goal splits and fill the weekly rows of the Training volume card.
+
+- **An estimate is labelled as one, and kept out of the measured field.**
+  Garmin gives no fitness age below 20. The athlete wanted a number anyway, so
+  the API returns Garmin's `fitness_age` untouched (empty here) and a separate
+  `estimate` object carrying the method, the VO2max it was read from and a flag
+  saying the scale has hit its floor. The card reads "Estimated from VO2max".
+  The day Garmin returns a number, the estimate disappears.
+
+- **The call is computed; the sentence is written.** Whether a night out is
+  fine is a question about dates, so it is answered in code: days to the race,
+  the phase of the block, and whether the next morning is a key session. The
+  model is handed the verdict and writes only the reply. Tests pin the boundary:
+  14 days out is a no, 15 is a yes kept light.
+
+- **Escaping and tidying are two different jobs.** `plain()` only tidies
+  punctuation for display. `show()` escapes first and then tidies, and plan
+  titles, workout notes and third-party strings reach the page through it.
+  Tests pin the title sinks so a new render path cannot skip the escape.
 
 - **A short marathon block is not a scaled-down long one.** Arriving with a big
   cycling base and an 8.5 km longest run, the obvious move is to ramp weekly

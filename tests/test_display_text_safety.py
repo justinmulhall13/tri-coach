@@ -114,16 +114,46 @@ class RenderEscapingTests(unittest.TestCase):
         self.html = (main.STATIC_DIR / "index.html").read_text()
 
     def test_the_plan_calendar_escapes_its_title(self) -> None:
-        self.assertIn('<span class="ctitle">${esc(String(d.title||disc))}</span>', self.html)
+        self.assertIn('<span class="ctitle">${esc(plain(d.title||disc))}</span>', self.html)
 
     def test_the_week_proposal_escapes_title_and_the_sport_class(self) -> None:
-        self.assertIn('<span class="sport-${esc(String(disc))}">${esc(String(d.title||disc))}</span>',
+        self.assertIn('<span class="sport-${esc(String(disc))}">${esc(plain(d.title||disc))}</span>',
                       self.html)
 
     def test_the_adjustment_card_escapes_its_free_text(self) -> None:
-        self.assertIn('${esc(String(adj.title||adj.discipline||""))}', self.html)
+        self.assertIn('${esc(plain(adj.title||adj.discipline||""))}', self.html)
         self.assertIn('${esc(String(fmt(adj.intensity)))}', self.html)
         self.assertIn('${esc(String(fmt(st.main)))}', self.html)
+
+    def test_the_display_tidy_never_replaces_escaping(self) -> None:
+        # plain() only swaps " — " for ": " on screen; show() is the escaped form.
+        self.assertIn('const plain=v=>String(v??"").replace(/ — /g,": ");', self.html)
+        self.assertIn("const show=v=>esc(plain(v));", self.html)
+
+    def test_the_calendar_escapes_titles_it_does_not_author(self) -> None:
+        # Google event titles come from whoever sent the invite.
+        for raw in ("${fmt(e.title)}", "${fmt(w.title)}", "${fmt(wo.title)}", "${x.title}</div>",
+                    "${fmt(ev.title)}", "${s.detail}", "${ch.title}", "${r.summary}"):
+            self.assertNotIn(raw, self.html, raw)
+        self.assertEqual(self.html.count("${show(fmt(e.title))}"), 5)
+        self.assertIn('<div class="ag-t">${dayIcons(wo)} ${show(fmt(wo.title))}</div>', self.html)
+        self.assertIn('<div class="sig-body"><div class="t">${show(s.title)}</div>'
+                      '<div class="d">${show(s.detail)}</div></div>', self.html)
+
+    def test_server_and_error_text_never_lands_as_raw_html(self) -> None:
+        # Error messages, plan notes and check-in notes come from the server,
+        # the athlete or a third party; none of them may reach innerHTML raw.
+        for raw in ("${e.message}", "${now.note}", "${now.label}", "${c.note}",
+                    "${f.note}", "${msg}</"):
+            self.assertNotIn(raw, self.html, raw)
+        for sink in ("${show(e.message)}", "${show(now.note)}", "${show(now.label)}",
+                     "${show(c.note)}", "${show(msg)}"):
+            self.assertIn(sink, self.html, sink)
+
+    def test_text_sinks_tidy_without_touching_markup(self) -> None:
+        # textContent sinks need no escaping, only the display tidy.
+        for sink in ("t.textContent=plain(msg)", "s.textContent=plain(msg)"):
+            self.assertIn(sink, self.html, sink)
 
     def test_no_sink_reintroduces_a_raw_title_interpolation(self) -> None:
         for raw in ("${d.title||disc}", "${adj.title||adj.discipline}", "${fmt(st.main)}"):

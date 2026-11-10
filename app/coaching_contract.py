@@ -469,7 +469,23 @@ def race_phase(today: datetime.date) -> dict[str, Any]:
         "is_past": days < 0,
         "phase": phase,
         "mode": mode,
+        "goal": _public_goal(event.get("goal")),
     }
+
+
+def _public_goal(goal: Any) -> dict[str, Any] | None:
+    """The target and leg splits the race card draws; the reasoning stays private."""
+    if not isinstance(goal, dict):
+        return None
+    out: dict[str, Any] = {}
+    if isinstance(goal.get("target"), str) and goal["target"].strip():
+        out["target"] = goal["target"].strip()
+    split = goal.get("split")
+    if isinstance(split, dict):
+        legs = {str(k): str(v) for k, v in split.items() if isinstance(v, str) and v.strip()}
+        if legs:
+            out["split"] = legs
+    return out or None
 
 
 def system_prompt() -> str:

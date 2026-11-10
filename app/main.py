@@ -6,6 +6,7 @@ Endpoints live now:
   GET /api/readiness  — this-morning Garmin recovery panel
   GET /api/load       — recent activities + volume by sport
   GET /api/fitness    — VO2max (run+bike), FTP, race predictions
+  GET /api/fitness-age — Garmin fitness age, or a labelled estimate, plus VO2max standing
   GET /api/calendar   — upcoming events (or a clear 'missing credentials' note)
   GET /api/morning    — combined morning payload (cached)
 
@@ -405,6 +406,15 @@ def training_load() -> JSONResponse:
 def fitness() -> JSONResponse:
     try:
         return JSONResponse(garmin_source.get_fitness_markers())
+    except Exception as e:
+        return JSONResponse({"error": f"{type(e).__name__}: {e}", "source": "garmin"}, status_code=502)
+
+
+@app.get("/api/fitness-age")
+def fitness_age() -> JSONResponse:
+    """Garmin's fitness age, or the reason there is none and a labelled estimate, with VO2max standing."""
+    try:
+        return JSONResponse(garmin_source.get_fitness_age())
     except Exception as e:
         return JSONResponse({"error": f"{type(e).__name__}: {e}", "source": "garmin"}, status_code=502)
 
