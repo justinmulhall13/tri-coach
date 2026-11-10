@@ -1044,6 +1044,10 @@
   .slot.session .slot-name{font-weight:700;}
   .slot.session .slot-time{color:var(--ink);font-weight:600;}
   .slot.done .slot-name::after{content:"logged";font-size:11.5px;font-weight:550;color:var(--muted);border:1px solid var(--line2);border-radius:5px;padding:0 5px;}
+  .nu-say{display:grid;grid-template-columns:1fr auto;gap:8px;}
+  .nu-say input{font-size:16px;padding:12px;min-width:0;}
+  .nu-say button{padding:12px 18px;font-size:14.5px;}
+  #nu-say-status:empty{display:none;}
   .nu-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
   .nu-actions button{padding:12px;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:8px;}
   .nu-actions svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
@@ -1335,9 +1339,14 @@
     <div class="nu-bars" id="fuel-macros"></div>
   </section>
 
+  <form class="nu-say" id="nu-say" autocomplete="off">
+    <input id="nu-say-text" type="text" maxlength="200" enterkeyhint="send" placeholder="Say what you had, like iced chai latte grande from Starbucks" aria-label="Say what you ate or drank" />
+    <button type="submit" id="nu-say-btn">Log</button>
+  </form>
+  <div class="nu-status" id="nu-say-status" aria-live="polite"></div>
   <div class="nu-actions">
     <button class="primary" id="nu-add-btn" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Log food</button>
-    <button id="nu-scan-btn" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M8 9h8M8 12h8M8 15h5"/></svg>Scan a label</button>
+    <button id="nu-scan-btn" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M8 9h8M8 12h8M8 15h5"/></svg>Scan barcode</button>
     <input type="file" id="nu-scan-file" accept="image/*" capture="environment" hidden />
   </div>
 
@@ -4982,7 +4991,7 @@ function renderFoodList(list){
   $("log-list").innerHTML=order.filter(k=>groups[k]).map(k=>`<div class="log-group"><h3>${_MEAL_LABEL[k]||"Other"}</h3>${groups[k].map(e=>`
     <div class="food-row" data-id="${e.id}">
       <div class="fl"><div class="fdesc">${esc(String(fmt(e.description)))}</div>
-        <div class="fmeta">${esc(String(e.eaten_at||""))}</div></div>
+        <div class="fmeta">${esc(String(e.eaten_at||""))}${e.source==="estimate"?(e.eaten_at?" · ":"")+"estimate":""}</div></div>
       <div class="fmac">${e.kcal!=null?_r(e.kcal)+" kcal · ":""}${_r(e.carb_g)}C ${_r(e.protein_g)}P ${_r(e.fat_g)}F</div>
       <button class="fdel" title="Remove" aria-label="Remove">×</button></div>`).join("")}</div>`).join("");
   $("log-list").querySelectorAll(".food-row").forEach(row=>{
@@ -5094,11 +5103,11 @@ function _shrinkImage(file,maxPx=1600){
 }
 async function scanLabel(file){
   if(!file) return;
-  const btn=$("nu-scan-btn"); btn.disabled=true; const old=btn.innerHTML; btn.textContent="Reading label…";
+  const btn=$("nu-scan-btn"); btn.disabled=true; const old=btn.innerHTML; btn.textContent="Reading…";
   try{
     const b64=await _shrinkImage(file);
     const r=await _jpost("/api/nutrition/label",{image_b64:b64,media_type:"image/jpeg"});
-    if(r.requires_input){ toast(r.question||"That isn't a nutrition label."); return; }
+    if(r.requires_input){ toast(r.question||"No barcode or label was readable."); return; }
     if(r.error||!r.ok){ toast(r.error||"Couldn't read the label."); return; }
     openNuForm({food:r.food,source:"label",note:r.note,unknown_fields:r.unknown_fields,meal:""});
   }catch(e){ toast(e.message); }
@@ -5131,6 +5140,22 @@ async function askChef(request){
 $("nu-add-btn").onclick=()=>openNuForm({meal:""});
 $("nu-scan-btn").onclick=()=>$("nu-scan-file").click();
 $("nu-scan-file").onchange=e=>scanLabel(e.target.files&&e.target.files[0]);
+async function sayFood(ev){
+  ev.preventDefault();
+  const inp=$("nu-say-text"), btn=$("nu-say-btn"), st=$("nu-say-status");
+  const text=inp.value.trim(); if(!text) return;
+  btn.disabled=true; st.className="nu-status"; st.textContent="Working it out…";
+  try{
+    const r=await _jpost("/api/nutrition/log",{text});
+    if(r.food){ st.textContent=""; inp.value=""; openNuForm({food:r.food,source:"label",note:r.note,unknown_fields:r.unknown_fields,meal:""}); return; }
+    if(r.requires_input){ st.className="nu-status flag"; st.textContent=r.question||"Say a bit more about what it was."; return; }
+    if(r.error||!r.ok){ st.className="nu-status flag"; st.textContent=r.error||"Couldn't log that."; return; }
+    inp.value=""; renderFuelTab(r.day); loadNuWeek();
+    st.textContent=r.summary||"Logged.";
+  }catch(e){ st.className="nu-status flag"; st.textContent=e.message; }
+  finally{ btn.disabled=false; }
+}
+$("nu-say").onsubmit=sayFood;
 $("nu-form-close").onclick=closeNuForm;
 $("nf-save").onclick=saveNuForm;
 $("nu-form-card").addEventListener("keydown",e=>{ if(e.key==="Enter"&&e.target.tagName==="INPUT"&&e.target.type!=="checkbox"){ e.preventDefault(); saveNuForm(); } });

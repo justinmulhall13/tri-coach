@@ -316,7 +316,7 @@ _MIGRATIONS = {
                   ("pos_updated_at", "TEXT"), ("tsb_target", "REAL"),
                   ("event_profile_id", "TEXT")],
     "plan_history": [("event_profile_id", "TEXT")],
-    "nutrition_log": [("sodium_mg", "REAL"), ("food_id", "INTEGER"), ("servings", "REAL")],
+    "nutrition_log": [("sodium_mg", "REAL"), ("food_id", "INTEGER"), ("servings", "REAL"), ("source", "TEXT")],
     "constraints_log": [("event_profile_id", "TEXT")],
     "chat_history": [("event_profile_id", "TEXT")],
     # Strength used to be a decorative routine attached to a date. These fields
@@ -1310,7 +1310,8 @@ def add_nutrition(date: str, description: str, *, eaten_at: str = "", meal: str 
                   carb_g: float | int | None = None, fat_g: float | int | None = None,
                   sodium_mg: float | int | None = None, food_id: int | None = None,
                   servings: float | None = None,
-                  remember_as: dict[str, Any] | None = None) -> int:
+                  remember_as: dict[str, Any] | None = None,
+                  source: str | None = None) -> int:
     """Log one entry. `remember_as` (a food name, serving and per-serving values)
     also saves the food to the library in the same transaction."""
     import datetime
@@ -1322,9 +1323,9 @@ def add_nutrition(date: str, description: str, *, eaten_at: str = "", meal: str 
         c.execute("UPDATE foods SET uses=uses+1,last_used=? WHERE id=?", (now, food_id))
     cur = c.execute(
         "INSERT INTO nutrition_log (date,eaten_at,meal,description,kcal,protein_g,carb_g,fat_g,"
-        "sodium_mg,food_id,servings,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        "sodium_mg,food_id,servings,source,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (date, eaten_at, meal, description, kcal, protein_g, carb_g, fat_g,
-         sodium_mg, food_id, servings, now))
+         sodium_mg, food_id, servings, source, now))
     c.commit()
     return cur.lastrowid
 

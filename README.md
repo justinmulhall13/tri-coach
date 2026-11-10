@@ -416,6 +416,14 @@ shows glucose and fructose separately, finished-drink concentration by mass, and
 the abort protocol. A race calculation will not misuse the 5:45 whole-event model
 as a bike-leg duration; that missing input stays unknown until supplied.
 
+Typing a food in plain words (for example "iced chai latte grande from Starbucks") logs a
+ballpark: published values when the brand and size are known, typical values otherwise.
+Those entries are marked as estimates in the log and counted separately in the day
+payload, so measured and estimated intake stay distinguishable. Scan barcode takes one
+photo: a barcode is read, check-digit validated and looked up in Open Food Facts, and a
+nutrition panel is read as printed. Either way the values only prefill the form for
+review before anything is saved.
+
 ### Analytics
 ![Analytics tab](docs/screenshots/analytics.png)
 

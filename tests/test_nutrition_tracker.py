@@ -173,8 +173,9 @@ class LibraryAndLogTests(_TempDb):
         self.assertEqual([f["name"] for f in db.list_foods()], ["Banana"])
         self.assertEqual(main.nutrition_food_log(oats["id"], {}).status_code, 404)
 
-    def test_text_log_still_requires_explicit_macros(self) -> None:
-        result = self._log(text="chicken and rice")
+    def test_text_log_without_a_model_key_requires_explicit_macros(self) -> None:
+        with patch.object(nutrition, "_ok_key", return_value=None):
+            result = self._log(text="chicken and rice")
         self.assertTrue(result["requires_input"])
         self.assertEqual(db.list_foods(), [])
 

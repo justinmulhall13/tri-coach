@@ -597,6 +597,11 @@ def get_day() -> dict[str, Any]:
         "fueling": fueling,
         "meal_plan": meal_plan(session, targets, fueling, logged),
         "hydration": hydration(session, today),
+        "estimated": {
+            "entries": sum(1 for r in logged if r.get("source") == "estimate"),
+            "kcal": int(round(sum(float(r.get("kcal") or 0) for r in logged
+                                  if r.get("source") == "estimate"))),
+        },
         "foods": db.list_foods(30),
     }
 
@@ -724,11 +729,12 @@ _JSON_RE = re.compile(r"\[.*\]", re.DOTALL)
 
 
 def log_food(text: str) -> dict[str, Any]:
-    """Log one meal only when every macro was explicitly self-reported.
+    """Log what the athlete typed.
 
-    Typical-food and photo estimates look precise but are not checkable inputs.
-    Missing values therefore stay unknown and the athlete gets one concrete
-    question instead of a fabricated entry that would corrupt the day's totals.
+    Explicit macros are logged as self-reported. A bare barcode number is looked
+    up and returned for review. Anything else gets a ballpark estimate, which is
+    logged marked as an estimate so the day's totals show what is measured and
+    what is not. Without a model key nothing is invented.
     """
     if not text.strip():
         return {"error": "nothing to log"}
@@ -741,18 +747,12 @@ def log_food(text: str) -> dict[str, Any]:
     }
     missing = [name for name, value in values.items() if value is None]
     if missing:
-        labels = {"kcal": "calories", "protein_g": "protein grams",
-                  "carb_g": "carbohydrate grams", "fat_g": "fat grams"}
-        return {
-            "ok": False,
-            "requires_input": True,
-            "added": 0,
-            "unknown_fields": missing,
-            "question": ("Macros are unknown and nothing was logged. Give the exact "
-                         + ", ".join(labels[field] for field in missing)
-                         + " from the serving label or your measured recipe."),
-            "input_provenance": {"description": "self-reported", "macros": "unknown"},
-        }
+        digits = re.sub(r"[\s-]", "", raw)
+        if digits.isdigit() and 8 <= len(digits) <= 14:
+            return lookup_barcode(digits)
+        if not _ok_key():
+            return _unknown_macros(missing)
+        return _log_estimate(raw)
 
     lowered = raw.lower()
     meal = next((name for name in ("breakfast", "lunch", "dinner", "snack", "pre", "during", "post")
@@ -773,6 +773,198 @@ def log_food(text: str) -> dict[str, Any]:
                              "macros": "self-reported exact values"},
         "day": get_day(),
     }
+
+
+def _unknown_macros(missing: list[str]) -> dict[str, Any]:
+    labels = {"kcal": "calories", "protein_g": "protein grams",
+              "carb_g": "carbohydrate grams", "fat_g": "fat grams"}
+    return {
+        "ok": False,
+        "requires_input": True,
+        "added": 0,
+        "unknown_fields": missing,
+        "question": ("Macros are unknown and nothing was logged. Give the exact "
+                     + ", ".join(labels[field] for field in missing)
+                     + " from the serving label or your measured recipe."),
+        "input_provenance": {"description": "self-reported", "macros": "unknown"},
+    }
+
+
+_ESTIMATE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "understood": {"type": "boolean"},
+        "question": {"type": ["string", "null"]},
+        "items": {"type": "array", "items": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "serving": {"type": "string"},
+                "kcal": {"type": "number"},
+                "protein_g": {"type": "number"},
+                "carb_g": {"type": "number"},
+                "fat_g": {"type": "number"},
+                "sodium_mg": {"type": ["number", "null"]},
+                "basis": {"type": "string", "enum": ["published", "typical"]},
+            },
+            "required": ["name", "serving", "kcal", "protein_g", "carb_g", "fat_g",
+                         "sodium_mg", "basis"],
+            "additionalProperties": False}},
+    },
+    "required": ["understood", "question", "items"],
+    "additionalProperties": False,
+}
+
+_ESTIMATE_PROMPT = (
+    "The athlete typed what they ate or drank. Give a ballpark nutrition estimate for each "
+    "distinct food or drink. When it names a restaurant, chain or packaged brand whose nutrition "
+    "you know, use the published values for the named size and the standard preparation (a "
+    "Starbucks grande is 16 fl oz, made the default way) and set basis to \"published\". Otherwise "
+    "use typical values for a normal portion and set basis to \"typical\". Respect every quantity, "
+    "size and modifier given (two slices, large, oat milk, no syrup), and keep any number the "
+    "athlete states. One item per food. Name it plainly with the brand and size; serving is the "
+    "amount you assumed. Round to whole numbers. If the text is not food or drink, or is too vague "
+    "to size at all, set understood to false, items to an empty list and ask one short question. "
+    "Otherwise set question to null.")
+
+
+def estimate_food(text: str) -> dict[str, Any]:
+    """Ballpark macros for free text. Nothing is logged here."""
+    if not _ok_key():
+        return {"ok": False, "error": "ANTHROPIC_API_KEY is not set"}
+    import anthropic
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY, max_retries=2)
+    try:
+        msg = client.messages.create(
+            model=config.COACH_MODEL, max_tokens=1500,
+            output_config={"format": {"type": "json_schema", "schema": _ESTIMATE_SCHEMA}},
+            messages=[{"role": "user",
+                       "content": _ESTIMATE_PROMPT + "\n\nThe athlete typed: " + text[:300]}])
+        data = json.loads(next(b.text for b in msg.content if b.type == "text"))
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False,
+                "error": f"Couldn't estimate that ({type(e).__name__}). Enter the numbers instead."}
+    items: list[dict[str, Any]] = []
+    for it in (data.get("items") or [])[:8]:
+        name = str(it.get("name") or "").strip()[:120]
+        try:
+            vals = {k: _clean(_number(it.get(k), k))
+                    for k in ("kcal", "protein_g", "carb_g", "fat_g")}
+        except ValueError:
+            continue
+        if not name or any(v is None for v in vals.values()):
+            continue
+        try:
+            sodium = _clean(_number(it.get("sodium_mg"), "sodium_mg"))
+        except ValueError:
+            sodium = None
+        items.append({"name": name, "serving": str(it.get("serving") or "").strip()[:60],
+                      **vals, "sodium_mg": sodium,
+                      "basis": "published" if it.get("basis") == "published" else "typical"})
+    if not data.get("understood") or not items:
+        return {"ok": False, "requires_input": True, "added": 0,
+                "question": (str(data.get("question") or "").strip()[:240]
+                             or "Couldn't tell what that was. Say the food, the size and where "
+                                "it's from.")}
+    return {"ok": True, "items": items}
+
+
+def _log_estimate(raw: str) -> dict[str, Any]:
+    est = estimate_food(raw)
+    if not est.get("ok"):
+        return est
+    lowered = raw.lower()
+    meal = next((name for name in ("breakfast", "lunch", "dinner", "snack", "pre", "during", "post")
+                 if re.search(rf"\b{re.escape(name)}\b", lowered)), "")
+    time_match = re.search(r"\b(?:[01]?\d|2[0-3]):[0-5]\d\b", lowered)
+    eaten_at = time_match.group(0) if time_match else config.local_now().strftime("%H:%M")
+    today = config.local_today().isoformat()
+    ids = []
+    for it in est["items"]:
+        desc = it["name"] + (f" ({it['serving']})" if it["serving"] else "")
+        ids.append(db.add_nutrition(
+            today, desc[:200], eaten_at=eaten_at, meal=meal, kcal=it["kcal"],
+            protein_g=it["protein_g"], carb_g=it["carb_g"], fat_g=it["fat_g"],
+            sodium_mg=it["sodium_mg"], source="estimate"))
+    total = {k: int(round(sum(float(i[k]) for i in est["items"])))
+             for k in ("kcal", "carb_g", "protein_g", "fat_g")}
+    summary = ("Logged as an estimate: " + ", ".join(i["name"] for i in est["items"])
+               + f". {total['kcal']} kcal, {total['carb_g']} g carbs, "
+                 f"{total['protein_g']} g protein, {total['fat_g']} g fat.")
+    return {"ok": True, "added": len(ids), "entry_id": ids[0], "entry_ids": ids,
+            "estimated": True, "items": est["items"], "summary": summary,
+            "input_provenance": {"description": "self-reported", "macros": "estimate"},
+            "day": get_day()}
+
+
+_OFF_URL = ("https://world.openfoodfacts.org/api/v2/product/{code}.json"
+            "?fields=product_name,brands,serving_size,nutriments")
+
+
+def barcode_ok(code: str) -> bool:
+    """EAN-8, UPC-A, EAN-13 or GTIN-14 with a correct check digit."""
+    if not re.fullmatch(r"\d{8}|\d{12,14}", code or ""):
+        return False
+    digits = [int(c) for c in code]
+    check = digits.pop()
+    total = sum(d * (3 if i % 2 == 0 else 1) for i, d in enumerate(reversed(digits)))
+    return (10 - total % 10) % 10 == check
+
+
+def _off_fetch(code: str) -> dict[str, Any] | None:
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(_OFF_URL.format(code=code), headers={
+        "User-Agent": "Tri-Coach/1.0", "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:  # noqa: S310 - fixed https host
+            return json.loads(resp.read(2_000_000).decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise
+
+
+def lookup_barcode(code: str) -> dict[str, Any]:
+    """Find a packaged food by barcode in Open Food Facts. Nothing is logged:
+    the values prefill the form for the athlete to check against the pack."""
+    code = re.sub(r"\D", "", str(code or ""))
+    if not barcode_ok(code):
+        return {"ok": False, "requires_input": True, "added": 0,
+                "question": ("That barcode didn't read cleanly. Try again with the bars flat, "
+                             "close and in focus, or photograph the nutrition panel.")}
+    try:
+        data = _off_fetch(code)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"Couldn't reach the product database ({type(e).__name__})."}
+    product = (data or {}).get("product") or {}
+    n = product.get("nutriments") or {}
+    per = "_serving" if n.get("energy-kcal_serving") is not None else "_100g"
+    if not n or n.get("energy-kcal" + per) is None:
+        return {"ok": False, "requires_input": True, "added": 0, "barcode": code,
+                "question": (f"Barcode {code} has no nutrition in the product database. "
+                             "Photograph the nutrition panel or enter the numbers.")}
+    def val(key: str, field: str, scale: float = 1.0):
+        try:
+            raw = n.get(key + per)
+            return _clean(_number(None if raw is None else float(raw) * scale, field))
+        except (TypeError, ValueError):
+            return None
+    fields = {"kcal": val("energy-kcal", "kcal"), "protein_g": val("proteins", "protein_g"),
+              "carb_g": val("carbohydrates", "carb_g"), "fat_g": val("fat", "fat_g"),
+              "sodium_mg": val("sodium", "sodium_mg", 1000.0)}
+    brand = str(product.get("brands") or "").split(",")[0].strip()
+    name = str(product.get("product_name") or "").strip()
+    if brand and brand.lower() not in name.lower():
+        name = f"{brand} {name}".strip()
+    serving = (str(product.get("serving_size") or "").strip() if per == "_serving" else "100 g")
+    missing = [k for k in ("kcal", "protein_g", "carb_g", "fat_g") if fields[k] is None]
+    return {"ok": True, "source": "label", "via": "barcode", "barcode": code,
+            "food": {"name": name[:120], "serving": serving[:60] or "1 serving", **fields},
+            "unknown_fields": missing,
+            "note": ("Found by barcode in Open Food Facts. Check it against the pack, then save."
+                     if not missing else
+                     "Found by barcode, but some values are missing. Fill them in from the pack.")}
 
 
 def log_photo(image_b64: str, media_type: str = "image/jpeg") -> dict[str, Any]:
@@ -1176,9 +1368,10 @@ _LABEL_SCHEMA = {
         "carb_g": {"type": ["number", "null"]},
         "fat_g": {"type": ["number", "null"]},
         "sodium_mg": {"type": ["number", "null"]},
+        "barcode": {"type": ["string", "null"]},
     },
     "required": ["is_nutrition_label", "product", "serving", "kcal", "protein_g",
-                 "carb_g", "fat_g", "sodium_mg"],
+                 "carb_g", "fat_g", "sodium_mg", "barcode"],
     "additionalProperties": False,
 }
 
@@ -1187,8 +1380,10 @@ _LABEL_PROMPT = (
     "estimate, convert or fill a gap. If the panel lists only per-100 g values, use those and set "
     "serving to \"100 g\". Convert salt to sodium only if sodium is not printed: sodium mg = salt g "
     "x 400. Use null for any value that is missing or unreadable. If the image is a meal, plate or "
-    "anything other than a printed nutrition panel, set is_nutrition_label to false and every value "
-    "to null.")
+    "anything other than a printed nutrition panel, set is_nutrition_label to false and every "
+    "nutrition value to null. Separately, if a barcode is visible anywhere in the image, set barcode "
+    "to the digits printed under its bars, exactly and with no spaces. If there is no barcode or any "
+    "digit is unreadable, set barcode to null; never guess a digit.")
 
 
 def read_label(image_b64: str, media_type: str = "image/jpeg") -> dict[str, Any]:
@@ -1214,9 +1409,13 @@ def read_label(image_b64: str, media_type: str = "image/jpeg") -> dict[str, Any]
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": f"Couldn't read the label ({type(e).__name__})."}
     if not data.get("is_nutrition_label"):
+        code = re.sub(r"\D", "", str(data.get("barcode") or ""))
+        if code:
+            return lookup_barcode(code)
         return {"ok": False, "requires_input": True,
-                "question": ("That isn't a nutrition label, so nothing was read. Photograph the "
-                             "printed nutrition panel, or enter the numbers.")}
+                "question": ("No barcode or nutrition label was readable, so nothing was read. "
+                             "Photograph the barcode or the printed nutrition panel, or enter "
+                             "the numbers.")}
     fields = {k: data.get(k) for k in ("kcal", "protein_g", "carb_g", "fat_g", "sodium_mg")}
     for k, v in list(fields.items()):
         try:

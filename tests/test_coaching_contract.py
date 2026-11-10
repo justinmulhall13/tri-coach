@@ -215,8 +215,9 @@ class FuelingContractTests(unittest.TestCase):
         self.assertNotIn("bike-leg duration", result.get("note") or "")
         self.assertIn("no bike leg", result["placement"].lower())
 
-    def test_food_logger_never_estimates_missing_macros(self) -> None:
-        with patch.object(nutrition.db, "add_nutrition") as add:
+    def test_food_logger_invents_nothing_without_a_model_key(self) -> None:
+        with (patch.object(nutrition, "_ok_key", return_value=None),
+              patch.object(nutrition.db, "add_nutrition") as add):
             result = nutrition.log_food("chicken and rice for dinner")
         self.assertTrue(result["requires_input"])
         self.assertEqual(result["added"], 0)

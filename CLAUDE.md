@@ -965,3 +965,18 @@ only on success, so the next send could not see the new exercise either.
 - The push endpoint returns `unresolved_reason`; the sheet shows it.
 - The exact reply shape Hevy sends was not observed (that needs a production write).
   Tests: `tests/test_hevy_create_readback.py`.
+
+## Session 2026-11-10 (part 4) — Fuel: typed estimates and barcode
+
+- The athlete asked for ballpark logging by typing a food ("iced chai latte grande from
+  starbucks"). `nutrition.log_food` now: explicit macros -> self-reported (unchanged); a bare
+  8-14 digit line -> `lookup_barcode`; anything else -> `estimate_food` (model, JSON schema)
+  and logged with `nutrition_log.source = "estimate"`. No model key -> old "macros unknown"
+  question. Estimates are always labelled (row label, summary line, `day.estimated`).
+- Barcode: there is no client decoder (iOS Safari has no BarcodeDetector). The scan photo goes
+  to `read_label`, whose schema now also returns `barcode`; `barcode_ok` checks the GTIN check
+  digit and `lookup_barcode` reads Open Food Facts (User-Agent `Tri-Coach/1.0`, no personal
+  data). Result only prefills the form. A printed nutrition panel still wins when present.
+- Meal photos (`log_photo`) and the nutrition coach prompt still do not estimate.
+- Tests: `tests/test_fuel_estimate_barcode.py`. Tests that call `log_food` without macros must
+  patch `_ok_key` or the model, or they hit the real API when a local key exists.
