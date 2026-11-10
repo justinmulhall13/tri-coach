@@ -287,6 +287,11 @@ jog) w/ 3 min jog". A brick's run leg goes in `structure.run` with its own amoun
 Never write a placeholder such as "as planned", "existing warmup" or "same as before": when a \
 block does not change, copy its text from the plan exactly.
 
+SWIM DRILLS: never write a bare "6×50 drill". Each drill is its own 100, 50 of the drill then \
+50 of swimming that keeps the skill, written "100m catch-up (50 drill / 50 swim), 20s rest" and \
+joined with ";". His drills are 6-second switch, fingertip drag, catch-up and 3-point touch; \
+use up to four in a set, one per 100.
+
 RUN STRUCTURE: a warm-up or cool-down must differ from the block beside it. Never split an easy \
 run into a warm-up, a main block and a cool-down at the same pace: that is one continuous run, so \
 write it as one block in `main` and set the others to "—". Use a warm-up only before faster work. \

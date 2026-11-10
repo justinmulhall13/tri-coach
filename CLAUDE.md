@@ -1007,3 +1007,18 @@ only on success, so the next send could not see the new exercise either.
 - `garmin_workout._parse`: strides with no stated recovery now say "easy jog back".
 - `coach._SYSTEM` has a RUN STRUCTURE paragraph with both rules.
 - Tests: `tests/test_run_structure.py`.
+
+## Session 2026-11-10 (part 7) — swim drills as structured 100s
+
+- The athlete wants drills as 100s: 50 drill then 50 swim holding the skill, one named drill per
+  100. His drills: 6-second switch, fingertip drag, catch-up, 3-point touch (`swim_drills.DRILLS`).
+- `app/swim_drills.py`: `drill_set(count, start=, rest_s=)` writes the set for `half_iron_plan`
+  (technique swim: all four; endurance swim: two, pair alternates by `n % 2`; race week and
+  recovery too) and `plan.py`. `tidy(structure, discipline)` breaks any bare "N×50 drill" into the
+  same 100s at read time in `db._row_to_day` / `db._row_to_secondary`, keeping a stated rest and
+  inventing none. "drill/build" mixed sets are left as written. Stored rows are not rewritten.
+- Wording is parser-bound: each 100 starts "100m", the cue sits in brackets, and a cue must not
+  contain a digit or a word `garmin_workout` reads as stroke, equipment, rest or dryland (back,
+  kick, pull, fins, rest, hip). `tests/test_swim_drills.py` pins it.
+- Technique swim is 50 min (was 45): the drill set grew from 300 m to 400 m.
+- `coach._SYSTEM` has a SWIM DRILLS paragraph.

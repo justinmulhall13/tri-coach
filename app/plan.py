@@ -21,7 +21,7 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
-from . import coaching_contract, config, db
+from . import coaching_contract, config, db, swim_drills
 
 def _hr(intensity: str) -> str:
     """Bike target from the event profile or measured Garmin cycling zones."""
@@ -107,7 +107,7 @@ def _workout(weekday: int, phase: str, dtr: int) -> dict[str, Any]:
                        "6×100 @ race pace, 20s rest; 200 steady", "100 easy",
                        "Keep the feel without fatigue — taper week.")
         return _wo("swim", "Swim: CSS intervals", "threshold",
-                   60, "400 easy + 8×50 drill/build",
+                   60, f"400 easy; {swim_drills.drill_set(2)}; 4×50 build",
                    f"{'10' if peak else '8'}×100 @ CSS (best avg you can hold), 15s rest; 2×300 steady @ ~CSS+3s",
                    "200 easy backstroke",
                    "Primary swim of the week; rebuild threshold feel and frequency.")
@@ -141,10 +141,10 @@ def _workout(weekday: int, phase: str, dtr: int) -> dict[str, Any]:
     if weekday == 3:  # Thu: swim endurance
         if taper:
             return _wo("swim", "Swim — easy aerobic", "Z2",
-                       30, "200 easy", "800 continuous smooth + 4×50 drill", "100 easy",
+                       30, "200 easy", f"800 continuous smooth; {swim_drills.drill_set(2)}", "100 easy",
                        "Flush the legs, hold water feel.")
         return _wo("swim", "Swim: endurance / OW skills", "Z2-tempo",
-                   65, "400 easy + 6×50 drill",
+                   65, f"400 easy; {swim_drills.drill_set(3)}",
                    "1500 as 3×500 (sighting every 6 strokes on middle 500); 4×100 @ race pace",
                    "200 easy",
                    "Second swim; build aerobic base and open-water sighting skill.")

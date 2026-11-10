@@ -35,7 +35,7 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
-from . import coaching_contract, config, db, lifting_split, zones
+from . import coaching_contract, config, db, lifting_split, swim_drills, zones
 
 # The named phases, in order, for the phase strip.
 PHASES = ("recovery", "base", "build", "specific", "peak", "taper", "race")
@@ -220,8 +220,8 @@ def _recovery_session(day: datetime.date, rec_end: datetime.date) -> dict[str, A
                    "Marathon recovery. Swimming moves blood through sore legs without "
                    "loading them, and restarts the leg of the 70.3 that needs the most work.")
     if wd == 2:
-        return _wo("swim", "Swim — technique", "Z2", 40, "300 easy",
-                   "6×50 drill (catch-up / fingertip drag), 15s rest; 4×100 smooth, 20s rest",
+        return _wo("swim", "Swim — technique", "Z2", 45, "300 easy",
+                   f"{swim_drills.drill_set()}; 4×100 smooth, 20s rest",
                    "100 easy", "Technique while the legs recover.")
     if wd == 1:
         return _wo("bike", "Easy spin", "Z1", 40, "—",
@@ -256,12 +256,13 @@ def _swim(wd: int, n: int, phase: str, deload: bool) -> dict[str, Any]:
     race_m = int(round(swim_km * 1000, -2))
     if wd == 0:   # technique
         reps = 6 if deload else int(_ramp(n, 30, 3, 6, 10))
-        return _wo("swim", "Swim — technique", "Z2", 45,
-                   "300 easy + 6×50 drill (catch-up, fingertip drag), 15s rest",
+        return _wo("swim", "Swim — technique", "Z2", 50,
+                   f"300 easy; {swim_drills.drill_set()}",
                    f"{reps}×100 smooth @ easy aerobic, 20s rest, count strokes per length",
                    "100 easy backstroke",
                    "Technique is where a non-competitive swimmer finds the most free "
-                   "time. Smooth, not hard.")
+                   "time. Each drill is 50 of the drill then 50 of swimming that keeps "
+                   "it. Smooth, not hard.")
     if wd == 2:   # CSS
         if phase == "base":
             reps = 6 if deload else int(_ramp(n, 30, 17, 6, 12))
@@ -288,7 +289,7 @@ def _swim(wd: int, n: int, phase: str, deload: bool) -> dict[str, Any]:
         if phase == "specific":
             main += ". Open water if the lakes are swimmable — wetsuit on."
     return _wo("swim", "Swim — endurance", "Z2-tempo", 50,
-               "300 easy + 4×50 drill, 15s rest", main, "200 easy",
+               f"300 easy; {swim_drills.drill_set(2, start=2 * (n % 2))}", main, "200 easy",
                f"Continuous swimming toward the {race_m} m race swim. Sighting is "
                "practised in the pool so it costs nothing in the lake.")
 
@@ -496,7 +497,7 @@ def _race_week(wd: int) -> dict[str, Any]:
         return _bike_quality(0, "taper", False)
     if wd == 2:
         return _wo("swim", "Swim — easy", "Z2", 30, "200 easy",
-                   "800 continuous smooth + 4×50 drill, 15s rest", "100 easy",
+                   f"800 continuous smooth; {swim_drills.drill_set(2)}", "100 easy",
                    "Hold water feel.")
     if wd == 3:
         return _run_quality(0, "taper", False)

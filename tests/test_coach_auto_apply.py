@@ -121,7 +121,7 @@ class AutoApplyTests(unittest.TestCase):
         # A move-only edit wrote "existing swim warmup" over the set, and the
         # watch then had nothing to run.
         db.edit_plan_day("2026-08-19", {"structure": {
-            "warmup": "300 easy + 4×50 drill, 15s rest",
+            "warmup": "300 easy + 4×50 build, 15s rest",
             "main": "1500 continuous steady; 4×100 pull buoy, 15s rest",
             "cooldown": "100 easy backstroke"}}, source="seed", record_history=False)
         adj = {"date": "2026-08-19", "title": "Easy swim", "discipline": "swim",
@@ -130,7 +130,7 @@ class AutoApplyTests(unittest.TestCase):
                              "cooldown": "200 easy"}}
         coach.accept_adjustment(adj)
         st = db.get_plan_day("2026-08-19")["structure"]
-        self.assertEqual(st["warmup"], "300 easy + 4×50 drill, 15s rest")
+        self.assertEqual(st["warmup"], "300 easy + 4×50 build, 15s rest")
         self.assertEqual(st["main"], "1500 continuous steady; 4×100 pull buoy, 15s rest")
         self.assertEqual(st["cooldown"], "200 easy")
 

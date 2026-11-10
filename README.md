@@ -469,6 +469,8 @@ the 70.3 block is checked against its text in `tests/test_garmin_workout_types.p
 
 Run sessions are tidied as they are read, so the card and the watch always agree. A warm-up or cool-down written at the same pace as the block beside it is joined into one continuous block, and a walk recovery between reps becomes an easy jog. Coach Steve is told both rules too, so he stops writing sessions that way.
 
+Swim drills are structured the same way. A drill set is never a bare `6×50 drill`: each drill is its own 100, 50 of the drill then 50 of swimming that keeps the skill, with a one-line cue. The rotation is 6-second switch, fingertip drag, catch-up and 3-point touch (`app/swim_drills.py`). The technique swim does all four, the endurance swim does two and alternates the pair each week, and any older or Coach-written `N×50 drill` is broken up into the same 100s when it is read. On the watch each 100 is its own step, named for its drill.
+
 **Garmin's official API where it exists.** Garmin opened a Personal API in
 October 2026: free, read-only, your own data, authenticated with a key you
 create in Garmin Connect. With `GARMIN_PERSONAL_API_KEY` set, sleep, HRV, Body
@@ -520,6 +522,7 @@ app/
   fitness_age.py     Garmin's fitness age, or a labelled VO2max estimate when
                      Garmin has none; places VO2max on the Cooper bands
   rings.py           the four dashboard rings
+  swim_drills.py     swim drill sets as 100s (50 drill / 50 swim), and the read-time tidy
   ring_detail.py     per-ring drill-downs (contributors, stages, charts)
   activity_detail.py per-activity deep dive + cached AI analysis
   interval_analysis.py recorded work bouts + duration-weighted HR execution
