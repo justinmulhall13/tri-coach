@@ -51,19 +51,22 @@ def drill_set(count: int = len(DRILLS), *, start: int = 0,
     return "; ".join(drill_100(start + i, rest_s) for i in range(max(1, count)))
 
 
-# "6×50 drill (catch-up, fingertip drag), 15s rest" and its shorter forms.
-# "8×50 drill/build" is a mixed set and is left as written.
+# "6×50 drill (catch-up, fingertip drag), 15s rest", "4x50 m drill w/ 15s rest",
+# "8x100 m technique drills, 20s rest". "8×50 drill/build" is a mixed set and is
+# left as written.
+MAX_100S = 2 * len(DRILLS)
 _BARE = re.compile(
     r"(?P<lead>\s*\+\s*)?"
-    r"(?P<reps>\d+)\s*[×x]\s*(?P<dist>\d+)\s*m?\s*drills?\b(?!\s*/)"
+    r"(?P<reps>\d+)\s*[×x]\s*(?P<dist>\d+)\s*m?\s*"
+    r"(?:(?:technique|skill|stroke|form)\s+)?drills?\b(?!\s*/)"
     r"(?:\s*\([^)]*\))?"
-    r"(?:\s*,\s*(?P<rest>\d+)\s*s(?:ec(?:ond)?s?)?\s*rest\b)?",
+    r"(?:\s*(?:,|w/|with)?\s*(?P<rest>\d+)\s*s(?:ec(?:ond)?s?)?\s*rest\b)?",
     re.I)
 
 
 def _structured(m: re.Match[str]) -> str:
     metres = int(m.group("reps")) * int(m.group("dist"))
-    count = max(1, min(len(DRILLS), round(metres / 100)))
+    count = max(1, min(MAX_100S, round(metres / 100)))
     rest = int(m.group("rest")) if m.group("rest") else None
     return ("; " if m.group("lead") else "") + drill_set(count, rest_s=rest)
 

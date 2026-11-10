@@ -1017,6 +1017,8 @@ only on success, so the next send could not see the new exercise either.
   recovery too) and `plan.py`. `tidy(structure, discipline)` breaks any bare "N×50 drill" into the
   same 100s at read time in `db._row_to_day` / `db._row_to_secondary`, keeping a stated rest and
   inventing none. "drill/build" mixed sets are left as written. Stored rows are not rewritten.
+  It also matches Steve's forms ("4x50 m drill w/ 15s rest", "8x100 m technique drills"); a set
+  over 400 m repeats the rotation, capped at eight 100s (`MAX_100S`).
 - Wording is parser-bound: each 100 starts "100m", the cue sits in brackets, and a cue must not
   contain a digit or a word `garmin_workout` reads as stroke, equipment, rest or dryland (back,
   kick, pull, fins, rest, hip). `tests/test_swim_drills.py` pins it.

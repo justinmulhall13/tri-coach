@@ -56,6 +56,21 @@ class TidyTests(unittest.TestCase):
         self.assertNotIn("rest", out["main"])
         self.assertEqual(out["main"].count("100m "), 2)
 
+    def test_coach_written_forms(self) -> None:
+        # Both were live rows. The first left "w/ 15s rest" hanging off the last
+        # 100, which the watch then read as a rest and nothing else.
+        out = swim_drills.tidy({"warmup": "300 m easy; 4x50 m drill w/ 15s rest",
+                                "main": "8x100 m technique drills, 20s rest; then 4x200 m steady"},
+                               "swim")
+        self.assertEqual(out["warmup"].count(", 15s rest"), 2)
+        self.assertNotIn("w/", out["warmup"])
+        steps, _ = garmin_workout._swim_steps(out["warmup"], kind="warmup")
+        self.assertEqual([_end(s) for s in steps],
+                         [("distance", 300.0)] + [("distance", 100.0), ("time", 15.0)] * 2)
+        self.assertEqual(out["main"].count("100m "), 8)
+        self.assertEqual(out["main"].count("100m catch-up"), 2)
+        self.assertTrue(out["main"].endswith("; then 4x200 m steady"))
+
     def test_idempotent_and_scoped(self) -> None:
         once = swim_drills.tidy({"warmup": "200 easy + 8x50 drills, 20s rest"}, "swim")
         self.assertEqual(swim_drills.tidy(once, "swim"), once)
