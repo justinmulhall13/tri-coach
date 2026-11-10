@@ -949,3 +949,19 @@ carries `rating_source: derived`.
 
 A breaker pass and a wide review of this change were cut short to stay inside a usage
 cap; the parser has only the unit tests and a hand spot check behind it.
+
+## Session 2026-11-10 (part 3) — Hevy custom exercise create
+
+Symptom: Send to Hevy on a split day said "Could not match" for exercises Hevy lacked,
+and each retry added another copy of them to Hevy. Cause: the create landed but the
+reply was unusable, `resolve` reported `failed`, and the catalogue cache was dropped
+only on success, so the next send could not see the new exercise either.
+
+- `hevy_connector._request_once(scalar_key=)`: for the exercise create only, a 2xx
+  reply that is a bare id (text, JSON string or number) becomes `{"id": ...}`.
+- `create_exercise_template` drops the catalogue cache in a `finally`.
+- `hevy_exercises.resolve` reads the catalogue back after any create without an id
+  and uses an exact-title match (`_read_back`). A real refusal stays `failed`.
+- The push endpoint returns `unresolved_reason`; the sheet shows it.
+- The exact reply shape Hevy sends was not observed (that needs a production write).
+  Tests: `tests/test_hevy_create_readback.py`.

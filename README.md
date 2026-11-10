@@ -342,6 +342,12 @@ its swim days automatically and doses them by phase — heavy in base, held in
 build, two-set maintenance once race-specific work starts, light in the taper. A changed day can be
 sent to Hevy as a routine after explicit confirmation.
 
+An exercise Hevy does not have is created there as a custom exercise during the
+send. Hevy can accept that create and still answer with a reply the client cannot
+read, so after any unusable reply the app re-reads Hevy's exercise list and uses
+the exercise if it is now there. Only a create Hevy actually refused is reported,
+with Hevy's reason.
+
 The rest of the tab is evidence from completed Hevy workouts: recent sessions,
 exercise volume and frequency, estimated strength records, progression trends,
 muscle balance, consistency and stale-load calibration. Garmin strength

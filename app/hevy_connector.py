@@ -127,9 +127,11 @@ class HevyAPIConnector:
     READ_BACKOFF_S = (0.5, 1.5)
 
     def _request(self, method: str, path: str, *, params: dict[str, Any] | None = None,
-                 body: dict[str, Any] | None = None) -> dict[str, Any]:
+                 body: dict[str, Any] | None = None,
+                 scalar_key: str | None = None) -> dict[str, Any]:
         if method.upper() != "GET":
-            return self._request_once(method, path, params=params, body=body)
+            return self._request_once(method, path, params=params, body=body,
+                                      scalar_key=scalar_key)
         for attempt in range(self.READ_ATTEMPTS):
             try:
                 return self._request_once(method, path, params=params, body=body)
@@ -140,7 +142,8 @@ class HevyAPIConnector:
         raise AssertionError("unreachable")
 
     def _request_once(self, method: str, path: str, *, params: dict[str, Any] | None = None,
-                      body: dict[str, Any] | None = None) -> dict[str, Any]:
+                      body: dict[str, Any] | None = None,
+                      scalar_key: str | None = None) -> dict[str, Any]:
         url = f"{self._base_url}/{path.lstrip('/')}"
         if params:
             url += "?" + urlencode({k: v for k, v in params.items() if v is not None})
@@ -177,7 +180,16 @@ class HevyAPIConnector:
         try:
             data = json.loads(raw)
         except json.JSONDecodeError as exc:
+            # Some creates answer 2xx with the new id as bare text, not JSON.
+            # The write has landed by then, so calling it a failure would make
+            # the caller create the same thing again.
+            text = raw.decode("utf-8", "replace").strip() if scalar_key else ""
+            if text and len(text) <= 80 and not any(c.isspace() for c in text):
+                return {scalar_key: text.strip('"')}
             raise HevyAPIError("Hevy API returned invalid JSON", transient=True) from exc
+        if scalar_key and isinstance(data, (str, int)) and not isinstance(data, bool) \
+                and str(data).strip():
+            return {scalar_key: str(data).strip()}
         if not isinstance(data, dict):
             raise HevyAPIError("Hevy API returned an unexpected payload")
         return data
@@ -274,7 +286,8 @@ class HevyAPIConnector:
                 if needle in str(template.get("title") or "").casefold()]
 
     def _create_once(self, path: str, envelope: str, value: dict[str, Any],
-                     idempotency_key: str) -> dict[str, Any]:
+                     idempotency_key: str, *,
+                     scalar_key: str | None = None) -> dict[str, Any]:
         key = (idempotency_key or "").strip()
         if not key:
             raise ValueError("idempotency_key is required for a Hevy create")
@@ -285,7 +298,8 @@ class HevyAPIConnector:
                 return dict(previous)
             # Keep the lock through the single network call. A concurrent retry
             # cannot race this operation and create a duplicate.
-            result = self._request("POST", path, body={envelope: value})
+            result = self._request("POST", path, body={envelope: value},
+                                   scalar_key=scalar_key)
             self._write_results[operation_key] = dict(result)
             return result
 
@@ -303,12 +317,15 @@ class HevyAPIConnector:
         next lookup would still report the exercise as missing and try to
         create it again.
         """
-        result = self._create_once("exercise_templates", "exercise", exercise,
-                                   idempotency_key)
-        with self._catalog_lock:
-            self._template_catalog = None
-            self._template_catalog_at = 0.0
-        return result
+        try:
+            return self._create_once("exercise_templates", "exercise", exercise,
+                                     idempotency_key, scalar_key="id")
+        finally:
+            # Also on an error: the POST may have landed before the reply went
+            # wrong, and a stale catalogue would hide the new exercise.
+            with self._catalog_lock:
+                self._template_catalog = None
+                self._template_catalog_at = 0.0
 
 
 def _connector_from_environment() -> HevyConnector:

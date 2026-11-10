@@ -4535,7 +4535,8 @@ if($("split-push")) $("split-push").onclick=async()=>{
       const made=(r.created_exercises||[]);
       _splitStatus("Created in Hevy."+(made.length?` New exercises added: ${made.join(", ")}.`:""));
     }else if(r&&r.unresolved){
-      _splitStatus(`Not created. Could not match: ${r.unresolved.join(", ")}.`,true);
+      _splitStatus(`Not created. Hevy would not add: ${r.unresolved.join(", ")}.`
+        +(r.unresolved_reason?` ${r.unresolved_reason}.`:""),true);
     }else{
       _splitStatus((r&&r.instruction)||`Not created: ${(r&&r.error)||"unknown Hevy error"}.`,true);
     }

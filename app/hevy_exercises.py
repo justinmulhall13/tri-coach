@@ -232,20 +232,43 @@ def resolve(title: str, *, templates: Any, connector: Any = None,
                 "resolution": "missing", "created": False,
                 "reason": "no matching Hevy template and creation was not requested"}
     payload = creation_payload(title)
+    reason = ""
+    template_id = None
     try:
         result = connector.create_exercise_template(
             payload, idempotency_key=idempotency_key or f"template:{normalize(title)}")
     except Exception as exc:  # noqa: BLE001 - reported, never silently swallowed
-        return {"title": title, "exercise_template_id": None,
-                "resolution": "failed", "created": False,
-                "reason": f"{type(exc).__name__}: {exc}", "payload": payload}
-    template_id = None
-    if isinstance(result, dict):
-        template_id = result.get("id") or (result.get("exercise_template") or {}).get("id")
+        reason = f"{type(exc).__name__}: {exc}"
+    else:
+        if isinstance(result, dict):
+            template_id = result.get("id") or (result.get("exercise_template") or {}).get("id")
+        if not template_id:
+            reason = "Hevy accepted the create but returned no template id"
+    if not template_id:
+        # The exercise was not in Hevy before this call. If it is there now,
+        # the create landed and only the reply was unusable, so use it rather
+        # than report a failure and create a duplicate on the next try.
+        template_id = _read_back(connector, title)
     if not template_id:
         return {"title": title, "exercise_template_id": None,
                 "resolution": "failed", "created": False,
-                "reason": "Hevy accepted the create but returned no template id",
-                "payload": payload}
+                "reason": reason, "payload": payload}
     return {"title": title, "exercise_template_id": str(template_id),
             "resolution": "created", "created": True, "payload": payload}
+
+
+def _read_back(connector: Any, title: str) -> str | None:
+    """The id of a template in Hevy whose title is exactly this one, if any."""
+    reader = getattr(connector, "all_exercise_templates", None)
+    if reader is None:
+        return None
+    try:
+        fresh = reader() or []
+    except Exception:  # noqa: BLE001 - a failed read-back leaves the first reason
+        return None
+    wanted = normalize(title)
+    for template in fresh:
+        if isinstance(template, dict) and template.get("id") \
+                and normalize(template.get("title")) == wanted:
+            return str(template["id"])
+    return None

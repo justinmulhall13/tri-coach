@@ -781,6 +781,10 @@ def lifting_split_push(slot: str, body: dict = Body(default={})) -> JSONResponse
                   if isinstance(item, dict) and item.get("title")]
     if unresolved:
         result["unresolved"] = unresolved
+        reasons = {str(item.get("reason")) for item in details
+                   if isinstance(item, dict) and item.get("reason")}
+        if reasons:
+            result["unresolved_reason"] = "; ".join(sorted(reasons))[:300]
         return JSONResponse(result, status_code=422)
     status_code = 502 if result.get("retry_safe") is False else 400
     if not hevy_connector.status().get("connected"):
