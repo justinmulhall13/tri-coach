@@ -14,7 +14,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from . import coaching_contract, config
+from . import coaching_contract, config, run_structure
 
 _DB_PATH = (config.BASE_DIR / config.DB_PATH).resolve() if not Path(config.DB_PATH).is_absolute() else Path(config.DB_PATH)
 _local = threading.local()
@@ -611,6 +611,7 @@ def _conn() -> sqlite3.Connection:
 def _row_to_day(r: sqlite3.Row) -> dict[str, Any]:
     d = dict(r)
     d["structure"] = json.loads(d["structure"]) if d.get("structure") else {}
+    d["structure"] = run_structure.tidy(d["structure"], d.get("discipline"))
     d["is_rest"] = bool(d["is_rest"])
     return d
 
@@ -1915,6 +1916,7 @@ def _row_to_secondary(row: Any) -> dict[str, Any]:
         session["structure"] = json.loads(session.get("structure") or "{}")
     except (TypeError, ValueError):
         session["structure"] = {}
+    session["structure"] = run_structure.tidy(session["structure"], session.get("discipline"))
     return session
 
 

@@ -467,6 +467,8 @@ down" ends on the lap button, a set with no stated rest gets none, and a block
 with no amount runs the session's remaining minutes. Every generated session in
 the 70.3 block is checked against its text in `tests/test_garmin_workout_types.py`.
 
+Run sessions are tidied as they are read, so the card and the watch always agree. A warm-up or cool-down written at the same pace as the block beside it is joined into one continuous block, and a walk recovery between reps becomes an easy jog. Coach Steve is told both rules too, so he stops writing sessions that way.
+
 **Garmin's official API where it exists.** Garmin opened a Personal API in
 October 2026: free, read-only, your own data, authenticated with a key you
 create in Garmin Connect. With `GARMIN_PERSONAL_API_KEY` set, sleep, HRV, Body

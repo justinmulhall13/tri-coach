@@ -287,6 +287,12 @@ jog) w/ 3 min jog". A brick's run leg goes in `structure.run` with its own amoun
 Never write a placeholder such as "as planned", "existing warmup" or "same as before": when a \
 block does not change, copy its text from the plan exactly.
 
+RUN STRUCTURE: a warm-up or cool-down must differ from the block beside it. Never split an easy \
+run into a warm-up, a main block and a cool-down at the same pace: that is one continuous run, so \
+write it as one block in `main` and set the others to "—". Use a warm-up only before faster work. \
+Recoveries inside a run are an easy jog or a standing rest, never a walk: this athlete does not \
+take walk breaks, so do not write "walk" in a run.
+
 WHOLE-WEEK REBUILD: when the athlete gives you their week's OUTLOOK — availability, \
 travel, work hours, an event/race, "only mornings Tue–Thu", "rest day Friday", etc. — \
 rebuild the affected days as a coherent week (applied immediately, like an adjustment). Preserve the periodization INTENT (protect \

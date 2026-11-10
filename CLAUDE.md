@@ -994,3 +994,16 @@ only on success, so the next send could not see the new exercise either.
 - `coach._SYSTEM` has a rule telling Steve to answer calorie questions from `daily_energy` and to
   give no number when it is null. The Fuel tab's own target is still the g/kg macro target.
 - Tests: `tests/test_daily_energy.py`.
+
+## Session 2026-11-10 (part 6) — run structure: no same-pace splits, no walk recoveries
+
+- Steve wrote an easy run as warm-up 10 min + main 25 min + cool-down at one pace, with strides
+  "w/ 60s walk". The athlete wants neither: same-pace blocks are one run, and he does not walk.
+- `app/run_structure.py` `tidy(structure, discipline)` joins a same-pace warm-up/cool-down into the
+  neighbouring main block (sets the other to "—") and turns walk recoveries into "easy jog" in
+  `warmup`/`main` (cool-down text is left alone). Run sessions only.
+- It runs at read time in `db._row_to_day` and `db._row_to_secondary`, so the card, the watch build
+  and the coach context agree. Stored rows are not rewritten, so no production write was needed.
+- `garmin_workout._parse`: strides with no stated recovery now say "easy jog back".
+- `coach._SYSTEM` has a RUN STRUCTURE paragraph with both rules.
+- Tests: `tests/test_run_structure.py`.

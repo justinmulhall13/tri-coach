@@ -428,7 +428,7 @@ def _parse(clause: str) -> dict[str, Any]:
         if not rec and re.search(r"\bstrides?\b|\bpick-?ups?\b", clause, re.I):
             # Strides are never run back to back; with no stated recovery the
             # watch waits for the lap button instead of inventing one.
-            rec = ("lap", None, "walk or jog back", len(tail))
+            rec = ("lap", None, "easy jog back", len(tail))
         return {"type": "repeat", "n": int(rep.group(1)), "end": end, "amount": amount,
                 "work": work.strip(" ,"), "rec": rec, "text": clause}
     qty = _QTY_RE.search(clause)
