@@ -1054,3 +1054,51 @@ def current_training_load(training_load: dict[str, Any] | None) -> dict[str, Any
     if (out.get("load_focus_freshness") or {}).get("is_current") is not True:
         out["load_focus"] = None
     return out
+
+
+def _kcal(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return None
+    return int(round(value))
+
+
+def get_daily_energy(days: int = 7) -> dict[str, Any]:
+    """Garmin's own daily calorie burn: total = resting (BMR) + active.
+
+    Read from the daily summary and never estimated. Today is a running total,
+    so it is reported apart from the finished days and left out of the average.
+    A day Garmin has no total for is listed as missing, not filled in.
+    """
+    c = get_client()
+    today = config.local_today()
+    dates = [(today - datetime.timedelta(days=n)).isoformat() for n in range(days + 1)]
+    with ThreadPoolExecutor(max_workers=min(8, len(dates))) as ex:
+        rows = list(ex.map(lambda d: _safe(lambda: c.get_user_summary(d)), dates))
+
+    def one(date: str, row: Any) -> dict[str, Any] | None:
+        total = _kcal(row.get("totalKilocalories")) if isinstance(row, dict) else None
+        if total is None:
+            return None
+        return {"date": date, "total_kcal": total,
+                "active_kcal": _kcal(row.get("activeKilocalories")),
+                "resting_kcal": _kcal(row.get("bmrKilocalories"))}
+
+    parsed = [one(d, r) for d, r in zip(dates, rows)]
+    now = parsed[0]
+    full = [d for d in parsed[1:] if d]
+
+    def mean(key: str) -> int | None:
+        vals = [d[key] for d in full if d[key] is not None]
+        return int(round(sum(vals) / len(vals))) if vals else None
+
+    return {
+        "source": "Garmin daily summary",
+        "days": full,
+        "average": ({"days": len(full), "total_kcal": mean("total_kcal"),
+                     "active_kcal": mean("active_kcal"), "resting_kcal": mean("resting_kcal")}
+                    if full else None),
+        "today": ({**now, "partial": True,
+                   "note": "Running total so far today, not a full day"} if now else None),
+        "missing_dates": [d for d, row in zip(dates[1:], parsed[1:]) if row is None],
+        "fetched_at": _iso_now(),
+    }

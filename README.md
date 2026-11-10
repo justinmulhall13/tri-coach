@@ -424,6 +424,8 @@ photo: a barcode is read, check-digit validated and looked up in Open Food Facts
 nutrition panel is read as printed. Either way the values only prefill the form for
 review before anything is saved.
 
+Coach Steve also reads Garmin's daily calorie burn (total, active and resting) for the last seven finished days. Asked how much to eat, he quotes the measured average and a target worked out in code from that average and the lose, maintain or gain goal. Today's running total is labelled as partial and left out of the average.
+
 ### Analytics
 ![Analytics tab](docs/screenshots/analytics.png)
 

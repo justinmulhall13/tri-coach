@@ -980,3 +980,17 @@ only on success, so the next send could not see the new exercise either.
 - Meal photos (`log_photo`) and the nutrition coach prompt still do not estimate.
 - Tests: `tests/test_fuel_estimate_barcode.py`. Tests that call `log_food` without macros must
   patch `_ok_key` or the model, or they hit the real API when a local key exists.
+
+## Session 2026-11-10 (part 5) — Garmin daily calorie burn
+
+- `garmin_source.get_daily_energy(days=7)` reads `get_user_summary(date)` (legacy garminconnect call,
+  forwarded by `HybridClient`) for today plus the last 7 days: `totalKilocalories`,
+  `activeKilocalories`, `bmrKilocalories`. Finished days are averaged; today is a running total,
+  flagged `partial` and kept out of the average; days with no total go in `missing_dates`.
+- `coach._live_context` fetches it as `"energy"`; `_context_block` exposes it as `daily_energy` via
+  `_energy_context`, which adds `goal`, `goal_adjustment_kcal` and a code-computed `target_kcal`
+  (average + `nutrition._GOAL_KCAL[goal]`, rounded to 10). Read it with `live.get("energy")`:
+  older tests build `live` without that key.
+- `coach._SYSTEM` has a rule telling Steve to answer calorie questions from `daily_energy` and to
+  give no number when it is null. The Fuel tab's own target is still the g/kg macro target.
+- Tests: `tests/test_daily_energy.py`.

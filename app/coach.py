@@ -42,6 +42,13 @@ Hard rules:
 - Ground every claim about the athlete's body in the Garmin data provided in the \
 context block. Never invent a number. If a metric is listed as missing/null, say \
 it is missing — do not estimate it.
+- `daily_energy` is Garmin's own daily calorie burn read from the watch (total = resting + \
+active). It is measured data, so use it. When the athlete asks how much to eat or what calories \
+to aim for, give a number: quote `daily_energy.average.total_kcal` and how many days it covers, \
+then `daily_energy.target_kcal`, which is that average plus the athlete's chosen goal adjustment \
+and is already computed for you. `daily_energy.today` is a running total for an unfinished day; \
+never present it as a full day. If `daily_energy` or its average is null, say Garmin did not \
+return daily calories and give no calorie number.
 - `todays_readiness.training_readiness` is the MORNING post-sleep recovery: the stable \
 "how recovered did the athlete wake up" value, and the one you judge the day's readiness by. \
 `todays_readiness.current_readiness` is Garmin's latest intraday snapshot, not automatically a \
@@ -637,6 +644,7 @@ def _live_context(safe) -> dict[str, Any]:
             "training_load": garmin_source.get_training_load,
             "fitness": garmin_source.get_fitness_markers,
             "weight": garmin_source.get_weight_kg,
+            "energy": garmin_source.get_daily_energy,
             "pmc": lambda: fitness_trend.get_pmc(90),
             "zones": zones.summary,
             # Calendar is fetched beside Garmin instead of serially after it.
@@ -652,6 +660,32 @@ def _live_context(safe) -> dict[str, Any]:
             data = {**cached, **{name: future.result() for name, future in futures.items()}}
         _CONTEXT_CACHE.update({"at": time.monotonic(), "date": today, "data": data})
         return data
+
+
+def _energy_context(energy: Any) -> dict[str, Any] | None:
+    """Garmin's daily burn plus the calorie target it implies.
+
+    The target is worked out here, from the measured average and the goal the
+    athlete picked in Fuel, so the model quotes a number instead of doing sums.
+    """
+    if not isinstance(energy, dict):
+        return None
+    out = dict(energy)
+    average = (energy.get("average") or {}).get("total_kcal")
+    if not average:
+        return out
+    try:
+        from . import nutrition
+        goal = nutrition.get_goal()
+        delta = int(nutrition._GOAL_KCAL[goal])
+    except Exception:
+        return out
+    out["goal"] = goal
+    out["goal_adjustment_kcal"] = delta
+    out["target_kcal"] = int(round((average + delta) / 10.0) * 10)
+    out["target_basis"] = ("Garmin average total burn over the finished days listed, plus the "
+                           "goal adjustment, rounded to 10 kcal")
+    return out
 
 
 def _goal_race_completion(activities: list[dict[str, Any]], race: dict[str, Any]) -> dict[str, Any] | None:
@@ -822,6 +856,7 @@ def _context_block(user_query: str = "", *, night_query: str | None = None) -> s
     decision_training_load = garmin_source.current_training_load(training_load)
     fitness = live["fitness"]
     weight = live["weight"]
+    energy = live.get("energy")
     pmc = live["pmc"]
     baseline = safe(baselines.get_baselines)
     morning = readiness.get("training_readiness") or {}
@@ -915,6 +950,7 @@ def _context_block(user_query: str = "", *, night_query: str | None = None) -> s
         ),
         "athlete_profile": config.ATHLETE_PROFILE,
         "athlete_weight": weight,
+        "daily_energy": _energy_context(energy),
         "athlete_zones": live["zones"],
         "race": phase,
         "goal_race_completion": race_completion,
