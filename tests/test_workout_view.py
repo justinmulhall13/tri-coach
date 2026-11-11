@@ -462,6 +462,46 @@ class FuelMix(_Fixture):
         self.assertEqual(plan["mix"]["table_sugar_g"], 0)
         self.assertTrue(plan["mix"]["salt"].endswith("tsp"))
 
+    def test_a_rate_the_session_writes_is_the_one_the_panel_shows(self) -> None:
+        # The athlete's call on 2026-11-10: the plan text wins over the duration band.
+        w, _ = hip.workout_for_date(datetime.date(2027, 2, 6), RACE)   # long brick, "Fuel 80-90 g carb/h"
+        plan = nutrition.fueling_plan({"discipline": "brick", "duration_min": 165, "duration_scope": "bike_leg",
+                                       "structure": w["structure"]})
+        self.assertEqual(plan["carb_range_g_per_hr"], [80, 90])
+        self.assertEqual((plan["carb_g_per_hr"], plan["carb_rate_source"]), (85, "session text"))
+        self.assertEqual(plan["glucose_g_per_hr"] + plan["fructose_g_per_hr"], 85)
+        self.assertLessEqual(plan["glucose_g_per_hr"], 60)
+        self.assertLessEqual(plan["fructose_g_per_hr"], 30)
+        self.assertEqual(plan["total_carb_g"][0], round(85 * 165 / 60))
+        # A long base ride that writes 60 g/h gets 60, not the over-150-min default.
+        ride = nutrition.fueling_plan({"discipline": "bike", "duration_min": 165, "structure": {
+            "main": "140 min steady Z2 @ HR 119-138, fuel 60 g carb/h"}})
+        self.assertEqual((ride["carb_g_per_hr"], ride["fructose_g_per_hr"]), (60, 0))
+        # No rate written: the duration band still decides. A rate past the ceilings is held at 90.
+        self.assertEqual(nutrition.fueling_plan({"discipline": "bike", "duration_min": 180})["carb_g_per_hr"], 75)
+        self.assertEqual(nutrition.fueling_plan({"discipline": "bike", "duration_min": 180})["carb_rate_source"],
+                         "duration band")
+        capped = nutrition.fueling_plan({"discipline": "bike", "duration_min": 180,
+                                         "structure": {"main": "3 h Z2, fuel 100-120 g carbs per hour"}})
+        self.assertEqual(capped["carb_g_per_hr"], 90)
+        self.assertIsNone(capped["carb_range_g_per_hr"])
+
+    def test_every_written_rate_in_the_block_matches_the_panel(self) -> None:
+        day = datetime.date(2026, 11, 2)
+        checked = 0
+        while day <= RACE:
+            w, _ = hip.workout_for_date(day, RACE)
+            day += datetime.timedelta(days=1)
+            stated = nutrition.stated_carb_rate(w)
+            if not stated or (w.get("duration_min") or 0) < 60:
+                continue
+            plan = nutrition.fueling_plan({"discipline": w["discipline"], "duration_min": w["duration_min"],
+                                           "structure": w["structure"]})
+            if plan.get("carb_g_per_hr"):
+                self.assertTrue(stated[0] <= plan["carb_g_per_hr"] <= stated[1], w["title"])
+                checked += 1
+        self.assertGreater(checked, 20)
+
     def test_what_the_sheet_prints_carries_no_gut_wording(self) -> None:
         for disc in ("bike", "run", "swim", "brick"):
             for minutes in (30, 75, 150, 200, 270):

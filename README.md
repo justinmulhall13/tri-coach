@@ -400,7 +400,10 @@ teaspoon of table salt. Drinks use an exact scale-verified finished mass so the
 amount stays unknown until then. Brick and race totals use the bike duration
 only, never the run or whole-event duration. Every plan carries its arithmetic,
 labels each input source, and carries an abort protocol that introduces nothing
-untested. The workout sheet shows only the part used on the day: carbs, fluid
+untested. A carbohydrate rate the session itself writes ("Fuel 80-90 g carb/h") is the
+prescription, so the panel shows that range and mixes the bottle for its
+midpoint; the duration bands are only the default for a session that writes
+none. The workout sheet shows only the part used on the day: carbs, fluid
 and sodium per hour, what goes in each hour's bottle, and the session total. The
 transport limits and the arithmetic stay in the payload for Coach.
 

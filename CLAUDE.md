@@ -1092,9 +1092,16 @@ the gut material from Fuel ("i'm fine").
   to the front once by `_leading_count`, called from `_normalise_times` and
   `_swim_chunks`, so every reader, the watch and the sheet agree.
 - Still open: "3x1 km x 2 sets" runs 3, not 6, and "5 km @ 4:41/km x2" runs once
-  (the sheet shows that one as text). The long-brick plan text says "Fuel 80-90 g
-  carb/h, 600-800 mg sodium/h" while `nutrition.fueling_plan` says 75 g and
-  800-900 mg. Which is right is the athlete's call.
+  (the sheet shows that one as text).
+- Carb rate: the session text wins (the athlete's call, 2026-11-10).
+  `nutrition.stated_carb_rate(session)` reads "80-90 g carb/h" or "60 g carb/h" out
+  of the structure; `fueling_plan` then mixes the bottle for the midpoint (held at
+  the 90 g ceiling), reports `carb_rate_source: "session text"` and
+  `carb_range_g_per_hr`, and the sheet prints the range as written. The duration
+  band (30-60, 70-90 with 75) is only the default for a session that writes no
+  rate. Sodium is still split: `half_iron_plan` long bricks write "600-800 mg
+  sodium/h", the panel uses the athlete's own 800-900 mg/L from
+  `fueling_reference`. Not changed; ask before touching either.
 - Looking at it without the backend: a fixture server that serves `static/index.html`,
   answers `/api/workout/steps` and `/api/fuel` from the real modules with zones and
   the event patched, and returns `{}` for everything else. Then

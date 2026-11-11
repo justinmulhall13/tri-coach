@@ -287,6 +287,24 @@ def _salt_tsp(mg: float) -> str:
     return f"{whole} tsp" if whole else f"{frac} tsp"
 
 
+_STATED_CARB_RE = re.compile(
+    r"(\d{2,3})(?:\s*[-–]\s*(\d{2,3}))?\s*g\s*(?:of\s+)?carb(?:s|ohydrates?)?\s*(?:/\s*h(?:r|our)?\b|per\s+hour|an\s+hour)",
+    re.I)
+
+
+def stated_carb_rate(session: dict[str, Any]) -> tuple[int, int] | None:
+    """(low, high) g carbohydrate per hour written in the session's own text."""
+    st = session.get("structure") if isinstance(session.get("structure"), dict) else {}
+    for key in ("main", "warmup", "cooldown", "run"):
+        m = _STATED_CARB_RE.search(str(st.get(key) or ""))
+        if m:
+            lo = int(m.group(1))
+            hi = int(m.group(2) or lo)
+            if 20 <= lo <= hi <= 150:
+                return lo, hi
+    return None
+
+
 def fueling_plan(session: dict[str, Any]) -> dict[str, Any]:
     """Intra-session fuelling built from the transport ceilings, with the
     arithmetic exposed so it can be checked."""
@@ -397,6 +415,18 @@ def fueling_plan(session: dict[str, Any]) -> dict[str, Any]:
     # requested 70-90 g/h band.
     target = 75 if ratio_required else min(hi, MAX_CARB_G_H)
 
+    # A rate the session itself writes ("Fuel 80-90 g carb/h") is the
+    # prescription. The duration band above is only the default for a session
+    # that states none, so the sheet never shows two carb numbers. The athlete
+    # settled this on 2026-11-10: the plan text wins.
+    stated = stated_carb_rate(session)
+    if stated:
+        lo, hi = stated
+        target = min(round((lo + hi) / 2), MAX_CARB_G_H)
+        ratio_required = target > GLUCOSE_CEILING_G_H
+        band = (f"The session text states {lo}-{hi} g/h." if lo != hi
+                else f"The session text states {lo} g/h.")
+
     # Split. Above 60 g/h total, glucose alone cannot carry it — 2:1 keeps both
     # transporters under their ceiling (at 90 g/h that is exactly 60 + 30).
     if target > GLUCOSE_CEILING_G_H or ratio_required:
@@ -473,6 +503,9 @@ def fueling_plan(session: dict[str, Any]) -> dict[str, Any]:
         ),
         "duration_arithmetic": bike_arithmetic,
         "band": band,
+        "carb_rate_source": "session text" if stated else "duration band",
+        # The range as the plan wrote it; the bottle is mixed for its midpoint.
+        "carb_range_g_per_hr": list(stated) if stated and stated[0] <= total <= stated[1] else None,
         "carb_g_per_hr": total,
         "glucose_g_per_hr": glucose,
         "fructose_g_per_hr": fructose,

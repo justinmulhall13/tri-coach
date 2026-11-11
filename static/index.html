@@ -3307,7 +3307,9 @@ async function renderFuel(x){
     if(!f.carb_g_per_hr){ body.innerHTML=`<div class="wf-line soft">Ask Coach for the fuelling on this one.</div>`; return; }
     const vol=n=>n>=1000?(Math.round(n/100)/10)+" L":n+" ml";
     const na=f.sodium_mg_per_hr||[], fl=(f.fluid_ml_per_hr||[])[0];
-    const rates=[{v:`${f.carb_g_per_hr} g`,k:"Carbs per hour"},
+    // A range the plan wrote is shown as written; the bottle is mixed for its midpoint.
+    const cr=Array.isArray(f.carb_range_g_per_hr)&&f.carb_range_g_per_hr[0]!==f.carb_range_g_per_hr[1]?f.carb_range_g_per_hr:null;
+    const rates=[{v:cr?`${cr[0]}-${cr[1]} g`:`${f.carb_g_per_hr} g`,k:"Carbs per hour"},
       fl?{v:vol(fl),k:"Fluid per hour"}:null,
       na.length?{v:na[0]===na[1]?`${na[0]} mg`:`${na[0]}-${na[1]} mg`,k:"Sodium per hour"}:null].filter(Boolean);
     const m=f.mix||{};
@@ -3317,7 +3319,7 @@ async function renderFuel(x){
     const scope=x.disc==="brick"?"the ride":"the session", pw=f.plain_water_ml_per_hr;
     body.innerHTML=`
       <div class="wo-figs sm n${rates.length}">${rates.map(r=>`<div class="wo-fig"><div class="v">${esc(r.v)}</div><div class="k">${r.k}</div></div>`).join("")}</div>
-      ${mix.length?`<div class="wf-line">Bottle for each hour: ${esc(mix.join(", "))}${f.finished_drink_mass_g?`. Add water until it weighs ${esc(String(f.finished_drink_mass_g))} g`:", in water"}.${pw?` Drink ${esc(vol(pw))} of plain water as well.`:""}</div>`:""}
+      ${mix.length?`<div class="wf-line">Bottle for each hour${cr?` (${esc(String(f.carb_g_per_hr))} g carbs)`:""}: ${esc(mix.join(", "))}${f.finished_drink_mass_g?`. Add water until it weighs ${esc(String(f.finished_drink_mass_g))} g`:", in water"}.${pw?` Drink ${esc(vol(pw))} of plain water as well.`:""}</div>`:""}
       ${tc?`<div class="wf-line">For ${scope}: ${esc(String(tc))} g carbs${tf?` and ${esc(vol(tf))} of fluid`:""}.</div>`:""}
       ${f.placement&&x.disc!=="bike"?`<div class="wf-line soft">${show(f.placement)}</div>`:""}`;
   }catch(e){ if(req===_fuelReq){ body.innerHTML=`<span class="err">Couldn't load fuelling.</span>`; } }
