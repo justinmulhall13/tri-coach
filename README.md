@@ -398,9 +398,11 @@ teaspoon of table salt. Drinks use an exact scale-verified finished mass so the
 6–8% concentration is checkable. Mass is never converted to volume by assuming
 1 g/mL: the finished drink volume must be measured, and the separate plain-water
 amount stays unknown until then. Brick and race totals use the bike duration
-only, never the run or whole-event duration. Every plan shows its arithmetic,
+only, never the run or whole-event duration. Every plan carries its arithmetic,
 labels each input source, and carries an abort protocol that introduces nothing
-untested.
+untested. The workout sheet shows only the part used on the day: carbs, fluid
+and sodium per hour, what goes in each hour's bottle, and the session total. The
+transport limits and the arithmetic stay in the payload for Coach.
 
 Custom fueling questions use a shared audit contract in both Nutrition and Coach:
 resolve the exact race/training leg, distinguish table-salt mass from sodium,
@@ -466,6 +468,25 @@ recovery becomes that recovery. Nothing is invented: a "full recovery" or "jog
 down" ends on the lap button, a set with no stated rest gets none, and a block
 with no amount runs the session's remaining minutes. Every generated session in
 the 70.3 block is checked against its text in `tests/test_garmin_workout_types.py`.
+
+**The workout sheet.** Tapping a session opens it the way the watch will run it,
+not as a line of text. `app/workout_view.py` takes the same step tree a push
+sends to Garmin and lays it out: a row of figures (duration, the main set, the
+target to hold), the session drawn as a profile where wider is longer and taller
+is harder, then the steps under Warm up, Main set and Cool down. A set such as
+"3×10 min @ HR 139-158 w/ 4 min easy" becomes a bracket marked 3× holding a
+10 min Tempo row with its heart-rate target and a 4 min Easy spin row. Swim
+rests fold into the swim before them ("100 m, 20 s rest") and each drill keeps
+both of its halves. A brick shows a bike leg and a run leg. Tapping a bar marks
+its row and the other way round. Effort is height and grey value, never colour,
+and the line under the bars is the sport's texture. Because the sheet reads the
+watch steps, it cannot show a step the watch would not run; a test walks the
+whole 70.3 block to hold that. Text with no amount in it is shown as written.
+
+<p>
+<img src="docs/screenshots/workout.png" alt="Workout sheet" width="62%">
+<img src="docs/screenshots/phone-workout.png" alt="Workout sheet on a phone" width="30%">
+</p>
 
 Run sessions are tidied as they are read, so the card and the watch always agree. A warm-up or cool-down written at the same pace as the block beside it is joined into one continuous block, and a walk recovery between reps becomes an easy jog. Coach Steve is told both rules too, so he stops writing sessions that way.
 
@@ -539,6 +560,8 @@ app/
   suggest.py         today's session = plan + readiness advisory
   schedule_time.py   default workout times around the daily school block
   garmin_workout.py  push structured workouts to the watch
+  workout_view.py    the workout sheet's view of those same steps: phases,
+                     repeats, one target per row, a level per step for the chart
 
   coach.py           "Coach Steve" agent (chat, event briefs, private memory)
   coaching_contract.py fixed athlete/rules blocks + the one swappable event profile

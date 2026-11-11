@@ -1024,3 +1024,72 @@ only on success, so the next send could not see the new exercise either.
   kick, pull, fins, rest, hip). `tests/test_swim_drills.py` pins it.
 - Technique swim is 50 min (was 45): the drill set grew from 300 m to 400 m.
 - `coach._SYSTEM` has a SWIM DRILLS paragraph.
+
+## Session 2026-11-10 (part 8) — the workout sheet is drawn from the watch steps
+
+The athlete said the sheet that opens on a workout "looks bad" and that the steps
+were "super hard to actually understand", for every sport, and told the app to drop
+the gut material from Fuel ("i'm fine").
+
+- `app/workout_view.py` `build(session)` reshapes `garmin_workout.build_workout`'s
+  step tree for display: `legs > phases > items`, where an item is a step or a
+  repeat group. `POST /api/workout/steps {session}` serves it. Kinds: `steps`
+  (swim, bike, run, brick, recovery), `list` (strength and anything with
+  `structure.blocks`, rows as written), `text` (race day), `rest`.
+- `build_workout(..., phases=[])` fills one list per segment of `(phase, count)`
+  pairs. It never changes the workout (tested). Do not parse session text a second
+  time for display: the sheet must not be able to show a step the watch would not
+  run. `SheetMatchesWatch` in `tests/test_workout_view.py` walks the 70.3 block.
+- Display-only values, never printed as numbers: `level` (bar height, grey value)
+  and `w` (bar width). A distance step with no stated time is drawn across the
+  session's remaining minutes. The chart axis is labelled only when every step has
+  a stated amount.
+- Row grammar: amount, name, one target on the right. A pace ceiling is
+  `target: "5:17/km"` with `target_note: "or slower"`. A swim rest folds into the
+  swim before it (`rest: "20 s rest"`, the rest item carries `fold`), a drill keeps
+  both halves in `detail`. A warm-up or cool-down row is named by its cue, since the
+  phase heading already says which it is. A main set with no amount in the text is
+  shown as written (`_as_written`), not by the keyword the watch names it from.
+- Page: `renderWoView` draws `#wo-figs`, `#wo-chart` (inline SVG, measured width,
+  redrawn on resize) and `#wo-steps`. `woTextView` is the as-written view shown
+  until the server answers, and kept if it fails. Tapping a bar marks its row and
+  the reverse (`woSelect`, `_rowOf` maps a folded rest to its swim). Effort is height
+  and grey value (`lv1..lv5` on `--g5..--g1`); the baseline is the sport texture.
+- Fuel in the sheet: carbs, fluid and sodium per hour, each hour's bottle
+  (`fueling_plan()["mix"]`, "add water until it weighs 1000 g"), and the session
+  total. No glucose/fructose split, ceilings, ratio, abort text, arithmetic, raw
+  recipe string or Coach-facing `note` on screen. Those fields are still in the
+  `/api/fuel` payload for Coach; do not put them back in the sheet. A per-hour
+  fuel rate written into a step ("Fuel 80-90 g carb/h") is not printed on the row;
+  it stays under "As written".
+- Behaviour fixes made on the way: Send to watch from another day's sheet sends
+  that session to that day (an empty body used to send today's session); the
+  "How did it go?" form only shows on today's sheet, because `/api/plan/feedback`
+  logs against today; the sheet opens scrolled to the top; a leading emoji is
+  stripped from the title; the `wo-notes` sink and the logged-only banner now go
+  through `show()`.
+- A reviewed set of rules in `workout_view`, each pinned in `WhatThePlanWrote`:
+  a pace target's kind is read off the encoded band (ceiling = fast + 150 s, single
+  pace = ±8 s with the builder's "(±8s)" note), never off words in the description,
+  because cues are appended to it; a written range ("45-60 min") stays a range on
+  the row; text with a repeat marker the parser did not turn into a repeat ("1 mile
+  repeats x4"), or a swim in yards, falls back to `kind: "list"`; "by feel" text
+  gets no target; miles stay miles; odd seconds are never rounded away; an open
+  step reads "Open" and is never the headline figure; a single-row phase has no
+  total. `written` carries the session text for the "As written" fold, so nothing
+  the plan says is unreachable.
+- The sheet acts on `_woOpen = {x, day}`, set in `openWorkoutDetail`. The dashboard
+  refreshes `_woDay` / `_woSessions` behind an open sheet (every 240 s and on
+  focus), and reading those in `pushToWatch` sent today's session from another
+  day's sheet. `pushToWatch`, `woMeta` and `_schedChange` read the snapshot.
+- Known gaps left in the watch parser (the sheet shows what the watch runs, so
+  they show there too): "3 min jog between sets" after a nested set lands after
+  the last set, not between them; a trailing count ("1 mile repeats x4") is not
+  read as a repeat (the sheet falls back to text, the watch gets one step); the
+  long-brick plan text says "Fuel 80-90 g carb/h, 600-800 mg sodium/h" while
+  `nutrition.fueling_plan` says 75 g and 800-900 mg. Which is right is the
+  athlete's call.
+- Looking at it without the backend: a fixture server that serves `static/index.html`,
+  answers `/api/workout/steps` and `/api/fuel` from the real modules with zones and
+  the event patched, and returns `{}` for everything else. Then
+  `openDayDetail(session)` in the page.

@@ -389,7 +389,10 @@ class FrontendTests(unittest.TestCase):
     def test_brick_run_leg_is_drawn_and_kept_when_sessions_split(self) -> None:
         import pathlib
         page = (pathlib.Path(__file__).resolve().parents[1] / "static" / "index.html").read_text()
-        self.assertIn("const raw=[st.warmup,st.main,st.cooldown,st.run]", page)
+        # The sheet's steps come from /api/workout/steps (tests/test_workout_view.py
+        # covers the run leg there); the as-written fallback draws it too.
+        self.assertIn('["Run",st.run]', page)
+        self.assertIn('"/api/workout/steps"', page)
         self.assertIn('...(primary==="brick"?{run:st.run}:{})', page)
 
 

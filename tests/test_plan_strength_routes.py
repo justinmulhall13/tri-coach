@@ -196,9 +196,17 @@ class PlanStrengthRouteTests(unittest.TestCase):
         self.assertIn("days", response.json())
 
     def test_strength_reps_are_not_labelled_as_swim_metres(self) -> None:
+        # The sheet no longer parses strength text at all: rows are shown as
+        # written, so "3×8" can never be read as a swim distance.
+        from app import workout_view
+        view = workout_view.build({"discipline": "strength", "duration_min": 25, "intensity": "strength",
+                                   "structure": {"main": "3×8 goblet squat; 3×10 single-arm row"}})
+        self.assertEqual(view["kind"], "list")
+        self.assertEqual([row["name"] for row in view["rows"]],
+                         ["3×8 goblet squat", "3×10 single-arm row"])
+        self.assertTrue(all(" m" not in row["amount"] for row in view["rows"]))
         html = (main.STATIC_DIR / "index.html").read_text()
-        self.assertIn('(disc==="strength"&&repeat) ? `${repeat[1]} sets`', html)
-        self.assertIn('disc==="strength" ? intensity||"controlled"', html)
+        self.assertNotIn("workoutBlocks(", html)
 
     def test_home_uses_the_api_one_to_one_completion_matches(self) -> None:
         html = (main.STATIC_DIR / "index.html").read_text()

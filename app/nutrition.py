@@ -482,6 +482,9 @@ def fueling_plan(session: dict[str, Any]) -> dict[str, Any]:
         "fluid_ml_per_hr": [fluid_ml, fluid_ml],
         "sodium_mg_per_hr": [na_lo, na_hi],
         "salt_per_hr": _salt_tsp(sodium_from_recipe),
+        # The bottle as three plain amounts, for the workout sheet.
+        "mix": {"glucose_powder_g": drink_powder, "table_sugar_g": drink_sucrose,
+                "salt": _salt_tsp(sodium_from_recipe)},
         "recipe_sodium_mg_per_hr": sodium_from_recipe,
         "drink_carb_g": in_drink, "drink_conc_pct": conc_pct,
         "finished_drink_mass_g": finished_drink_mass_g,
@@ -551,7 +554,7 @@ def fueling_plan(session: dict[str, Any]) -> dict[str, Any]:
             "the final third to be tolerance-limited."
         )
     elif disc == "run" and hours > 2.5:
-        plan["placement"] = "Long run: carry the rate at the low end. The run is where GI failure shows up."
+        plan["placement"] = "Long run: carry the rate at the low end."
     return plan
 
 

@@ -519,6 +519,87 @@
   .pv-restnote{font-size:14px;color:var(--muted);}
   .wo-vibe{font-size:14px;color:var(--muted);}
   .wo-vibe:empty{display:none;}
+  /* Workout sheet. A row of figures, the session drawn as a profile from the
+     same steps the watch runs, then the steps. Effort is height and grey value,
+     never colour. */
+  .wo-sheet{width:min(640px,100%);}
+  .wo-tx{display:inline-block;width:24px;height:8px;vertical-align:middle;margin-right:8px;color:var(--ink);}
+  .wo-figs{display:flex;border-bottom:1px solid var(--line);padding-bottom:14px;}
+  .wo-figs:empty{display:none;}
+  .wo-fig{flex:1 1 auto;min-width:0;padding:0 14px;border-left:1px solid var(--line);}
+  .wo-fig:first-child{padding-left:0;border-left:0;}
+  .wo-fig .v{font-size:20px;font-weight:700;letter-spacing:-.02em;line-height:1.15;white-space:nowrap;}
+  .wo-fig .k{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.3;}
+  .wo-chart{position:relative;}
+  .wo-chart:empty{display:none;}
+  .wo-chart svg{display:block;width:100%;height:auto;overflow:visible;}
+  .wo-chart rect.b{transition:opacity .18s;}
+  .wo-chart .lv1,.ws-lv .lv1{fill:var(--g5);background:var(--g5);}
+  .wo-chart .lv2,.ws-lv .lv2{fill:var(--g4);background:var(--g4);}
+  .wo-chart .lv3,.ws-lv .lv3{fill:var(--g3);background:var(--g3);}
+  .wo-chart .lv4,.ws-lv .lv4{fill:var(--g2);background:var(--g2);}
+  .wo-chart .lv5,.ws-lv .lv5{fill:var(--g1);background:var(--g1);}
+  .wo-chart rect.lv1,.wo-chart rect.lv2{stroke:var(--g3);stroke-width:1;}
+  .ws-lv .lv1,.ws-lv .lv2{background:var(--g3);}
+  #wo-donechip:empty,#wo-notes:empty{display:none;}
+  .wo-chart rect.open{fill:none;stroke:var(--g3);stroke-width:1;stroke-dasharray:3 3;}
+  .wo-chart.sel rect.b{opacity:.22;}
+  .wo-chart.sel rect.b.on{opacity:1;}
+  .wo-chart rect.hit{fill:transparent;cursor:pointer;}
+  .wo-base{display:flex;margin-top:3px;color:var(--g3);}
+  .wo-base .tx{height:8px;}
+  .wo-phases{position:relative;height:17px;margin-top:3px;font-size:11.5px;color:var(--muted);}
+  .wo-phases span{position:absolute;top:0;white-space:nowrap;}
+  .ws{display:flex;flex-direction:column;gap:18px;}
+  .ws:empty{display:none;}
+  .ws-leg{display:flex;align-items:center;font-size:15px;font-weight:700;margin-bottom:-8px;}
+  .ws-leg .ws-pt{margin-left:auto;font-size:12.5px;font-weight:500;color:var(--muted);}
+  .ws-leg+.ws-phase.bare{border-top:1px solid var(--line);margin-top:2px;}
+  .ws-ph{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:12.5px;font-weight:650;color:var(--muted);
+    padding-bottom:6px;border-bottom:1px solid var(--line);}
+  .ws-ph .ws-pt{font-weight:500;}
+  .ws-row{display:grid;grid-template-columns:4px 62px minmax(0,1fr) auto;column-gap:12px;align-items:start;padding:10px 0;
+    border-bottom:1px solid var(--line);}
+  .ws-row[data-s]{cursor:pointer;scroll-margin:88px 0 80px;}
+  .ws-phase>:last-child{border-bottom:0;}
+  .ws-lv{position:relative;height:20px;}
+  .ws-lv i{position:absolute;left:0;bottom:1px;width:4px;min-height:4px;border-radius:2px;}
+  .ws-amt{font-size:15px;font-weight:700;letter-spacing:-.01em;white-space:nowrap;line-height:1.3;}
+  .ws-amt.open{font-weight:550;color:var(--muted);}
+  .ws-main{min-width:0;}
+  .ws-name{font-size:15px;line-height:1.3;overflow-wrap:anywhere;}
+  .ws-cue{font-size:13px;color:var(--muted);line-height:1.4;margin-top:2px;}
+  .ws-cue b{font-weight:600;color:var(--ink2);}
+  .ws-tgt{font-size:14px;font-weight:650;white-space:nowrap;text-align:right;line-height:1.3;padding-top:1px;}
+  .ws-tgt small{display:block;font-size:12px;font-weight:500;color:var(--muted);}
+  .ws-tgt.soft{font-size:13px;font-weight:500;color:var(--muted);}
+  .ws-rep{display:grid;grid-template-columns:40px minmax(0,1fr);border-bottom:1px solid var(--line);}
+  .ws-x{font-size:20px;font-weight:700;letter-spacing:-.02em;padding-top:12px;line-height:1.2;}
+  .ws-x small{font-size:13px;font-weight:600;color:var(--muted);margin-left:1px;}
+  .ws-rep-rows{border-left:2px solid var(--ink);padding-left:12px;margin:9px 0;}
+  .ws-rep-rows .ws-row{padding:5px 0;border-bottom:0;}
+  .ws-row.on{background:var(--surface2);border-radius:6px;box-shadow:-8px 0 0 var(--surface2),8px 0 0 var(--surface2);}
+  .ws-list .ws-row{grid-template-columns:76px minmax(0,1fr) auto;cursor:default;}
+  .ws-list .ws-amt{font-size:13px;font-weight:650;white-space:normal;padding-top:2px;}
+  .ws-line{font-size:14.5px;line-height:1.5;padding:8px 0;border-bottom:1px solid var(--line);}
+  .wo-when .hd{margin-bottom:8px;}
+  @media(max-width:520px){
+    .wo-figs.n4{flex-wrap:wrap;row-gap:12px;}
+    .wo-figs.n4 .wo-fig{flex:1 1 50%;}
+    .wo-figs.n4 .wo-fig:nth-child(3){padding-left:0;border-left:0;}
+    .wo-fig{padding:0 10px;}
+    .wo-fig .v{font-size:17px;}
+    .wo-figs.sm .wo-fig .v{font-size:16px;}
+    .ws-row{grid-template-columns:4px 60px minmax(0,1fr) auto;column-gap:10px;}
+    .ws-rep{grid-template-columns:34px minmax(0,1fr);}
+    .ws-rep-rows{padding-left:10px;}
+  }
+  @media(max-width:350px){
+    .ws-row{grid-template-columns:4px 60px minmax(0,1fr);}
+    .wo-fig .k{width:0;min-width:100%;}
+    .ws-tgt{grid-column:3;text-align:left;padding-top:2px;}
+    .ws-tgt small{display:inline;margin-left:4px;}
+  }
   .wo-sched{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
   .wo-sched label{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);}
   .wo-sched input{padding:7px 9px;font-size:14px;}
@@ -549,20 +630,20 @@
   .fb-result{display:none;margin-top:10px;font-size:13.5px;line-height:1.5;padding:12px 14px;border-radius:12px;background:var(--surface2);}
   .fb-result.show{display:block;}
   .fb-result ul{margin:6px 0 0;padding-left:18px;} .fb-result li{color:var(--muted);}
-  .fuel-hero{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:6px;}
-  @media(max-width:600px){.fuel-hero{grid-template-columns:repeat(2,minmax(0,1fr));}}
-  .fuel-hero .fh{background:var(--surface);padding:10px 12px;min-width:0;}
-  .fuel-hero .fk,.fuel-math .fk{font-size:12px;color:var(--muted);}
-  .fuel-hero .fv{font-size:19px;font-weight:650;line-height:1.2;}
-  .fuel-hero .fv small{font-size:12px;color:var(--muted);font-weight:500;}
-  .fuel-hero .cap{margin-top:6px;}
-  .fuel-hero .capbar{height:3px;border-radius:2px;background:var(--surface3);overflow:hidden;}
-  .fuel-hero .capbar i{display:block;height:100%;background:var(--chip);}
-  .fuel-hero .cap span{font-size:11px;color:var(--muted);}
-  .fuel-abort{margin-top:6px;padding:11px 13px;border-radius:12px;border:1px solid var(--line2);font-size:13.5px;line-height:1.5;}
-  .fuel-math{margin-top:8px;font-size:13px;}
-  .fuel-math summary{cursor:pointer;font-weight:600;}
-  .fuel-math ul{margin:6px 0 0;padding-left:18px;color:var(--muted);line-height:1.6;}
+  /* Fuel in the workout sheet: three rates, the bottle, the session total. */
+  .wo-figs.sm{border-bottom:0;padding-bottom:0;margin:2px 0 10px;}
+  .wo-figs.sm .wo-fig .v{font-size:17px;}
+  .wf-line{font-size:14px;line-height:1.5;}
+  .wf-line+.wf-line{margin-top:4px;}
+  .wf-line.soft{color:var(--muted);}
+  details.wf-more{font-size:13px;line-height:1.5;color:var(--muted);}
+  details.wf-more .ws-line{font-size:13.5px;color:var(--ink2);}
+  details.wf-more .ws-line b{font-weight:600;color:var(--muted);}
+  details.wf-more summary{cursor:pointer;font-weight:550;list-style:none;display:inline-block;padding:2px 0;}
+  details.wf-more summary::-webkit-details-marker{display:none;}
+  details.wf-more summary::after{content:" · show";font-weight:500;}
+  details.wf-more[open] summary::after{content:" · hide";}
+  details.wf-more[open] summary{margin-bottom:4px;}
 
   /* Ring breakdown */
   .ring-click{cursor:pointer;}
@@ -1629,23 +1710,28 @@
 </div>
 
 <div class="overlay" id="wo-overlay" role="dialog" aria-modal="true" aria-labelledby="wo-title">
-  <div class="sheet">
+  <div class="sheet wo-sheet">
     <div class="sheet-head">
       <div><div class="t" id="wo-title">Workout</div><div class="m" id="wo-meta"></div></div>
       <button class="xbtn" id="wo-close" aria-label="Close workout details">✕</button>
     </div>
     <div class="sheet-body">
       <div id="wo-donechip"></div>
-      <div id="wo-sched" class="wo-sched" style="display:none">
-        <label>Start <input type="time" id="wo-time"></label>
-        <label>Day <input type="date" id="wo-date"></label>
-        <span id="wo-sched-status" class="note" style="padding:0"></span>
-      </div>
+      <div class="wo-figs" id="wo-figs"></div>
       <div id="wo-vibe" class="wo-vibe"></div>
-      <div class="pv-steps" id="wo-steps"></div>
-      <div class="aiblock" id="wo-why-wrap"><div class="hd">Why this session</div><div class="pv-why" id="wo-why"></div></div>
-      <div class="aiblock" id="wo-fuel-wrap" style="display:none"><div class="hd">Fuel</div><div id="wo-fuel"></div></div>
+      <div class="wo-chart" id="wo-chart"></div>
+      <div class="ws" id="wo-steps"></div>
       <div id="wo-notes"></div>
+      <div class="aiblock" id="wo-why-wrap"><div class="hd">Why</div><div class="pv-why" id="wo-why"></div></div>
+      <div class="aiblock" id="wo-fuel-wrap" style="display:none;white-space:normal"><div class="hd">Fuel</div><div id="wo-fuel"></div></div>
+      <div class="aiblock wo-when" id="wo-sched" style="display:none;white-space:normal">
+        <div class="hd">When</div>
+        <div class="wo-sched">
+          <label>Start <input type="time" id="wo-time"></label>
+          <label>Day <input type="date" id="wo-date"></label>
+          <span id="wo-sched-status" class="note" style="padding:0"></span>
+        </div>
+      </div>
       <div class="wo-pushrow">
         <button id="pushwatch" class="primary">Send to watch</button>
         <div id="pushstatus" class="note" style="padding:0;flex:1"></div>
@@ -2754,7 +2840,7 @@ function splitSessions(s){
     const words=`${w.title||""} ${st.main||""}`.toLowerCase();
     primary=/bike|cycling|spin/.test(words)?"bike":/run|jog/.test(words)?"run":"other";
   }
-  const out=[{kind:"main", disc:primary, title:w.title, dur:w.duration_min,
+  const out=[{kind:"main", disc:primary, title:w.title, dur:w.duration_min, fullDur:w.duration_min,
     matchKey:"primary", startTime:w.start_time,
     intensity:w.intensity, is_rest:w.is_rest,
     structure:{warmup:st.warmup, main:st.main, cooldown:st.cooldown,
@@ -2916,20 +3002,22 @@ function openSecondaryDetail(session){
 }
 // Reschedule from the editable time/day controls in the detail sheet.
 async function _schedChange(){
-  if(!_woDay || !_woDay._planDate) return;
-  const date=_woDay._planDate, ns=$("wo-time").value||undefined, nd=$("wo-date").value||undefined;
+  const day=_woOpen&&_woOpen.day;
+  if(!day || !day._planDate) return;
+  const date=day._planDate, ns=$("wo-time").value||undefined, nd=$("wo-date").value||undefined;
   $("wo-sched-status").textContent="Saving…"; $("wo-sched-status").className="note";
   try{
     const r=await j("/api/workout/move",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({date, session_kind:_woDay._sessionKind||"primary",
-        session_id:_woDay._sessionId, new_start:ns,
+      body:JSON.stringify({date, session_kind:day._sessionKind||"primary",
+        session_id:day._sessionId, new_start:ns,
         new_date:(nd&&nd!==date)?nd:undefined})});
     if(r.error){ $("wo-sched-status").textContent="couldn't save"; $("wo-sched-status").className="note flag"; return; }
     $("wo-sched-status").textContent="Saved";
     // Keep the sheet's notion of the day current (day may have moved).
     const records=r.sessions||r.days||[];
     const moved=records.find(d=>d&&d.date===(nd||date))||records[0];
-    if(moved){ _woDay._planDate=moved.date; _woDay._startTime=moved.start_time; }
+    if(moved){ day._planDate=moved.date; day._startTime=moved.start_time; }
+    woMeta();
     refreshPlanEverywhere();
   }catch(e){ $("wo-sched-status").textContent="error"; $("wo-sched-status").className="note flag"; }
 }
@@ -2940,39 +3028,247 @@ function refreshPlanEverywhere(){
   j("/api/plan").then(p=>{ renderPlan(p); if($("main-calendar").style.display!=="none") loadCalendar(); });
 }
 let _woOpenIdx=0;
-function workoutBlocks(st, disc, intensity){
-  if(Array.isArray(st.blocks)&&st.blocks.length) return st.blocks;
-  // A brick's run leg is part of the session the watch runs, so it is shown too.
-  const raw=[st.warmup,st.main,st.cooldown,st.run].filter(v=>v&&v!=="—");
-  // Semicolons separate prescribed sets in legacy plan data. Each interval
-  // remains intact, so 6×100 stays one actionable block rather than six rows.
-  const parts=raw.flatMap(v=>String(v).replace(/,\s*then\s+/gi,"; ")
-    .replace(/,\s*(?=\d+(?:\s*[×x]\s*\d+)?\s*(?:m|km|min)\b)/gi,"; ").split(/;\s*/))
-    .map(v=>v.trim()).filter(Boolean);
-  return parts.map((text,i)=>{
-    // Repeats lead the label. A recovery instruction such as "rest 15 s"
-    // is metadata for the set, never the identity of the set itself.
-    const repeat=text.match(/\b(\d+)\s*[×x]\s*(\d+(?:\.\d+)?)\s*(km|mi|min|sec|s|m)?\b/i);
-    const count=(disc==="strength"&&repeat) ? `${repeat[1]} sets`
-      : repeat ? `${repeat[1]} × ${repeat[2]} ${(repeat[3]||"m").toLowerCase()}`
-      : (text.match(/\b\d+\s*(?:km|min|m|s)\b/i)||[])[0]||"Set";
-    const target=(text.match(/(?:HR\s*[^,;]+|@\s*[^,;]+|Z\d[^,;]*|no faster than[^,;]+)/i)||[])[0]
-      || (disc==="strength" ? intensity||"controlled"
-          : /easy|drill|cool|pull|kick/i.test(text)?"easy / technique" : intensity||"controlled");
-    return {label:count, text, target, index:i+1};
-  });
+// ---- Workout sheet ----
+// The steps come from /api/workout/steps, which reshapes the workout a push
+// would send to the watch, so the sheet and the watch cannot disagree. Until it
+// answers (or if it fails) the session's own text is shown as written.
+const _woViewCache=new Map();
+const WO_VIEW_TTL=10*60*1000;   // the server holds its own targets this long
+let _woViewReq=0, _woView=null;
+// The session and day the sheet is showing. The dashboard refreshes _woDay and
+// _woSessions in the background; the sheet must keep acting on what it shows.
+let _woOpen=null;
+// Null-prototype maps: a discipline is model-written text, and "constructor"
+// must not resolve to anything.
+const WO_SPORT=Object.assign(Object.create(null),{swim:"Swim",bike:"Bike",run:"Run",brick:"Brick",strength:"Strength",race:"Race",recovery:"Recovery ride",rest:"Rest"});
+const WO_TX=Object.assign(Object.create(null),{swim:"tx-swim",swimming:"tx-swim",bike:"tx-bike",cycling:"tx-bike",recovery:"tx-bike",brick:"tx-bike",run:"tx-run",running:"tx-run"});
+function woPayload(x){
+  return {discipline:x.disc, title:x.title, duration_min:(x.disc==="brick"&&x.fullDur)?x.fullDur:x.dur,
+          intensity:x.intensity, structure:x.structure, is_rest:x.is_rest?1:0};
 }
+function woDur(min){
+  const m=Math.round(+min||0); if(m<=0) return "";
+  if(m<120) return m+" min";
+  return Math.floor(m/60)+" h"+(m%60?" "+String(m%60).padStart(2,"0"):"");
+}
+function woClock(t){
+  const m=String(t||"").match(/^(\d{1,2}):(\d{2})/); if(!m) return "";
+  const h=+m[1]; return `${h%12||12}:${m[2]} ${h<12?"AM":"PM"}`;
+}
+function woLv(level){ const l=+level||0; return l>=4.5?5:l>=3.75?4:l>=2.75?3:l>=1.75?2:1; }
+function woMeta(){
+  const x=_woOpen&&_woOpen.x, s=_woOpen&&_woOpen.day; if(!x||!s) return;
+  // The log posts against today, so it only belongs on today's sheet.
+  $("fb-wrap").style.display=(!s._planDate||s._planDate===localToday())?"":"none";
+  const d=s._planDate, bits=[];
+  bits.push(!d||d===localToday() ? "Today"
+    : new Date(d+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"}));
+  const clock=woClock(s._planDate?s._startTime:x.startTime); if(clock) bits.push(clock);
+  bits.push(WO_SPORT[x.disc]||"Session");
+  $("wo-meta").innerHTML=`<span class="tx ${WO_TX[x.disc]||"tx-dot"} wo-tx"></span>${esc(bits.join(" · "))}`;
+}
+// The session as written, for the moment before the steps arrive.
+function woTextView(x){
+  const st=x.structure||{};
+  if(x.is_rest||x.disc==="rest"){
+    const t=String(st.main||"").trim();
+    return {kind:"rest",text:(t&&!/^[—–-]$/.test(t))?t:"Rest day."};
+  }
+  const rows=[];
+  if(Array.isArray(st.blocks)&&st.blocks.length){
+    st.blocks.forEach(b=>rows.push(b&&typeof b==="object"
+      ? {amount:String(b.label||""),name:String(b.text||""),cue:String(b.target||"")}
+      : {amount:"",name:String(b||""),cue:""}));
+  } else {
+    [["Warm up",st.warmup],[x.disc==="brick"?"Bike":"",st.main],["Cool down",st.cooldown],["Run",st.run]]
+      .forEach(([k,v])=>{ const t=String(v||"").trim(); if(t&&t!=="—") rows.push({amount:k,name:t,cue:""}); });
+  }
+  return {kind:"list",rows};
+}
+function woStepRow(s){
+  if(s.fold) return "";
+  const h=s.role==="rest"?35:Math.round((.35+.65*Math.max(0,Math.min(1,((+s.level||1)-1)/4)))*100);
+  const side=s.target ? `<div class="ws-tgt">${esc(s.target)}${s.target_note?`<small>${esc(s.target_note)}</small>`:""}</div>`
+    : s.rest ? `<div class="ws-tgt soft">${esc(s.rest)}</div>` : "";
+  const detail=(s.detail||[]).map(d=>{
+    const m=String(d).match(/^([^:]{1,14}):\s*(.+)$/);
+    return `<div class="ws-cue">${m?`<b>${esc(m[1])}</b> ${show(m[2])}`:show(d)}</div>`;
+  }).join("");
+  return `<div class="ws-row" data-s="${s._i}">
+    <span class="ws-lv"><i class="lv${woLv(s.level)}" style="height:${h}%"></i></span>
+    <div class="ws-amt${s.unit==="open"?" open":""}">${esc(s.amount)}</div>
+    <div class="ws-main"><div class="ws-name">${show(s.name)}</div>${s.cue?`<div class="ws-cue">${show(s.cue)}</div>`:""}${detail}</div>
+    ${side}</div>`;
+}
+function woItems(items){
+  return items.map(it=>it.type==="repeat"
+    ? `<div class="ws-rep"><div class="ws-x">${esc(String(it.count))}<small>×</small></div><div class="ws-rep-rows">${woItems(it.items)}</div></div>`
+    : woStepRow(it)).join("");
+}
+// Number every step once, so a bar in the chart and its row share an id. A
+// folded swim rest has no row of its own and points at the swim before it.
+function woIndex(v){
+  let n=0; const rowOf={};
+  const walk=items=>{ let prev=null; items.forEach(it=>{
+    if(it.type==="repeat"){ walk(it.items); prev=null; return; }
+    it._i=n++; rowOf[it._i]=(it.fold&&prev)?prev._i:it._i; prev=it; }); };
+  (v.legs||[]).forEach(leg=>leg.phases.forEach(ph=>walk(ph.items)));
+  v._rowOf=rowOf;
+}
+function woChart(v){
+  const el=$("wo-chart");
+  el.classList.remove("sel"); delete el.dataset.sel;
+  $("wo-steps").querySelectorAll(".ws-row.on").forEach(r=>r.classList.remove("on"));
+  if(!v||v.kind!=="steps"||!v.chart){ el.innerHTML=""; return; }
+  // Count before unrolling: a repeat count is model-written and has no ceiling.
+  const size=items=>items.reduce((a,it)=>a+(it.type==="repeat"?(+it.count||0)*size(it.items||[]):1),0);
+  if(v.legs.reduce((a,leg)=>a+leg.phases.reduce((b,ph)=>b+size(ph.items),0),0)>240){ el.innerHTML=""; return; }
+  const bars=[], spans=[];
+  v.legs.forEach((leg,li)=>leg.phases.forEach(ph=>{
+    const from=bars.length;
+    const add=(items,times)=>{ for(let t=0;t<times;t++) items.forEach(it=>{
+      if(it.type==="repeat") add(it.items,it.count); else bars.push({s:it,ph:spans.length,leg:li}); }); };
+    add(ph.items,1);
+    if(bars.length>from) spans.push({label:ph.key==="run"?"Run":ph.label,total:ph.total,from,to:bars.length,leg:li});
+  }));
+  // Past a couple of hundred bars there is nothing left to read.
+  if(bars.length<2||bars.length>240){ el.innerHTML=""; return; }
+  const W=Math.max(240,Math.round(el.clientWidth||$("wo-steps").clientWidth||640)), H=W<480?92:116;
+  const GAP=bars.length>70?.6:1.5, PGAP=6, LGAP=14;
+  let gaps=0;
+  bars.forEach((b,i)=>{ const p=bars[i-1]; b.g=!p?0:b.leg!==p.leg?LGAP:b.ph!==p.ph?PGAP:GAP; gaps+=b.g; });
+  const sum=bars.reduce((a,b)=>a+(+b.s.w||1),0), avail=Math.max(60,W-gaps);
+  let widths=bars.map(b=>Math.max(2,(+b.s.w||1)/sum*avail));
+  const fit=avail/widths.reduce((a,b)=>a+b,0); widths=widths.map(w=>w*fit);
+  const hmax=H-4; let x=0, rects="", hits="";
+  bars.forEach((b,i)=>{
+    x+=b.g; const w=widths[i], L=+b.s.level||0, open=b.s.unit==="open";
+    const h=(b.s.role==="rest"||L<=0)?3:Math.round((.14+.86*Math.min(L,5)/5)*hmax);
+    const r=Math.min(2.5,w/2,h/2);
+    b.x=x; b.w=w;
+    rects+=open
+      ? `<rect class="b open" data-s="${b.s._i}" x="${(x+.5).toFixed(1)}" y="${H-h+.5}" width="${Math.max(1,w-1).toFixed(1)}" height="${h-1}" rx="${r.toFixed(1)}"/>`
+      : `<rect class="b lv${woLv(L)}" data-s="${b.s._i}" x="${x.toFixed(1)}" y="${H-h}" width="${w.toFixed(1)}" height="${h}" rx="${r.toFixed(1)}"/>`;
+    hits+=`<rect class="hit" data-s="${b.s._i}" x="${(x-b.g/2).toFixed(1)}" y="0" width="${(w+b.g).toFixed(1)}" height="${H}"/>`;
+    x+=w;
+  });
+  // The line under the bars carries the sport: wave, dashes or solid.
+  const base=v.legs.map((leg,li)=>{
+    const mine=bars.filter(b=>b.leg===li); if(!mine.length) return "";
+    const a=mine[0].x, z=mine[mine.length-1].x+mine[mine.length-1].w;
+    return `<span class="tx ${WO_TX[leg.sport]||"tx-dot"}" style="width:${((z-a)/W*100).toFixed(2)}%;margin-left:${li?(LGAP/W*100).toFixed(2):0}%"></span>`;
+  }).join("");
+  const labels=spans.length<2?"":spans.map(sp=>{
+    const a=bars[sp.from].x, z=bars[sp.to-1].x+bars[sp.to-1].w, room=z-a;
+    const long=sp.total?`${sp.label} ${sp.total}`:sp.label;
+    const text=long.length*6.1<=room?long:sp.label.length*6.1<=room?sp.label:"";
+    return text?`<span style="left:${(a/W*100).toFixed(2)}%">${esc(text)}</span>`:"";
+  }).join("");
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Session profile: wider is longer, taller is harder">${rects}${hits}</svg>
+    <div class="wo-base">${base}</div><div class="wo-phases">${labels}</div>`;
+}
+function woSelect(i,fromChart){
+  const ch=$("wo-chart"), st=$("wo-steps"), v=_woView;
+  const row=v&&v._rowOf&&i!=null?v._rowOf[i]:null;
+  const same=i==null||ch.dataset.sel===String(row);
+  ch.querySelectorAll("rect.b.on").forEach(r=>r.classList.remove("on"));
+  st.querySelectorAll(".ws-row.on").forEach(r=>r.classList.remove("on"));
+  ch.classList.remove("sel"); delete ch.dataset.sel;
+  if(same||row==null) return;
+  ch.dataset.sel=String(row); ch.classList.add("sel");
+  Object.keys(v._rowOf).forEach(k=>{ if(v._rowOf[k]===row)
+    ch.querySelectorAll(`rect.b[data-s="${k}"]`).forEach(r=>r.classList.add("on")); });
+  const el=st.querySelector(`.ws-row[data-s="${row}"]`);
+  if(el){ el.classList.add("on"); if(fromChart) el.scrollIntoView({block:"nearest",behavior:"smooth"}); }
+}
+function renderWoView(x,v){
+  _woView=v;
+  const figs=$("wo-figs"), steps=$("wo-steps"), vibe=$("wo-vibe");
+  let F=[], line="";
+  if(v.kind==="steps"){ woIndex(v); F=(v.figures||[]).slice(0,4); }
+  else if(v.kind!=="rest"){
+    if(woDur(x.dur)) F.push({label:"Duration",value:woDur(x.dur)});
+    const blocks=(x.structure||{}).blocks;   // one block per exercise; text rows are not a count
+    if(v.kind==="list"&&x.disc==="strength"&&Array.isArray(blocks)&&blocks.length) F.push({label:"Exercises",value:String(blocks.length)});
+    const it=plain(String(x.intensity||"").trim());
+    if(it&&it.length<=18) F.push({label:"Effort",value:it.replace(/^./,c=>c.toUpperCase())});
+    else if(it) line=it;
+  }
+  figs.className="wo-figs n"+F.length;
+  figs.innerHTML=F.map(f=>`<div class="wo-fig"><div class="v">${show(f.value)}</div><div class="k">${esc(f.label)}${f.sub?` · ${show(f.sub)}`:""}</div></div>`).join("");
+  vibe.textContent=line;
+  steps.className="ws";
+  if(v.kind==="rest"){
+    steps.innerHTML=`<div class="pv-restnote">${show(v.text||"Rest day.")}</div>`;
+  } else if(v.kind==="steps"){
+    const many=v.legs.length>1;
+    steps.innerHTML=v.legs.map(leg=>{
+      // A brick's run leg is one phase: its heading and the leg's are the same line.
+      const solo=many&&leg.phases.length===1&&leg.phases[0].key==="run"?leg.phases[0]:null;
+      return (many?`<div class="ws-leg"><span class="tx ${WO_TX[leg.sport]||"tx-dot"} wo-tx"></span>${esc(solo?solo.label:leg.label||"")}${solo&&solo.total?`<span class="ws-pt">${esc(solo.total)}</span>`:""}</div>`:"")+
+      leg.phases.map(ph=>ph===solo?`<div class="ws-phase bare">${woItems(ph.items)}</div>`
+        :`<div class="ws-phase"><div class="ws-ph"><span>${esc(ph.label||"")}</span><span class="ws-pt">${esc(ph.total||"")}</span></div>${woItems(ph.items)}</div>`).join("");
+    }).join("")
+      // Asides the plan wrote that no step carries.
+      + ((v.notes||[]).length?`<div class="ws-phase"><div class="ws-ph"><span>Also written</span></div>${
+          v.notes.map(n=>`<div class="ws-line">${show(n)}</div>`).join("")}</div>`:"")
+      // The plan's own words, for anything the steps leave out.
+      + ((v.written||[]).length?`<details class="wf-more"><summary>As written</summary>${
+          v.written.map(w=>`<div class="ws-line"><b>${esc(w.label)}</b> ${show(w.text)}</div>`).join("")}</details>`:"");
+  } else if(v.kind==="text"){
+    steps.innerHTML=(v.blocks||[]).map(b=>`<div class="ws-phase"><div class="ws-ph"><span>${esc(b.label||"")}</span></div>${
+      (b.lines||[]).map(l=>`<div class="ws-line">${show(l)}</div>`).join("")}</div>`).join("")
+      || `<div class="pv-restnote">Nothing written for this one.</div>`;
+  } else {
+    const rows=v.rows||[];
+    // A cue repeated on every row says nothing about any one of them.
+    const sameCue=rows.length>1&&rows.every(r=>r.cue===rows[0].cue);
+    steps.className="ws ws-list";
+    steps.innerHTML=rows.length
+      ? `<div class="ws-phase">${rows.map(r=>`<div class="ws-row"><div class="ws-amt">${show(r.amount||"")}</div>
+          <div class="ws-main"><div class="ws-name">${show(r.name)}</div>${r.cue&&!sameCue?`<div class="ws-cue">${show(r.cue)}</div>`:""}</div></div>`).join("")}</div>`
+      : `<div class="pv-restnote">No steps written for this session.</div>`;
+    if(sameCue&&rows[0].cue&&!line&&!F.some(f=>f.label==="Effort")) vibe.textContent=plain(rows[0].cue);
+  }
+  woChart(v);
+}
+async function loadWoView(x){
+  const body=JSON.stringify({session:woPayload(x)});
+  const req=++_woViewReq;
+  const hit=_woViewCache.get(body);
+  if(hit&&Date.now()-hit.at<WO_VIEW_TTL){ renderWoView(x,hit.v); return; }
+  renderWoView(x,hit?hit.v:woTextView(x));   // an old view beats a flash of text while it refreshes
+  if(x.is_rest||x.disc==="rest") return;
+  try{
+    const v=await j("/api/workout/steps",{method:"POST",headers:{"Content-Type":"application/json"},body});
+    if(!v||v.error||!v.kind) return;
+    _woViewCache.set(body,{v,at:Date.now()});
+    if(req===_woViewReq&&$("wo-overlay").classList.contains("open")) renderWoView(x,v);
+  }catch(e){ /* the text view stays */ }
+}
+$("wo-chart").addEventListener("click",e=>{
+  const r=e.target.closest("rect[data-s]"); woSelect(r?+r.dataset.s:null,true); });
+$("wo-steps").addEventListener("click",e=>{
+  const r=e.target.closest(".ws-row[data-s]"); if(r) woSelect(+r.dataset.s,false); });
+let _woResizeT=0;
+addEventListener("resize",()=>{ clearTimeout(_woResizeT); _woResizeT=setTimeout(()=>{
+  if(!_woView||!$("wo-overlay").classList.contains("open")) return;
+  const sel=$("wo-chart").dataset.sel; woChart(_woView); if(sel!=null) woSelect(+sel,false); },120); });
 function openWorkoutDetail(i){
   const x=_woSessions[i]; if(!x||!_woDay) return;
   _woOpenIdx=i;
-  const s=_woDay, st=x.structure||{};
+  const s=_woDay;
+  _woOpen={x, day:s};
   $("wo-overlay").classList.add("open");
+  $("wo-overlay").querySelector(".sheet").scrollTop=0;
   $("pushstatus").textContent=""; $("pushstatus").className="note";
   const pushDisabled=x.is_rest||["rest","race","strength"].includes((x.disc||"").toLowerCase());
   $("pushwatch").style.display = pushDisabled ? "none" : "";
-  $("wo-title").textContent=plain(x.title||x.disc);
+  $("pushwatch").closest(".wo-pushrow").style.display = pushDisabled ? "none" : "";
+  $("wo-title").textContent=plain(x.title||"").replace(/^(?:\p{Extended_Pictographic}|\uFE0F|\u200D|\s)+/u,"")
+    ||WO_SPORT[x.disc]||"Session";
   $("wo-title").className="t sport-"+(x.disc||"other");
-  $("wo-meta").textContent=`${x.disc} · ${fmt(x.dur)} min · ${fmt(x.intensity)}`;
+  woMeta();
   // Editable schedule (time/day) — only for a real workout opened with a plan date.
   const sched=$("wo-sched");
   if(s._planDate && x.kind==="main" && !x.is_rest){
@@ -2982,26 +3278,23 @@ function openWorkoutDetail(i){
     $("wo-sched-status").textContent="";
   } else { sched.style.display="none"; }
   $("wo-donechip").innerHTML = completedBanner(s.completed, x);
-  $("wo-vibe").textContent=sessionLine(x);
-  const steps=workoutBlocks(st,x.disc,x.intensity);
-  $("wo-steps").innerHTML = x.is_rest
-    ? `<div class="pv-restnote">Rest day. Nothing structured.</div>`
-    : steps.map((b,n)=>`<div class="pv-step sport-${x.disc||"other"}"><div class="pv-k">${fmt(b.label||("Block "+(n+1)))}</div><div class="pv-v">${fmt(b.text||b)}<div class="note" style="padding-top:4px">Priority · ${fmt(b.target||x.intensity||"controlled")}</div></div></div>`).join("")
-      || `<div class="pv-restnote">No structured steps recorded.</div>`;
-  $("wo-why").textContent=x.why||"—";
+  loadWoView(x);
+  $("wo-why").textContent=plain(x.why||"");
+  $("wo-why-wrap").style.display=x.why?"":"none";
   renderFuel(x);
   $("wo-notes").innerHTML=(x.kind==="main"?(s.notes||[]):[])
-    .map(n=>`<div class="note ${/tight|constraint/i.test(n)?'flag':''}">• ${n}</div>`).join("");
+    .map(n=>`<div class="note ${/tight|constraint/i.test(n)?'flag':''}">${show(n)}</div>`).join("");
   $("fb-result").className="fb-result";  // reset previous log result
 }
 
-// Intra-workout fueling (carbs / fluids / electrolytes) for the open session.
+// Intra-workout fuelling for the open session: what to take each hour, what
+// goes in the bottle, and the session total.
 let _fuelReq=0;
 async function renderFuel(x){
   const wrap=$("wo-fuel-wrap"), body=$("wo-fuel");
   if(!x || x.is_rest || ["strength","rest"].includes(x.disc)){ wrap.style.display="none"; return; }
   const req=++_fuelReq;
-  wrap.style.display=""; body.innerHTML=`<span class="muted"><span class="pulse"></span> building the plan…</span>`;
+  wrap.style.display=""; body.innerHTML=`<span class="muted"><span class="pulse"></span> working it out…</span>`;
   try{
     const f=await j("/api/fuel",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({session:{discipline:x.disc, duration_min:x.dur, intensity:x.intensity,
@@ -3009,36 +3302,24 @@ async function renderFuel(x){
                                     structure:x.structure,
                                     duration_scope:(x.disc==="brick"&&x.kind==="main")?"bike_leg":undefined}})});
     if(req!==_fuelReq) return;
-    if(!f || f.needed===false){ body.innerHTML=`<div class="pv-why">${show((f&&f.note)||"Water is enough for this one.")}</div>`; return; }
-    if(f.requires_input && !f.carb_g_per_hr){ body.innerHTML=`<div class="pv-why">${show(f.note||"More information is required.")}</div>`; return; }
-    const gPct=Math.round(f.glucose_g_per_hr/f.glucose_ceiling*100);
-    const fPct=f.fructose_ceiling?Math.round(f.fructose_g_per_hr/f.fructose_ceiling*100):0;
+    if(!f || f.needed===false){ body.innerHTML=`<div class="wf-line">${show((f&&f.note)||"Water is enough for this one.")}</div>`; return; }
+    // With no rate worked out, the payload's note is written for Coach, not for the sheet.
+    if(!f.carb_g_per_hr){ body.innerHTML=`<div class="wf-line soft">Ask Coach for the fuelling on this one.</div>`; return; }
+    const vol=n=>n>=1000?(Math.round(n/100)/10)+" L":n+" ml";
+    const na=f.sodium_mg_per_hr||[], fl=(f.fluid_ml_per_hr||[])[0];
+    const rates=[{v:`${f.carb_g_per_hr} g`,k:"Carbs per hour"},
+      fl?{v:vol(fl),k:"Fluid per hour"}:null,
+      na.length?{v:na[0]===na[1]?`${na[0]} mg`:`${na[0]}-${na[1]} mg`,k:"Sodium per hour"}:null].filter(Boolean);
+    const m=f.mix||{};
+    const mix=[m.glucose_powder_g?`${m.glucose_powder_g} g glucose powder`:null,
+      m.table_sugar_g?`${m.table_sugar_g} g table sugar`:null, m.salt?`${m.salt} salt`:null].filter(Boolean);
+    const tc=(f.total_carb_g||[])[0], tf=(f.total_fluid_ml||[])[0];
+    const scope=x.disc==="brick"?"the ride":"the session", pw=f.plain_water_ml_per_hr;
     body.innerHTML=`
-      <div class="fuel-hero">
-        <div class="fh"><div class="fk">Total carb</div><div class="fv">${f.carb_g_per_hr}<small> g/h</small></div></div>
-        <div class="fh"><div class="fk">Glucose</div><div class="fv">${f.glucose_g_per_hr}<small> g/h</small></div>
-          <div class="cap"><div class="capbar"><i style="width:${gPct}%"></i></div><span>ceiling ${f.glucose_ceiling}</span></div></div>
-        <div class="fh"><div class="fk">Fructose</div><div class="fv">${f.fructose_g_per_hr}<small> g/h</small></div>
-          <div class="cap"><div class="capbar"><i style="width:${fPct}%"></i></div><span>ceiling ${f.fructose_ceiling}</span></div></div>
-        <div class="fh"><div class="fk">Ratio</div><div class="fv" style="font-size:17px">${f.ratio}</div></div>
-      </div>
-      <div class="pv-step"><div class="pv-k">Mix</div><div class="pv-v">${f.recipe}</div></div>
-      <div class="pv-step"><div class="pv-k">Fluid + salt</div><div class="pv-v">${f.fluid_ml_per_hr[0]} ml/h · ${f.sodium_mg_per_hr[0]}–${f.sodium_mg_per_hr[1]} mg sodium/h (${f.salt_per_hr})</div></div>
-      ${f.requires_input?`<div class="pv-why">Measurement needed: ${show(f.note||"Confirm the missing input before using this plan.")}</div>`:""}
-      ${f.placement?`<div class="pv-step"><div class="pv-k">Placement</div><div class="pv-v">${f.placement}</div></div>`:""}
-      <div class="pv-step"><div class="pv-k">Caffeine</div><div class="pv-v">${f.caffeine}</div></div>
-      <div class="fuel-abort"><b>If GI distress hits</b><br>${f.abort}</div>
-      <details class="fuel-math"><summary>Show the arithmetic</summary>
-        <ul>${(f.arithmetic||[]).map(a=>`<li>${a}</li>`).join("")}</ul>
-        <div class="fk" style="margin-top:8px">Session totals (${f.hours} h)</div>
-        <ul><li>Carb ${f.total_carb_g[0]}–${f.total_carb_g[1]} g</li>
-            <li>Fluid ${f.total_fluid_ml[0]} ml</li>
-            <li>Sodium ${f.total_sodium_mg[0]}–${f.total_sodium_mg[1]} mg</li></ul>
-        <div class="fk" style="margin-top:8px">Assumptions</div>
-        <ul>${(f.assumptions||[]).map(a=>`<li>${a}</li>`).join("")}</ul>
-        <div class="fk" style="margin-top:8px">Verify on the label</div>
-        <ul>${(f.verify_labels||[]).map(a=>`<li>${a}</li>`).join("")}</ul>
-      </details>`;
+      <div class="wo-figs sm n${rates.length}">${rates.map(r=>`<div class="wo-fig"><div class="v">${esc(r.v)}</div><div class="k">${r.k}</div></div>`).join("")}</div>
+      ${mix.length?`<div class="wf-line">Bottle for each hour: ${esc(mix.join(", "))}${f.finished_drink_mass_g?`. Add water until it weighs ${esc(String(f.finished_drink_mass_g))} g`:", in water"}.${pw?` Drink ${esc(vol(pw))} of plain water as well.`:""}</div>`:""}
+      ${tc?`<div class="wf-line">For ${scope}: ${esc(String(tc))} g carbs${tf?` and ${esc(vol(tf))} of fluid`:""}.</div>`:""}
+      ${f.placement&&x.disc!=="bike"?`<div class="wf-line soft">${show(f.placement)}</div>`:""}`;
   }catch(e){ if(req===_fuelReq){ body.innerHTML=`<span class="err">Couldn't load fuelling.</span>`; } }
 }
 
@@ -3056,7 +3337,7 @@ function completedBanner(c, sess){
         <div class="wo-done-totals" style="text-transform:none;letter-spacing:0">
           You logged this as ${c.status==="partial"?"partial":"done"}, but no ${sess?sess.disc:""} activity has synced from Garmin yet.
           If you haven't done it, it's still on your plate.</div>
-        ${c.rpe?`<div class="muted" style="margin-top:4px">You logged effort ${c.rpe}/10${c.note?". "+c.note:""}</div>`:""}
+        ${c.rpe?`<div class="muted" style="margin-top:4px">You logged effort ${esc(String(c.rpe))}/10${c.note?". "+show(c.note):""}</div>`:""}
       </div>`;
     }
     return "";
@@ -4049,14 +4330,19 @@ function confirmDownregulation(reason, planned, adjusted){
 // ---- Push to watch (per-session, from the workout detail sheet) ----
 async function pushToWatch(){
   const btn=$("pushwatch"), st=$("pushstatus");
-  const x=_woSessions[_woOpenIdx];
+  const x=_woOpen&&_woOpen.x;
   btn.disabled=true; st.textContent="Sending to Garmin…"; st.className="note";
   // Primary session → empty body (backend resolves today's plan, and asks first
   // before applying any readiness downregulation). Secondary session (e.g. the
   // lift) → send it explicitly.
-  const body = (!x||x.kind==="main") ? "{}" : JSON.stringify({session:{
+  // A session opened from another day goes to that day, as itself: an empty
+  // body would send today's session instead.
+  const day=_woOpen&&_woOpen.day&&_woOpen.day._planDate, dated=!!day&&day!==localToday();
+  const body = (!x||(x.kind==="main"&&!dated)) ? "{}" : JSON.stringify({date:dated?day:undefined,
+    session:dated?woPayload(x):{
     discipline:x.disc, title:x.title, duration_min:x.dur, intensity:x.intensity,
     structure:x.structure, is_rest:x.is_rest?1:0}});
+  const dayWord=dated?new Date(day+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"}):"today";
   try{
     let r=await j("/api/workout/push",{method:"POST",headers:{"Content-Type":"application/json"},body});
     // Readiness wants to swap the planned session — ask before changing anything.
@@ -4072,7 +4358,8 @@ async function pushToWatch(){
     }
     if(r.error){ st.className="note flag"; st.textContent="Couldn't push: "+r.error; }
     else{
-      st.className="note"; st.innerHTML=`<b>${esc(String(r.name||"Workout"))}</b> is on your watch for today. `+
+      st.className="note"; st.innerHTML=`<b>${esc(String(r.name||"Workout"))}</b> `
+        +(r.scheduled===false?`is in your Garmin library but was not scheduled for ${esc(dayWord)}. `:`is on your watch for ${esc(dayWord)}. `)+
         `<a href="#" id="undopush" style="color:var(--ink);text-decoration:underline">Undo</a>`;
       $("undopush").onclick=async(e)=>{ e.preventDefault(); st.textContent="Removing…";
         const d=await j("/api/workout/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({workout_id:r.workout_id})});

@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from . import (activity_detail, baselines, calendar_agent, calendar_source,
                calendar_sync, coach, coaching_contract, config, db, fitness_trend, garmin_personal,
                garmin_source,
-               garmin_workout, hevy_actions, hevy_connector, insights, nudges, nutrition, plan, plan_adapt, recipes, zones,
+               garmin_workout, hevy_actions, hevy_connector, insights, nudges, nutrition, plan, plan_adapt, recipes, workout_view, zones,
                lifting_rules, lifting_split, lifting_stats,
                push, rings, ring_detail, strength_block, strength_effort, suggest)
 
@@ -345,6 +345,20 @@ def workout_push(body: dict = Body(default={})) -> JSONResponse:
     except Exception as e:
         return JSONResponse({"error": f"{type(e).__name__}: {e}", "source": "garmin"}, status_code=502)
     return JSONResponse(result, status_code=502 if result.get("error") else 200)
+
+
+@app.post("/api/workout/steps")
+def workout_steps(body: dict = Body(default={})) -> JSONResponse:
+    """The workout sheet's step view: the same steps a push sends to the watch,
+    grouped into phases and repeats. Read-only; nothing reaches Garmin's
+    workout library."""
+    sess = body.get("session")
+    if not isinstance(sess, dict):
+        return JSONResponse({"error": "session required"}, status_code=400)
+    try:
+        return JSONResponse(workout_view.build(sess, fetch_threshold=True))
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
 
 
 @app.post("/api/workout/delete")

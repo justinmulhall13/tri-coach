@@ -1079,7 +1079,8 @@ def _main_or_remainder(steps: list[dict[str, Any]], around: list[dict[str, Any]]
 
 
 def _build_brick(sess: dict[str, Any], warm, main, cool, run_txt, intensity: str,
-                 name: str, desc: str, thr: float | None, indoor: bool = False) -> dict[str, Any]:
+                 name: str, desc: str, thr: float | None, indoor: bool = False,
+                 phases: list | None = None) -> dict[str, Any]:
     """A true brick: cycling segment (warmup + the full ride + cooldown) then a
     running segment, as one multisport workout so the watch records ONE activity
     and only transitions once the whole planned ride is done."""
@@ -1115,6 +1116,9 @@ def _build_brick(sess: dict[str, Any], warm, main, cool, run_txt, intensity: str
         if step.get("type") == "ExecutableStepDTO" and step["description"]:
             step["description"] = f"run off the bike · {step['description']}"[:160]
             break
+    if phases is not None:
+        phases.append([("warmup", len(warm_steps)), ("main", len(body)), ("cooldown", len(cool_steps))])
+        phases.append([("run", len(run_steps))])
     order = _renumber(bike_steps)
     _renumber(run_steps, order)
     return {
@@ -1128,7 +1132,13 @@ def _build_brick(sess: dict[str, Any], warm, main, cool, run_txt, intensity: str
 
 
 # --- top-level ----------------------------------------------------------------
-def build_workout(sess: dict[str, Any], date_str: str, thr_pace: float | None = None) -> dict[str, Any] | None:
+def build_workout(sess: dict[str, Any], date_str: str, thr_pace: float | None = None,
+                  phases: list | None = None) -> dict[str, Any] | None:
+    """The Garmin workout for a session, or None for a rest or race day.
+
+    `phases`, when given, receives one list per segment of (phase, top-level
+    step count) pairs, so the app can label the same steps the watch runs
+    without parsing the text a second time. It never changes the workout."""
     disc = (sess.get("discipline") or "").lower()
     if disc in {"rest", "race"} or sess.get("is_rest"):
         return None
@@ -1160,6 +1170,7 @@ def build_workout(sess: dict[str, Any], date_str: str, thr_pace: float | None = 
     if disc == "brick":
         return _build_brick(
             sess, warm, main, cool, st.get("run"), intensity, name, desc, thr_pace, session_indoor,
+            phases=phases,
         )
     swim = disc == "swim"
     duration = sess.get("duration_min")
@@ -1200,6 +1211,8 @@ def build_workout(sess: dict[str, Any], date_str: str, thr_pace: float | None = 
         warm_steps, cool_steps = [], []
         body = [_exec(0, "interval", "time", (duration or 40) * 60, _no_target(),
                       desc=(main or name)[:120])]
+    if phases is not None:
+        phases.append([("warmup", len(warm_steps)), ("main", len(body)), ("cooldown", len(cool_steps))])
     steps = warm_steps + body + cool_steps
     _renumber(steps)
 
