@@ -368,6 +368,15 @@ def _clauses(text: str | None) -> list[tuple[str, str]]:
                 and _REC_WORD_RE.search(clause)):
             merged[-1] = (f"{prev}, {clause}", merged[-1][1])
             continue
+        # "2×(4×400 m ... w/ 200 m jog), 3 min jog between sets": the recovery
+        # belongs between the sets, not after the last one. Only the word
+        # "between" claims it; "2×(...), 10 min easy" stays a step of its own.
+        nested_prev = _NESTED_RE.match(prev) if merged else None
+        if (nested_prev and join == "seq" and not _recovery(nested_prev.group(3))
+                and not _REPEAT_RE.search(clause) and _QTY_RE.match(clause)
+                and re.search(r"\bbetween\b", clause, re.I)):
+            merged[-1] = (f"{prev}, {clause}", merged[-1][1])
+            continue
         merged.append((clause, join))
     return merged
 
@@ -380,8 +389,27 @@ def _normalise_times(text: str) -> str:
     text = re.sub(r"(\d+)\s*s\s*min\w*\b", r"\1 s", text)
     text = re.sub(r"(\d+)\s*min(?:utes?|s)?\s*(\d+)\s*s(?:ecs?|econds?)?\b",
                   lambda m: f"{int(m[1]) * 60 + int(m[2])} s", text, flags=re.I)
-    return re.sub(r"(\d+)\s*h(?:rs?|ours?)?\s*(\d+)\s*min(?:utes?|s)?\b",
+    text = re.sub(r"(\d+)\s*h(?:rs?|ours?)?\s*(\d+)\s*min(?:utes?|s)?\b",
                   lambda m: f"{int(m[1]) * 60 + int(m[2])} min", text, flags=re.I)
+    # After the compound times, so "1 h 30 min x 2" is 2x90 min.
+    return _leading_count(text)
+
+
+# "1 mile repeats x4", "400m x 8", "8 min x 3 @ threshold": the count written
+# after the amount. Every reader below expects it first, so it is moved once,
+# where the text comes in, and the watch and the sheet read the same set.
+_TRAILING_COUNT_RE = re.compile(
+    r"(?<![\d:./])(\d+(?:\.\d+)?)(\s*)" + _UNIT + r"\b((?:\s+(?:repeats?|reps?|intervals?|efforts?))?)"
+    r"\s*[x×]\s*(\d+)\b(?![.:]\d)", re.I)
+
+
+def _leading_count(text: str) -> str:
+    """'1 mile repeats x4' -> '4x1 mile repeats'; '400m x 8' -> '8x400m'."""
+    def swap(m: re.Match[str]) -> str:
+        if re.search(r"\d\s*[x×]\s*$", text[:m.start()]):   # already "3x1 km x 2 sets"
+            return m.group(0)
+        return f"{m.group(5)}x{m.group(1)}{m.group(2)}{m.group(3)}{m.group(4)}"
+    return _TRAILING_COUNT_RE.sub(swap, text)
 
 
 def _depth(text: str, pos: int) -> int:
@@ -936,6 +964,7 @@ def _swim_chunks(text: str) -> list[tuple[str, bool]]:
     """(chunk, is_note): split at ; + , and newlines outside brackets; a later
     sentence that does not start with an amount is a note."""
     out: list[tuple[str, bool]] = []
+    text = _leading_count(text)   # "100m x 10" is 10x100m
     sentences = [s for s in re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", text.strip()) if s.strip()]
     for i, sentence in enumerate(sentences):
         sentence = sentence.strip().rstrip(".!? ")
@@ -968,11 +997,15 @@ def _swim_steps(text: str, order: int = 1, kind: str = "interval") -> tuple[list
     paddles, fins) written in a chunk are set on its step."""
     steps: list[dict[str, Any]] = []
     last_repeat: dict[str, Any] | None = None
+    # A round kept as one repeat ("3×(200 pull, 100 kick)"): a rest written
+    # straight after it is taken between the rounds, so it goes inside.
+    flat_round: dict[str, Any] | None = None
     for chunk, is_note in _swim_chunks(text or ""):
         if is_note:
             if steps:
                 _with_note(steps[-1], chunk)
             continue
+        prev_round, flat_round = flat_round, None
         nested = _NESTED_RE.match(chunk)
         if nested:
             # "3×(4×100 @ CSS, 10s rest)": Garmin does not nest repeats, so the
@@ -982,7 +1015,7 @@ def _swim_steps(text: str, order: int = 1, kind: str = "interval") -> tuple[list
             if inner:
                 rounds = {"type": "rounds", "n": int(nested.group(1)), "inner": inner}
                 if not any(x.get("type") == "RepeatGroupDTO" for x in inner):
-                    last_repeat = _repeat(0, rounds["n"], inner)
+                    last_repeat = flat_round = _repeat(0, rounds["n"], inner)
                     steps.append(last_repeat)
                 else:
                     steps.append(rounds)
@@ -1012,7 +1045,10 @@ def _swim_steps(text: str, order: int = 1, kind: str = "interval") -> tuple[list
             if steps and steps[-1].get("type") == "rounds":
                 steps[-1]["rest"] = secs
                 continue
-            if last_repeat is not None and len(last_repeat["workoutSteps"]) == 1:
+            if prev_round is not None:
+                prev_round["workoutSteps"].append(
+                    _exec(0, "rest", "time", secs, _no_target(), desc=f"{secs}s between rounds"))
+            elif last_repeat is not None and len(last_repeat["workoutSteps"]) == 1:
                 last_repeat["workoutSteps"].append(
                     _exec(0, "rest", "time", secs, _no_target(), desc=f"{secs}s rest"))
             else:

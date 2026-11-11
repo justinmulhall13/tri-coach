@@ -199,11 +199,28 @@ class WhatThePlanWrote(_Fixture):
         self.assertEqual((row["amount"], row["value"]), ("45-60 min", 2700.0))
         self.assertIsNone(v["axis"])
 
-    def test_repeats_the_parser_cannot_read_are_shown_as_text(self) -> None:
+    def test_a_trailing_count_is_read_as_the_repeat_it_is(self) -> None:
         v = wv.build(sess("run", "Mile repeats", "threshold", 60, "15 min easy",
                           "1 mile repeats x4 w/ 90 s jog", "10 min easy"), thr_pace=THR)
+        rep = phases(v)["main"]["items"][0]
+        self.assertEqual((rep["count"], rep["amount"]), (4, "4 × 1 mi"))
+        self.assertEqual([(i["amount"], i["name"]) for i in rep["items"]],
+                         [("1 mi", "Threshold"), ("90 s", "Easy jog")])
+
+    def test_repeats_the_parser_cannot_read_are_shown_as_text(self) -> None:
+        v = wv.build(sess("run", "Race pace", "tempo", 60, "15 min easy",
+                          "5 km @ 4:41/km x2", "10 min easy"), thr_pace=THR)
         self.assertEqual(v["kind"], "list")
-        self.assertIn("1 mile repeats x4 w/ 90 s jog", [r["name"] for r in v["rows"]])
+        self.assertIn("5 km @ 4:41/km x2", [r["name"] for r in v["rows"]])
+
+    def test_recovery_between_sets_is_drawn_between_them(self) -> None:
+        v = wv.build(sess("run", "400s", "vo2", 60, "15 min easy",
+                          "2×(4×400 m @ 3:45/km w/ 200 m jog), 3 min jog between sets", "10 min easy"),
+                     thr_pace=THR)
+        items = phases(v)["main"]["items"]
+        self.assertEqual([i["type"] for i in items], ["repeat", "step", "repeat"])
+        self.assertEqual((items[1]["amount"], items[1]["role"]), ("3 min", "recovery"))
+        self.assertIn(("Main set", "2 × 4 × 400 m"), [(f["label"], f["value"]) for f in v["figures"]])
 
     def test_miles_and_odd_seconds_are_not_mangled(self) -> None:
         self.assertEqual(wv._distance_label(1609.344, False), "1 mi")

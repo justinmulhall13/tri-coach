@@ -372,6 +372,65 @@ class WholeBlockTests(_Fixture):
         self.assertGreater(seen, 150)
 
 
+class BetweenSetsAndTrailingCounts(_Fixture):
+    """Two forms Coach and the athlete write that the parser used to mis-read."""
+
+    def main(self, disc: str, text: str, intensity: str = "threshold") -> list[dict]:
+        return self.steps(disc, {"warmup": "—", "main": text, "cooldown": "—"}, intensity, 90)
+
+    def test_run_recovery_between_sets_sits_between_them(self) -> None:
+        steps = self.main("run", "2×(4×400 m @ 3:45/km w/ 200 m jog), 3 min jog between sets", "vo2")
+        self.assertEqual([s.get("type") for s in steps],
+                         ["RepeatGroupDTO", "ExecutableStepDTO", "RepeatGroupDTO"])
+        self.assertEqual(steps[1]["stepType"]["stepTypeKey"], "recovery")
+        self.assertEqual(end(steps[1]), ("time", 180.0))
+        # Same result as the "w/" form the coach prompt teaches.
+        self.assertEqual(steps, self.main(
+            "run", "2×(4×400 m @ 3:45/km w/ 200 m jog) w/ 3 min jog between sets", "vo2"))
+
+    def test_bike_recovery_between_sets_sits_between_them(self) -> None:
+        steps = self.main("bike", "2×(3×5 min @ HR 159-178 w/ 2 min easy spin), 5 min easy spin between sets")
+        self.assertEqual([s.get("type") for s in steps],
+                         ["RepeatGroupDTO", "ExecutableStepDTO", "RepeatGroupDTO"])
+        self.assertEqual(end(steps[1]), ("time", 300.0))
+
+    def test_a_round_with_no_inner_repeat_keeps_its_recovery_inside(self) -> None:
+        (group,) = self.main("run", "3×(1 km @ 4:10/km, 400 m @ 3:50/km), 2 min jog between rounds")
+        self.assertEqual(group["numberOfIterations"], 3)
+        self.assertEqual([end(s) for s in group["workoutSteps"]],
+                         [("distance", 1000.0), ("distance", 400.0), ("time", 120.0)])
+
+    def test_swim_rest_between_rounds_goes_inside_the_round(self) -> None:
+        (group,) = self.main("swim", "3x(200 pull, 100 kick), 1 min between rounds")
+        self.assertEqual(group["numberOfIterations"], 3)
+        self.assertEqual([end(s) for s in group["workoutSteps"]],
+                         [("distance", 200.0), ("distance", 100.0), ("time", 60.0)])
+
+    def test_a_step_after_a_nested_set_is_not_swallowed(self) -> None:
+        steps = self.main("run", "2×(3×1 km @ 4:10/km w/ 1 min jog), 10 min easy")
+        self.assertEqual([s.get("type") for s in steps],
+                         ["RepeatGroupDTO", "RepeatGroupDTO", "ExecutableStepDTO"])
+        self.assertEqual(end(steps[2]), ("time", 600.0))
+
+    def test_a_count_written_after_the_amount_is_a_repeat(self) -> None:
+        for disc, text, count, work, rec in (
+                ("run", "1 mile repeats x4 w/ 90 s jog", 4, ("distance", 1609.344), ("time", 90.0)),
+                ("run", "400m x 8 w/ 60 s jog", 8, ("distance", 400.0), ("time", 60.0)),
+                ("run", "8 min x 3 @ threshold, 2 min jog", 3, ("time", 480.0), ("time", 120.0)),
+                ("bike", "10 min x 3 @ HR 159-178 w/ 5 min easy spin", 3, ("time", 600.0), ("time", 300.0)),
+                ("bike", "1 h 30 min x 2 @ HR 119-138 w/ 10 min easy spin", 2, ("time", 5400.0), ("time", 600.0)),
+                ("swim", "100m x 10 w/ 15s rest", 10, ("distance", 100.0), ("time", 15.0))):
+            (group,) = self.main(disc, text)
+            self.assertEqual(group["numberOfIterations"], count, text)
+            self.assertEqual([end(s) for s in group["workoutSteps"]], [work, rec], text)
+
+    def test_text_that_already_leads_with_the_count_is_untouched(self) -> None:
+        for text in ("4x1 mile w/ 90 s jog", "3x1 km x 2 sets w/ 2 min jog", "5 km @ 4:41/km x2",
+                     "45 min easy, 4x20 s strides", "2×(3×1 km @ 4:10/km w/ 1 min jog) w/ 3 min jog",
+                     "15 min Z2 + 3×1 min openers w/ 1 min easy", "6×100 smooth @ easy aerobic, 20s rest"):
+            self.assertEqual(gw._leading_count(text), text)
+
+
 class GoalPaceTests(unittest.TestCase):
     def test_triathlon_finish_time_is_never_divided_by_the_run(self) -> None:
         # "sub 6:00" over 18 km gave the T100 profile a 20:00/km race pace.

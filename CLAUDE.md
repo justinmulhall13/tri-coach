@@ -1082,13 +1082,19 @@ the gut material from Fuel ("i'm fine").
   refreshes `_woDay` / `_woSessions` behind an open sheet (every 240 s and on
   focus), and reading those in `pushToWatch` sent today's session from another
   day's sheet. `pushToWatch`, `woMeta` and `_schedChange` read the snapshot.
-- Known gaps left in the watch parser (the sheet shows what the watch runs, so
-  they show there too): "3 min jog between sets" after a nested set lands after
-  the last set, not between them; a trailing count ("1 mile repeats x4") is not
-  read as a repeat (the sheet falls back to text, the watch gets one step); the
-  long-brick plan text says "Fuel 80-90 g carb/h, 600-800 mg sodium/h" while
-  `nutrition.fueling_plan` says 75 g and 800-900 mg. Which is right is the
-  athlete's call.
+- Two watch-parser gaps the review found were then fixed in `garmin_workout.py`
+  (`BetweenSetsAndTrailingCounts` in `tests/test_garmin_workout_types.py`):
+  a recovery written ", 3 min jog between sets" after a nested set now sits
+  between the sets (`_clauses` merges it into the nested clause, and only the word
+  "between" claims it, so "2×(...), 10 min easy" stays its own step; a swim round
+  kept as one repeat takes the rest inside it via `flat_round`); and a count
+  written after the amount ("1 mile repeats x4", "400m x 8", "8 min x 3") is moved
+  to the front once by `_leading_count`, called from `_normalise_times` and
+  `_swim_chunks`, so every reader, the watch and the sheet agree.
+- Still open: "3x1 km x 2 sets" runs 3, not 6, and "5 km @ 4:41/km x2" runs once
+  (the sheet shows that one as text). The long-brick plan text says "Fuel 80-90 g
+  carb/h, 600-800 mg sodium/h" while `nutrition.fueling_plan` says 75 g and
+  800-900 mg. Which is right is the athlete's call.
 - Looking at it without the backend: a fixture server that serves `static/index.html`,
   answers `/api/workout/steps` and `/api/fuel` from the real modules with zones and
   the event patched, and returns `{}` for everything else. Then
