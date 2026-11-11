@@ -417,7 +417,7 @@ def _long_ride(n: int, phase: str, deload: bool) -> dict[str, Any]:
         return _wo("brick", f"Long ride + brick — {mins} min", "race-specific",
                    mins + run_min, "20 min Z2 build",
                    f"{mins - 30} min Z2 @ {_hr('easy')} with {body}. "
-                   "Fuel 80-90 g carb/h and 600-800 mg sodium/h.",
+                   "Fuel 80-90 g carb/h and 800-900 mg sodium/h.",
                    "10 min easy spin",
                    f"The cornerstone of the week: race-day fuelling and the bike legs "
                    f"for {bike_km:g} km, then running on them.",

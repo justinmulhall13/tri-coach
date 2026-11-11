@@ -329,7 +329,7 @@ class Bricks(_Fixture):
     def test_two_legs_and_the_run_keeps_its_pace(self) -> None:
         v = wv.build(sess("brick", "Long ride + brick", "race-specific", 175, "20 min Z2 build",
                           "135 min Z2 @ HR 119-138 with 2×20 min @ 70.3 effort (HR 142-152) w/ 10 min Z2 "
-                          "inside the ride. Fuel 80-90 g carb/h and 600-800 mg sodium/h.",
+                          "inside the ride. Fuel 80-90 g carb/h and 800-900 mg sodium/h.",
                           "10 min easy spin", run="10 min run off the bike @ 70.3 run effort, 4:41/km"),
                      thr_pace=THR)
         self.assertEqual([leg["label"] for leg in v["legs"]], ["Bike", "Run"])
@@ -485,6 +485,16 @@ class FuelMix(_Fixture):
                                          "structure": {"main": "3 h Z2, fuel 100-120 g carbs per hour"}})
         self.assertEqual(capped["carb_g_per_hr"], 90)
         self.assertIsNone(capped["carb_range_g_per_hr"])
+
+    def test_the_sodium_a_long_brick_writes_is_the_panels(self) -> None:
+        # The athlete's own figure (fueling_reference, 800-900 mg/L at 1 L/h),
+        # confirmed 2026-11-10. The plan text used to say 600-800.
+        import re
+        w, _ = hip.workout_for_date(datetime.date(2027, 2, 6), RACE)
+        written = re.search(r"(\d+)-(\d+) mg sodium/h", w["structure"]["main"])
+        plan = nutrition.fueling_plan({"discipline": "brick", "duration_min": 165, "duration_scope": "bike_leg",
+                                       "structure": w["structure"]})
+        self.assertEqual([int(written.group(1)), int(written.group(2))], plan["sodium_mg_per_hr"])
 
     def test_every_written_rate_in_the_block_matches_the_panel(self) -> None:
         day = datetime.date(2026, 11, 2)

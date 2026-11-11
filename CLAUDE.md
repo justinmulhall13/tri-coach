@@ -1099,9 +1099,10 @@ the gut material from Fuel ("i'm fine").
   the 90 g ceiling), reports `carb_rate_source: "session text"` and
   `carb_range_g_per_hr`, and the sheet prints the range as written. The duration
   band (30-60, 70-90 with 75) is only the default for a session that writes no
-  rate. Sodium is still split: `half_iron_plan` long bricks write "600-800 mg
-  sodium/h", the panel uses the athlete's own 800-900 mg/L from
-  `fueling_reference`. Not changed; ask before touching either.
+  rate. Sodium is 800-900 mg/h everywhere (the athlete's own figure in
+  `fueling_reference`, confirmed 2026-11-10): the long-brick text in
+  `half_iron_plan` used to say 600-800 and now matches. Seeded rows pick the new
+  text up from the startup reconcile; edited and Coach rows keep what they say.
 - Looking at it without the backend: a fixture server that serves `static/index.html`,
   answers `/api/workout/steps` and `/api/fuel` from the real modules with zones and
   the event patched, and returns `{}` for everything else. Then
